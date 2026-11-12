@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+import awscli
+
 SEVERITIES = ("critical", "high", "medium", "low")
 STATUSES = (
     "FAIL",
@@ -104,10 +106,11 @@ def resolve_mappings(check: dict, drata: dict[int, dict]) -> dict:
 
 
 def _is_read_only(service: str, operation: str) -> bool:
-    # Local stub; Task 3 replaces it with awscli.assert_read_only.
-    if operation in ("lookup-events", "generate-credential-report"):
-        return True
-    return operation.startswith(("describe-", "list-", "get-"))
+    try:
+        awscli.assert_read_only(service, operation, [])
+    except awscli.ReadOnlyViolation:
+        return False
+    return True
 
 
 def _missing_fields(check):
