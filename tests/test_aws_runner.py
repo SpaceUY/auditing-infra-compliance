@@ -243,6 +243,14 @@ class RunAwsTest(unittest.TestCase):
         )
         self.assertEqual(result.data, {"Items": [{"StageName": "$default", "AutoDeploy": True}]})
 
+    def test_scrubs_sns_subscriber_endpoints(self):
+        payload = {"Subscriptions": [{"SubscriptionArn": "PendingConfirmation", "Protocol": "email", "Endpoint": "oncall@acme-notes.example"}]}
+        result, _, _ = run(
+            {("sns", "list-subscriptions-by-topic", "us-east-1"): {"stdout": json.dumps(payload), "returncode": 0}},
+            "sns", "list-subscriptions-by-topic",
+        )
+        self.assertEqual(result.data, {"Subscriptions": [{"SubscriptionArn": "PendingConfirmation", "Protocol": "email"}]})
+
     def test_no_scrub_for_other_operations(self):
         payload = {"Environment": "keep"}
         result, _, _ = run(

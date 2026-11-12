@@ -20,7 +20,7 @@ A call declared with "ok_errors" whose error was one of those codes shows up as 
 Evaluators that depend on the clock read an optional params["now"] (ISO 8601) so tests can pin it.
 
 This package holds the registry and the helpers several domains share; each domain lives in its own module
-(iam, log_checks, detection, compute, encryption, network, data), imported at the bottom so that its `@register` calls run.
+(iam, log_checks, detection, compute, encryption, network, data, monitoring), imported at the bottom so that its `@register` calls run.
 Helpers private to one domain keep a `_prefix` inside that module.
 """
 
@@ -110,4 +110,4 @@ def _inventory_by_arn(responses: dict, type_: str) -> dict[str, dict]:
 
 
 # Domain modules register their evaluators on import; they import the helpers above, so this stays last.
-from . import compute, data, detection, encryption, iam, log_checks, network  # noqa: E402,F401
+from . import compute, data, detection, encryption, iam, log_checks, monitoring, network  # noqa: E402,F401

@@ -126,8 +126,8 @@ def _for_each_values(call, region, items, responses):
         is_global = call.get("region", "global") == "global"
         pool = [i for i in items if is_global or i["region"] == region]
         return [v for item in pool for v in paths.extract(item, source["path"])]
-    return [v for r, data in responses.get(source["from"], []) if r == region
-            for v in paths.extract(data, source["path"])]
+    values = [v for r, data in responses.get(source["from"], []) if r == region for v in paths.extract(data, source["path"])]
+    return list(dict.fromkeys(values))  # one call per distinct value: many alarms share a few SNS topics
 
 
 def _args_for(call, value):

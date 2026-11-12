@@ -247,6 +247,24 @@ class EngineTests(CollectCase):
         self.assertEqual([region for region, _ in seen["versioning"]], ["us-east-1", "us-east-1"])
         self.assertEqual(len(seen["buckets"]), 1)
 
+    def test_for_each_from_call_response_reads_each_distinct_value_once(self):
+        def chained(check):
+            check["id"] = "DAT-904"
+            check["scope"], check["resource_types"] = "resource", ["s3_bucket"]
+            check["verify"]["calls"] = [
+                {"name": "buckets", "service": "s3api", "operation": "list-buckets", "args": [], "region": "global"},
+                {"name": "versioning", "service": "s3api", "operation": "get-bucket-versioning", "args": [], "region": "global",
+                 "for_each": {"from": "buckets", "path": "Buckets[].Name", "arg": "--bucket"}},
+            ]
+            check["verify"]["evaluator"] = "python:always_empty"
+
+        responses = base_responses()
+        names = ["acme-notes-data", "acme-notes-logs", "acme-notes-data"]
+        responses[("s3api", "list-buckets", "us-east-1")] = ok({"Buckets": [{"Name": n} for n in names]})
+        self.run_collect(responses, checks_dir=self.catalog_with(chained))
+        calls = self.calls("s3api", "get-bucket-versioning")
+        self.assertEqual([c[c.index("--bucket") + 1] for c in calls], ["acme-notes-data", "acme-notes-logs"])
+
     def test_all_regions_flag_uses_enabled_regions(self):
         self.run_collect()
         self.assertEqual(sorted(c[c.index("--region") + 1] for c in self.calls("securityhub", "describe-hub")),

@@ -85,6 +85,7 @@ SCRUB: dict[tuple[str, str], frozenset[str]] = {
     ("ecs", "describe-task-definition"): frozenset({"environment", "secrets"}),
     ("apigateway", "get-stages"): frozenset({"variables"}),
     ("apigatewayv2", "get-stages"): frozenset({"StageVariables"}),
+    ("sns", "list-subscriptions-by-topic"): frozenset({"Endpoint"}),
 }
 
 TIMEOUT_SECONDS = 120
