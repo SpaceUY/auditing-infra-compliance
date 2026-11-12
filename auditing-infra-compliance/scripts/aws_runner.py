@@ -58,7 +58,8 @@ DENYLIST = frozenset(
 )
 FORBIDDEN_ARGS = frozenset({"--with-decryption"})
 # Flags the runner sets itself or that could redirect/expand the call; rejected exactly,
-# with "=value", and as argparse-style abbreviations of at least 6 characters.
+# with "=value", and as argparse-style abbreviations (the real CLI honours any unambiguous
+# prefix, so every prefix of at least 3 characters, e.g. "--end", is rejected).
 FORBIDDEN_FLAGS = frozenset(
     {
         "--endpoint-url",
@@ -73,7 +74,7 @@ FORBIDDEN_FLAGS = frozenset(
         "--output",
     }
 )
-_MIN_ABBREVIATION = 6
+_MIN_ABBREVIATION = 3
 # Keys removed from parsed responses because they commonly carry secrets.
 SCRUB: dict[tuple[str, str], frozenset[str]] = {
     ("lambda", "list-functions"): frozenset({"Environment"}),

@@ -94,11 +94,21 @@ class ArgHardeningTest(unittest.TestCase):
         )
         for flag in flags:
             variants = [flag, flag + "=x"]
-            variants += [flag[:n] for n in range(6, len(flag))]
-            variants += [flag[:n] + "=x" for n in range(6, len(flag))]
+            variants += [flag[:n] for n in range(3, len(flag))]
+            variants += [flag[:n] + "=x" for n in range(3, len(flag))]
             for arg in variants:
                 with self.subTest(arg=arg), self.assertRaises(aws_runner.ReadOnlyViolation):
                     aws_runner.assert_read_only("ec2", "describe-instances", [arg])
+
+    def test_rejects_short_abbreviations(self):
+        for arg in ("--e", "--end", "--end=http://evil.example", "--pro", "--que", "--out", "--reg", "--ca-", "--deb", "--cli-i"):
+            with self.subTest(arg=arg), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only("ec2", "describe-instances", [arg])
+
+    def test_allows_legit_lookalike_flags(self):
+        for arg in ("--region-name", "--query-string", "--output-location", "--endpoint-type", "--profile-name", "--debug-mode"):
+            with self.subTest(arg=arg):
+                aws_runner.assert_read_only("ec2", "describe-instances", [arg, "x"])
 
     def test_rejects_file_urls(self):
         for arg in ("file:///etc/passwd", "fileb://x", "--filters=file://x", "Name=a,Values=file://x"):
