@@ -411,6 +411,22 @@ class EngineTests(CollectCase):
         (row,) = self.rows("TLS-901")
         self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["iam:GetAccountSummary"]))
 
+    def test_not_applicable_entries_suppress_the_pass_row_and_are_not_failures(self):
+        @evaluators.register("test_na")
+        def na(responses, params):
+            return [{"resource_id": "acme-notes-data", "region": "us-east-1", "detail": {}, "not_applicable": True}]
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_na")
+
+        def python_check(check):
+            check["id"] = "DAT-903"
+            check["scope"] = "resource"
+            check["resource_types"] = ["s3_bucket"]
+            check["verify"]["evaluator"] = "python:test_na"
+
+        self.run_collect(checks_dir=self.catalog_with(python_check))
+        self.assertEqual([(r["status"], r["resource_id"]) for r in self.rows("DAT-903")], [("PASS", "acme-notes-logs")])
+
     def test_inventory_available_to_evaluators(self):
         seen = {}
 

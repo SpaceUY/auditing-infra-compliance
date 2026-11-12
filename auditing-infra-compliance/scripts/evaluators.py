@@ -8,6 +8,9 @@ An evaluator is `fn(responses, params) -> offenders`:
   responses["__inventory__"] the inventory (list of {type, id, arn, name, region, tags})
   params                  check["verify"]["params"] (or {})
 An offender is {"resource_id": str, "region": str, "detail": dict}. No offenders = the check passes.
+An entry {"resource_id": str, "region": str, "not_applicable": True} is NOT an offender: the resource was not
+evaluated (e.g. a bucket that is not a log bucket), so the engine emits neither a FAIL nor a PASS row for it.
+It only has effect in resource-scope checks; use the helper `_not_applicable(resource_id, region)`.
 A call declared with "ok_errors" whose error was one of those codes shows up as {"__error__": "<code>"}.
 Evaluators that depend on the clock read an optional params["now"] (ISO 8601) so tests can pin it.
 
@@ -54,6 +57,10 @@ def _first(responses: dict, call: str) -> tuple[str, object]:
 
 def _offender(resource_id: str, region: str, **detail) -> dict:
     return {"resource_id": resource_id, "region": region, "detail": detail}
+
+
+def _not_applicable(resource_id: str, region: str) -> dict:
+    return {"resource_id": resource_id, "region": region, "detail": {}, "not_applicable": True}
 
 
 def _now(params: dict) -> datetime:
@@ -362,6 +369,9 @@ def _covers_all_s3_objects(fields: dict[str, dict]) -> bool:
     """Data events of every S3 object: only eventCategory, resources.type, readOnly and a catch-all resources.ARN."""
     if set(fields) - ADVANCED_FIELDS:
         return False
+    # any operator other than Equals (NotEquals, StartsWith...) on these fields is not understood: not covered
+    if any(set(fields[f]) - {"Field", "Equals"} for f in ("eventCategory", "resources.type", "readOnly") if f in fields):
+        return False
     if "Data" not in fields.get("eventCategory", {}).get("Equals", []):
         return False
     if "AWS::S3::Object" not in fields.get("resources.type", {}).get("Equals", []):
@@ -532,13 +542,15 @@ def _short_expiration(rule: dict, now: datetime, minimum: timedelta) -> dict | N
 def log_bucket_lifecycle(responses: dict, params: dict) -> list[dict]:
     """Log buckets (trail destinations, or named like params.name_regex) must not expire objects before min_days.
 
-    A bucket without a lifecycle configuration keeps everything and passes. Rules about noncurrent versions and
+    Buckets that are not log buckets are reported as not applicable. A log bucket without a lifecycle
+    configuration keeps everything and passes. Rules about noncurrent versions and
     incomplete uploads do not shorten log retention and are ignored.
     """
     now, minimum, pattern = _now(params), timedelta(days=params["min_days"]), re.compile(params["name_regex"])
     log_buckets = {t.get("S3BucketName") for _, t in _trail_list(responses)}
     log_buckets |= {i["id"] for i in responses.get("__inventory__", []) if i["type"] == "s3_bucket" and pattern.search(i["id"].lower())}
-    offenders = []
+    offenders = [_not_applicable(i["id"], i["region"]) for i in responses.get("__inventory__", [])
+                 if i["type"] == "s3_bucket" and i["id"] not in log_buckets]
     for bucket, (region, data) in _by_value(responses, "lifecycle").items():
         if bucket not in log_buckets or "__error__" in data:
             continue
@@ -552,9 +564,10 @@ def log_bucket_lifecycle(responses: dict, params: dict) -> list[dict]:
 
 @register("alb_access_logs")
 def alb_access_logs(responses: dict, params: dict) -> list[dict]:
-    """Application Load Balancers with access_logs.s3.enabled != true (network and gateway load balancers are skipped)."""
+    """ALBs with access_logs.s3.enabled != true; network and gateway load balancers are reported as not applicable."""
     load_balancers = _inventory_by_arn(responses, "elbv2")
-    offenders = []
+    offenders = [_not_applicable(i["id"], i["region"]) for i in load_balancers.values()
+                 if ":loadbalancer/app/" not in i["arn"]]
     for arn, region, data in _for_each_pairs(responses, "attrs"):
         if ":loadbalancer/app/" not in arn:
             continue

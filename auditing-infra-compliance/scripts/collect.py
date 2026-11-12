@@ -201,7 +201,8 @@ def _python_offenders(check, name, collected, items):
     if fn is None:
         raise LookupError(f"evaluador python '{name}' no registrado")
     responses = {**collected["responses"], "__for_each__": collected["values"], "__inventory__": items}
-    return [{"resource_id": str(o["resource_id"]), "region": o.get("region"), "detail": o.get("detail") or {}}
+    return [{"resource_id": str(o["resource_id"]), "region": o.get("region"), "detail": o.get("detail") or {},
+             **({"not_applicable": True} if o.get("not_applicable") else {})}
             for o in fn(responses, check["verify"].get("params") or {})]
 
 
@@ -297,14 +298,16 @@ def _check_rows(ctx, check):
     if is_resource and ctx.scope_entries is not None:
         allowed = _identifiers(items)
         offenders = [o for o in offenders if o["resource_id"] in allowed]
+    skipped = {o["resource_id"] for o in offenders if o.get("not_applicable")}  # R20: no FAIL and no PASS row
+    offenders = [o for o in offenders if not o.get("not_applicable")]
     rows += [_row(check, "FAIL", o["resource_id"], o["region"], o["detail"]) for o in offenders]
-    return rows + _pass_rows(check, items, offenders, {f["region"] for f in failures}, bool(rows))
+    return rows + _pass_rows(check, items, offenders, skipped, {f["region"] for f in failures}, bool(rows))
 
 
-def _pass_rows(check, items, offenders, failed_regions, any_fail):
+def _pass_rows(check, items, offenders, skipped, failed_regions, any_fail):
     if check["scope"] == "account":
         return [] if any_fail else [_row(check, "PASS", "account", None)]
-    bad = {o["resource_id"] for o in offenders}
+    bad = {o["resource_id"] for o in offenders} | skipped
     return [_row(check, "PASS", i["id"], i["region"]) for i in items
             if i["region"] not in failed_regions and not (_identifiers([i]) & bad)]
 

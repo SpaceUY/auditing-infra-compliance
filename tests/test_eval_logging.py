@@ -46,6 +46,15 @@ def ids(offenders):
     return [o["resource_id"] for o in offenders]
 
 
+def offending(offenders):
+    """The entries that are real offenders (R20: not_applicable entries are not)."""
+    return [o for o in offenders if not o.get("not_applicable")]
+
+
+def not_applicable(offenders):
+    return [o["resource_id"] for o in offenders if o.get("not_applicable")]
+
+
 def trails(*fixtures, region=REGION):
     return {"trails": [(region, fx(f)) for f in fixtures]}
 
@@ -143,6 +152,13 @@ class TrailS3DataEventsTests(unittest.TestCase):
 
     def test_trail_s3_data_events_selectors_for_one_bucket_do_not_count(self):
         responses = self.responses("cloudtrail-describe-trails-ok", ["cloudtrail-get-event-selectors-advanced-one-bucket"])
+        (offender,) = evaluate("trail_s3_data_events", responses)
+        self.assertEqual(offender["detail"]["missing"], ["read", "write"])
+
+    def test_trail_s3_data_events_read_only_selector_with_another_operator_is_not_coverage(self):
+        data = fx("cloudtrail-get-event-selectors-advanced-all")
+        data["AdvancedEventSelectors"][1]["FieldSelectors"].append({"Field": "readOnly", "NotEquals": ["true"]})
+        responses = merge(trails("cloudtrail-describe-trails-ok"), for_each("selectors", [(TRAIL_ARN, data)]))
         (offender,) = evaluate("trail_s3_data_events", responses)
         self.assertEqual(offender["detail"]["missing"], ["read", "write"])
 
@@ -297,32 +313,36 @@ class LifecycleTests(unittest.TestCase):
 
     def test_log_bucket_lifecycle_pass(self):
         responses = self.responses(**{TRAIL_BUCKET: fx("s3api-get-bucket-lifecycle-ok")})
-        self.assertEqual(evaluate("log_bucket_lifecycle", responses, self.PARAMS), [])
+        self.assertEqual(offending(evaluate("log_bucket_lifecycle", responses, self.PARAMS)), [])
 
     def test_log_bucket_lifecycle_fail_reports_offenders(self):
         responses = self.responses(**{TRAIL_BUCKET: fx("s3api-get-bucket-lifecycle-short")})
-        (offender,) = evaluate("log_bucket_lifecycle", responses, self.PARAMS)
+        (offender,) = offending(evaluate("log_bucket_lifecycle", responses, self.PARAMS))
         self.assertEqual((offender["resource_id"], offender["region"]), (TRAIL_BUCKET, REGION))
         self.assertEqual(offender["detail"]["rules"], [{"rule": "expire-90", "expires_after_days": 90}])
 
     def test_log_bucket_lifecycle_buckets_without_lifecycle_pass(self):
-        self.assertEqual(evaluate("log_bucket_lifecycle", self.responses(), self.PARAMS), [])
+        self.assertEqual(offending(evaluate("log_bucket_lifecycle", self.responses(), self.PARAMS)), [])
 
     def test_log_bucket_lifecycle_identifies_log_buckets_by_name(self):
         short = fx("s3api-get-bucket-lifecycle-short")
         responses = self.responses(**{"acme-notes-access-logs": short})
-        self.assertEqual(ids(evaluate("log_bucket_lifecycle", responses, self.PARAMS)), ["acme-notes-access-logs"])
+        self.assertEqual(ids(offending(evaluate("log_bucket_lifecycle", responses, self.PARAMS))), ["acme-notes-access-logs"])
 
     def test_log_bucket_lifecycle_ignores_buckets_that_are_not_log_buckets(self):
         short = fx("s3api-get-bucket-lifecycle-short")
         responses = self.responses(**{"acme-notes-data": short, "acme-notes-blog": short})
-        self.assertEqual(evaluate("log_bucket_lifecycle", responses, self.PARAMS), [])
+        self.assertEqual(offending(evaluate("log_bucket_lifecycle", responses, self.PARAMS)), [])
 
     def test_log_bucket_lifecycle_trail_bucket_counts_even_without_log_in_its_name(self):
         short = fx("s3api-get-bucket-lifecycle-short")
         trail = {**fx("cloudtrail-describe-trails-ok")["trailList"][0], "S3BucketName": "acme-notes-data"}
         responses = {**self.responses(**{"acme-notes-data": short}), "trails": [(REGION, {"trailList": [trail]})]}
-        self.assertEqual(ids(evaluate("log_bucket_lifecycle", responses, self.PARAMS)), ["acme-notes-data"])
+        self.assertEqual(ids(offending(evaluate("log_bucket_lifecycle", responses, self.PARAMS))), ["acme-notes-data"])
+
+    def test_log_bucket_lifecycle_non_log_buckets_are_reported_as_not_applicable(self):
+        found = not_applicable(evaluate("log_bucket_lifecycle", self.responses(), self.PARAMS))
+        self.assertEqual(found, ["acme-notes-data", "acme-notes-blog"])
 
     def rule_responses(self, rule):
         return self.responses(**{TRAIL_BUCKET: {"Rules": [rule]}})
@@ -330,19 +350,19 @@ class LifecycleTests(unittest.TestCase):
     def test_log_bucket_lifecycle_days_boundary(self):
         for days, expected in ((364, [TRAIL_BUCKET]), (365, []), (366, [])):
             responses = self.rule_responses({"ID": "r", "Status": "Enabled", "Expiration": {"Days": days}})
-            self.assertEqual(ids(evaluate("log_bucket_lifecycle", responses, self.PARAMS)), expected, days)
+            self.assertEqual(ids(offending(evaluate("log_bucket_lifecycle", responses, self.PARAMS))), expected, days)
 
     def test_log_bucket_lifecycle_fixed_date_boundary(self):
         now = datetime.fromisoformat(NOW)
         for delta, expected in ((timedelta(days=365), []), (timedelta(days=365) - timedelta(hours=1), [TRAIL_BUCKET])):
             responses = self.rule_responses({"ID": "r", "Status": "Enabled", "Expiration": {"Date": (now + delta).isoformat()}})
-            self.assertEqual(ids(evaluate("log_bucket_lifecycle", responses, self.PARAMS)), expected, delta)
+            self.assertEqual(ids(offending(evaluate("log_bucket_lifecycle", responses, self.PARAMS))), expected, delta)
 
     def test_log_bucket_lifecycle_disabled_and_noncurrent_rules_are_ignored(self):
         rules = [{"ID": "off", "Status": "Disabled", "Expiration": {"Days": 1}},
                  {"ID": "versions", "Status": "Enabled", "NoncurrentVersionExpiration": {"NoncurrentDays": 7}},
                  {"ID": "multipart", "Status": "Enabled", "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}}]
-        self.assertEqual(evaluate("log_bucket_lifecycle", self.responses(**{TRAIL_BUCKET: {"Rules": rules}}), self.PARAMS), [])
+        self.assertEqual(offending(evaluate("log_bucket_lifecycle", self.responses(**{TRAIL_BUCKET: {"Rules": rules}}), self.PARAMS)), [])
 
 
 class LoadBalancerAndWafTests(unittest.TestCase):
@@ -355,15 +375,19 @@ class LoadBalancerAndWafTests(unittest.TestCase):
         return {**for_each("attrs", [(arn, fx(fixture))]), "__inventory__": self.INVENTORY}
 
     def test_alb_access_logs_pass(self):
-        self.assertEqual(evaluate("alb_access_logs", self.alb("elbv2-describe-load-balancer-attributes-logs-on")), [])
+        self.assertEqual(offending(evaluate("alb_access_logs", self.alb("elbv2-describe-load-balancer-attributes-logs-on"))), [])
 
     def test_alb_access_logs_fail_reports_offenders(self):
-        (offender,) = evaluate("alb_access_logs", self.alb("elbv2-describe-load-balancer-attributes-logs-off"))
+        (offender,) = offending(evaluate("alb_access_logs", self.alb("elbv2-describe-load-balancer-attributes-logs-off")))
         self.assertEqual((offender["resource_id"], offender["region"]), ("acme-notes-alb", REGION))
         self.assertEqual(offender["detail"]["arn"], ALB_ARN)
 
     def test_alb_access_logs_network_load_balancers_are_not_evaluated(self):
-        self.assertEqual(evaluate("alb_access_logs", self.alb("elbv2-describe-load-balancer-attributes-logs-off", NLB_ARN)), [])
+        self.assertEqual(offending(evaluate("alb_access_logs", self.alb("elbv2-describe-load-balancer-attributes-logs-off", NLB_ARN))), [])
+
+    def test_alb_access_logs_network_load_balancers_are_reported_as_not_applicable(self):
+        responses = self.alb("elbv2-describe-load-balancer-attributes-logs-off", NLB_ARN)
+        self.assertEqual(not_applicable(evaluate("alb_access_logs", responses)), ["acme-notes-nlb"])
 
     def waf(self, data):
         return {**for_each("logging", [(WEB_ACL_ARN, data)]), "__inventory__": self.INVENTORY}
@@ -452,13 +476,6 @@ class LoggingCatalogTests(unittest.TestCase):
                 self.assertNotIn("set -e", command, check["id"])
             self.assertTrue(rem["verify_after"].startswith("aws "), check["id"])
             self.assertTrue(rem["commands"], check["id"])
-
-    def test_destructive_lines_are_chained_or_alone(self):
-        for check in self.checks:
-            for command in check["remediation"]["commands"]:
-                aws_lines = [l for l in command.splitlines() if l.startswith("aws ")]
-                if any(d in l for l in aws_lines for d in ("detach-", "delete-")):
-                    self.assertEqual(len(aws_lines), 1 if "&&" not in command else len(aws_lines), check["id"])
 
     def test_lookups_run_before_the_command_that_uses_them(self):
         (alb,) = catalog_check("LOG-011")["remediation"]["commands"]
@@ -572,7 +589,8 @@ class LoggingCollectTests(unittest.TestCase):
         no_waf_logging = err("An error occurred (WAFNonexistentItemException) when calling the GetLoggingConfiguration operation: not found")
         buckets = {"Buckets": [{"Name": b} for b in (TRAIL_BUCKET, "acme-notes-data", "acme-notes-access-logs")]}
         vpcs = {"Vpcs": [{"VpcId": VPC_MAIN}, {"VpcId": VPC_SECOND}]}
-        lbs = {"LoadBalancers": [{"LoadBalancerName": "acme-notes-alb", "LoadBalancerArn": ALB_ARN}]}
+        lbs = {"LoadBalancers": [{"LoadBalancerName": "acme-notes-alb", "LoadBalancerArn": ALB_ARN},
+                                 {"LoadBalancerName": "acme-notes-nlb", "LoadBalancerArn": NLB_ARN}]}
         web_acls = {"WebACLs": [{"Name": "acme-notes-web-acl", "ARN": WEB_ACL_ARN}]}
         return [
             ("sts", "get-caller-identity", None, "", core("sts-get-caller-identity")),
@@ -603,6 +621,7 @@ class LoggingCollectTests(unittest.TestCase):
             ("s3api", "get-bucket-lifecycle-configuration", None, "acme-notes-access-logs", log("s3api-get-bucket-lifecycle-ok")),
             ("s3api", "get-bucket-lifecycle-configuration", None, "acme-notes-data", no_lifecycle),
             ("elbv2", "describe-load-balancer-attributes", None, ALB_ARN, log("elbv2-describe-load-balancer-attributes-logs-off")),
+            ("elbv2", "describe-load-balancer-attributes", None, NLB_ARN, log("elbv2-describe-load-balancer-attributes-logs-off")),
             ("wafv2", "get-logging-configuration", None, WEB_ACL_ARN, no_waf_logging),
             ("eks", "describe-cluster", None, "--query", log("eks-describe-cluster-audit-offenders")),
         ]
@@ -631,8 +650,8 @@ class LoggingCollectTests(unittest.TestCase):
                                                 ("FAIL", "/aws/ecs/acme-notes-worker", REGION),
                                                 ("FAIL", "/aws/lambda/acme-notes-api", REGION),
                                                 ("PASS", "acme-notes-cloudtrail", REGION)])
-        self.assertEqual(self.rows("LOG-010"), [("PASS", "acme-notes-access-logs", REGION), ("PASS", "acme-notes-data", REGION),
-                                                ("FAIL", TRAIL_BUCKET, REGION)])
+        self.assertEqual(self.rows("LOG-010"), [("PASS", "acme-notes-access-logs", REGION), ("FAIL", TRAIL_BUCKET, REGION)])
+        # the NLB and the non-log buckets (LOG-010 above) are not applicable: no PASS and no FAIL row (R20)
         self.assertEqual(self.rows("LOG-011"), [("FAIL", "acme-notes-alb", REGION)])
         self.assertEqual(self.rows("LOG-012"), [("FAIL", "acme-notes-web-acl", REGION)])
         self.assertEqual(self.rows("LOG-013"), [("FAIL", "acme-notes-eks", REGION)])

@@ -855,7 +855,7 @@
           "min_days": 365,
           "name_regex": "(^|[^a-z])logs?([^a-z]|$)"
         },
-        "pass_when_text": "Ningún bucket de logs (destino de un trail, o con log/logs en el nombre) tiene una regla activa que expire objetos antes de 365 días. Sin lifecycle pasa. Los demás buckets pasan sin evaluarse.",
+        "pass_when_text": "Ningún bucket de logs (destino de un trail, o con log/logs en el nombre) tiene una regla activa que expire objetos antes de 365 días. Un bucket de logs sin lifecycle pasa. Los demás buckets no se evalúan y no generan resultado.",
         "needs": [
           "cloudtrail:DescribeTrails",
           "s3:GetLifecycleConfiguration",
@@ -928,7 +928,7 @@
           }
         ],
         "evaluator": "python:alb_access_logs",
-        "pass_when_text": "Los ALB tienen access_logs.s3.enabled=true. Los balanceadores de red y de gateway no se evalúan.",
+        "pass_when_text": "Los ALB tienen access_logs.s3.enabled=true. Los balanceadores de red y de gateway no se evalúan y no generan resultado.",
         "needs": [
           "elasticloadbalancing:DescribeLoadBalancerAttributes"
         ]
