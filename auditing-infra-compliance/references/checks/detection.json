@@ -55,6 +55,23 @@
             "eks_cluster",
             "elasticache_group",
             "secret"
+          ],
+          "inventory_types": [
+            "ec2_instance",
+            "ebs_volume",
+            "rds_instance",
+            "rds_cluster",
+            "dynamodb_table",
+            "efs",
+            "elbv2",
+            "asg",
+            "lambda_function",
+            "sqs_queue",
+            "sns_topic",
+            "eks_cluster",
+            "elasticache_group",
+            "secret",
+            "s3_bucket"
           ]
         },
         "pass_when_text": "Cada región con recursos tiene un detector de GuardDuty con Status=ENABLED. Una región sin recursos y sin detector no rompe el test de Drata, pero se reporta con severidad baja: un atacante puede usar regiones sin monitoreo. Las cuentas con buckets de S3 cuentan us-east-1 como región con recursos.",
@@ -142,6 +159,11 @@
           }
         ],
         "evaluator": "python:guardduty_s3_protection",
+        "params": {
+          "inventory_types": [
+            "s3_bucket"
+          ]
+        },
         "pass_when_text": "Todo detector habilitado tiene S3_DATA_EVENTS=ENABLED. Si la cuenta no tiene buckets de S3 pasa, igual que el test 105 de Drata. Sin ningún detector habilitado falla: no hay S3 Protection.",
         "needs": [
           "guardduty:ListDetectors",

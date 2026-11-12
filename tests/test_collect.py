@@ -446,6 +446,74 @@ class EngineTests(CollectCase):
         self.assertEqual((row["status"], row["resource_id"], row["vacuous"]), ("N/A", "account", True))
         self.assertEqual(row["detail"], {"reason": "ningún recurso aplica"})
 
+    def test_unverified_entry_becomes_a_not_verified_row_without_pass(self):
+        @evaluators.register("test_unverified")
+        def unverified(responses, params):
+            return [{"resource_id": "account", "region": "us-east-1", "unverified": True,
+                     "detail": {"error_code": "ACCESS_DENIED", "reason": "no se pudo leer"}}]
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_unverified")
+
+        def python_check(check):
+            check["id"] = "DET-903"
+            check["scope"] = "account"
+            check["verify"]["evaluator"] = "python:test_unverified"
+            check["verify"]["needs"] = ["inspector2:BatchGetAccountStatus"]
+
+        self.run_collect(checks_dir=self.catalog_with(python_check))
+        (row,) = self.rows("DET-903")
+        self.assertEqual((row["status"], row["region"], row["missing"]),
+                         ("NO_VERIFICADO", "us-east-1", ["inspector2:BatchGetAccountStatus"]))
+        self.assertEqual(row["detail"]["reason"], "no se pudo leer")
+
+    def inventory_reader(self, key):
+        def python_check(check):
+            check["id"] = "DET-904"
+            check["scope"] = "account"
+            check["verify"]["evaluator"] = "python:test_inventory_reader"
+            if key == "context":
+                check["account_context_for"] = ["s3_bucket"]
+            else:
+                check["verify"]["params"] = {"inventory_types": ["s3_bucket"]}
+
+        return self.catalog_with(python_check)
+
+    def register_inventory_reader(self):
+        @evaluators.register("test_inventory_reader")
+        def reader(responses, params):
+            self.seen_errors = responses["__inventory_errors__"]
+            return []
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_inventory_reader")
+
+    def test_checks_depending_on_a_broken_inventory_type_are_not_verified(self):
+        denied = err("An error occurred (AccessDenied) when calling the ListBuckets operation: not authorized")
+        self.register_inventory_reader()
+        for key in ("context", "params"):
+            with self.subTest(key=key):
+                self.seen_errors = None
+                responses = base_responses()
+                responses[("s3api", "list-buckets", "us-east-1")] = denied
+                self.run_collect(responses, checks_dir=self.inventory_reader(key))
+                (row,) = self.rows("DET-904")
+                self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["inventory:s3_bucket"]))
+                self.assertIsNone(self.seen_errors, "the evaluator must not run on an incomplete inventory")
+
+    def test_inventory_errors_are_exposed_to_evaluators_when_the_check_does_not_depend_on_them(self):
+        responses = base_responses()
+        responses[("s3api", "list-buckets", "us-east-1")] = err(
+            "An error occurred (AccessDenied) when calling the ListBuckets operation: not authorized")
+
+        def python_check(check):
+            check["id"] = "DET-905"
+            check["scope"] = "account"
+            check["verify"]["evaluator"] = "python:test_inventory_reader"
+
+        self.register_inventory_reader()
+        self.run_collect(responses, checks_dir=self.catalog_with(python_check))
+        self.assertEqual(self.seen_errors, {"s3_bucket"})
+        self.assertEqual([r["status"] for r in self.rows("DET-905")], ["PASS"])
+
     def test_inventory_available_to_evaluators(self):
         seen = {}
 

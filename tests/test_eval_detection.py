@@ -245,6 +245,19 @@ class ConfigRecorderTests(unittest.TestCase):
         self.assertEqual((offender["resource_id"], offender["region"]), ("account", OTHER))
         self.assertEqual(offender["detail"]["problems"], ["sin grabador de AWS Config"])
 
+    def test_all_supported_strategy_in_its_real_api_shape_passes_only_with_global_types(self):
+        self.assertEqual(evaluate("config_recorder", self.responses(recorders="all-strategy")), [])
+        self.assertEqual(self.problems(recorders="all-strategy-no-global-types"),
+                         ["no graba los tipos IAM globales (includeGlobalResourceTypes=false)"])
+
+    def test_all_supported_without_global_resource_types_fails(self):
+        self.assertEqual(self.problems(recorders="no-global-types"),
+                         ["no graba los tipos IAM globales (includeGlobalResourceTypes=false)"])
+
+    def test_last_status_is_compared_case_insensitively(self):
+        for status in ("failure", "failure-upper"):
+            self.assertEqual(self.problems(status=status), ["el último estado del grabador es FAILURE"], status)
+
     def test_stopped_recorder(self):
         self.assertEqual(self.problems(status="stopped"), ["el grabador está detenido (recording=false)"])
 
@@ -298,9 +311,15 @@ class InspectorStatusTests(unittest.TestCase):
         (offender,) = evaluate("inspector_status", self.responses("enabling"), self.PARAMS)
         self.assertEqual(offender["detail"]["not_enabled"], ["ecr"])
 
-    def test_account_missing_from_the_response_fails(self):
-        (offender,) = evaluate("inspector_status", self.responses("failed"), self.PARAMS)
+    def test_account_missing_from_the_response_without_errors_means_nothing_is_enabled(self):
+        (offender,) = evaluate("inspector_status", self.responses("empty"), self.PARAMS)
         self.assertEqual(offender["detail"]["not_enabled"], ["ec2", "ecr", "lambda"])
+
+    def test_failed_accounts_are_unverified_not_a_failure(self):
+        for fixture, code in (("failed", "ACCESS_DENIED"), ("internal-error", "INTERNAL_ERROR")):
+            (entry,) = evaluate("inspector_status", self.responses(fixture), self.PARAMS)
+            self.assertTrue(entry["unverified"], fixture)
+            self.assertEqual((entry["resource_id"], entry["region"], entry["detail"]["error_code"]), ("account", REGION, code))
 
 
 class InspectorFindingsTests(unittest.TestCase):
@@ -394,6 +413,11 @@ class DetectionCatalogTests(unittest.TestCase):
     def test_enablement_checks_treat_a_disabled_service_as_a_failure(self):
         for check_id in ("DET-001", "DET-004", "DET-005", "DET-006"):
             self.assertEqual(catalog_check(check_id)["not_enabled_means"], "fail", check_id)
+
+    def test_inventory_readers_declare_their_inventory_types(self):
+        s3 = set(catalog_check("DET-001")["verify"]["params"]["inventory_types"])
+        self.assertTrue({"ec2_instance", "lambda_function", "s3_bucket"} <= s3)
+        self.assertEqual(catalog_check("DET-002")["verify"]["params"]["inventory_types"], ["s3_bucket"])
 
     def test_all_regions_flags(self):
         expected = {"DET-001": True, "DET-002": True, "DET-003": False, "DET-004": False, "DET-005": True,
@@ -517,6 +541,50 @@ class DetectionCollectTests(unittest.TestCase):
     def test_rule_targets_are_listed_per_rule_name(self):
         rules = [a[a.index("--rule") + 1] for a in self.runner.calls if a[2] == "list-targets-by-rule"]
         self.assertEqual(sorted(rules), ["acme-notes-guardduty-findings", "acme-notes-nightly-report"])
+
+
+class DetectionInventoryErrorTests(unittest.TestCase):
+    """Account checks that read the inventory must not be evaluated on an inventory that failed to list."""
+
+    DENIED = "An error occurred (AccessDenied) when calling the {op} operation: not authorized to perform: {perm}"
+
+    def collect(self, *front_rules, domains=("detection",)):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / "checks").mkdir()
+        shutil.copy(DETECTION_JSON, tmp / "checks" / "detection.json")
+        specs = json.loads((REFS / "inventory.json").read_text(encoding="utf-8"))
+        (tmp / "inventory.json").write_text(json.dumps({t: specs[t] for t in DetectionCollectTests.TYPES}), encoding="utf-8")
+        scope = {"platform": "Acme Notes", "mode": "full", "target": None, "regions": [REGION], "profile": None,
+                 "resources": [], "domains": list(domains)}
+        (tmp / "scope.json").write_text(json.dumps(scope), encoding="utf-8")
+        runner = RuleRunner([*front_rules, *DetectionCollectTests.rules()])
+        with contextlib.redirect_stdout(io.StringIO()):
+            collect.main(["--scope", str(tmp / "scope.json"), "--out", str(tmp / "out"), "--checks-dir", str(tmp / "checks"),
+                          "--inventory", str(tmp / "inventory.json")],
+                         runner=runner, sleep=lambda s: None, which=lambda name: None)
+        return json.loads((tmp / "out" / "checks-result.json").read_text(encoding="utf-8"))["results"]
+
+    def rows(self, results, check_id):
+        return [r for r in results if r["check_id"] == check_id]
+
+    def test_guardduty_s3_protection_is_not_verified_when_the_bucket_listing_failed(self):
+        denied = err(self.DENIED.format(op="ListBuckets", perm="s3:ListAllMyBuckets"))
+        results = self.collect(("s3api", "list-buckets", None, "", denied))
+        (row,) = self.rows(results, "DET-002")
+        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["inventory:s3_bucket"]))
+
+    def test_guardduty_regions_is_not_verified_when_the_instance_listing_failed(self):
+        denied = err(self.DENIED.format(op="DescribeInstances", perm="ec2:DescribeInstances"))
+        results = self.collect(("ec2", "describe-instances", None, "", denied))
+        (row,) = self.rows(results, "DET-001")
+        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["inventory:ec2_instance"]))
+        self.assertEqual([r for r in results if r["check_id"] == "DET-001" and r["status"] == "FAIL"], [])
+
+    def test_checks_that_do_not_read_the_inventory_are_still_evaluated(self):
+        denied = err(self.DENIED.format(op="ListBuckets", perm="s3:ListAllMyBuckets"))
+        results = self.collect(("s3api", "list-buckets", None, "", denied))
+        self.assertEqual([r["status"] for r in self.rows(results, "DET-005")], ["FAIL"])
 
 
 if __name__ == "__main__":

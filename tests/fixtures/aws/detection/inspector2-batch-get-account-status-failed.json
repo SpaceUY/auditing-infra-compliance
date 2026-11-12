@@ -4,7 +4,7 @@
     {
       "accountId": "111122223333",
       "errorCode": "ACCESS_DENIED",
-      "errorMessage": "not enabled"
+      "errorMessage": "Invoking account does not have access"
     }
   ]
 }

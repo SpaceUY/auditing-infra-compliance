@@ -218,10 +218,17 @@ class SsmManagedTests(unittest.TestCase):
         """patched: {instance id: patch states fixture}; one describe-instance-patch-states call per managed instance."""
         listing = fx(f"ssm-describe-instance-information-{info}")
         managed = [i["InstanceId"] for i in listing["InstanceInformationList"]]
-        return {"info": [(REGION, listing)],
+        return {"instances": [(REGION, self.instances(*(items or [instance(I1)])))],
+                "info": [(REGION, listing)],
                 "patches": [(REGION, self.patch_states(i, patched.get(i, "none"))) for i in managed],
                 "__for_each__": {"patches": managed},
                 "__inventory__": list(items) or [instance(I1)]}
+
+    @staticmethod
+    def instances(*items, state="running", **states):
+        """describe-instances answer for the inventory items; states: {instance id: state name}."""
+        return {"Reservations": [{"Instances": [{"InstanceId": i["id"], "State": {"Name": states.get(i["id"], state)}}]}
+                                 for i in items]}
 
     def test_ssm_managed_pass(self):
         self.assertEqual(evaluate("ssm_managed", self.responses("online", {I1: "patched"})), [])
@@ -251,8 +258,21 @@ class SsmManagedTests(unittest.TestCase):
         responses = self.responses("online", {I1: "patched"}, instance(I1, OTHER))
         self.assertEqual(ids(evaluate("ssm_managed", responses)), [I1])
 
+    def test_instances_that_are_not_running_are_not_applicable(self):
+        responses = self.responses("online", {I1: "patched"}, instance(I1), instance(I3))
+        responses["instances"] = [(REGION, self.instances(instance(I1), instance(I3), **{I3: "stopped"}))]
+        offenders = evaluate("ssm_managed", responses)
+        self.assertEqual([(o["resource_id"], o.get("not_applicable")) for o in offenders], [(I3, True)])
+
+    def test_a_stopped_instance_is_not_reported_even_when_ssm_has_a_stale_record(self):
+        responses = self.responses("lost", {I1: "patched"}, instance(I2))
+        responses["instances"] = [(REGION, self.instances(instance(I2), state="stopped"))]
+        (entry,) = evaluate("ssm_managed", responses)
+        self.assertTrue(entry["not_applicable"])
+        self.assertNotIn("problems", entry["detail"])
+
     def test_no_instances_no_offenders(self):
-        self.assertEqual(evaluate("ssm_managed", {"info": [(REGION, fx("ssm-describe-instance-information-none"))],
+        self.assertEqual(evaluate("ssm_managed", {"instances": [], "info": [(REGION, fx("ssm-describe-instance-information-none"))],
                                                   "patches": [], "__for_each__": {"patches": []}, "__inventory__": []}), [])
 
 
@@ -330,6 +350,11 @@ class ComputeCatalogTests(unittest.TestCase):
         command = "\n".join(catalog_check("CMP-006")["remediation"]["commands"])
         self.assertIn("create-association", command)
         self.assertIn("AWS-RunPatchBaseline", command)
+
+    def test_cmp_006_reads_the_instance_state(self):
+        calls = {c["name"]: c for c in catalog_check("CMP-006")["verify"]["calls"]}
+        self.assertEqual(calls["instances"]["operation"], "describe-instances")
+        self.assertIn("ec2:DescribeInstances", catalog_check("CMP-006")["verify"]["needs"])
 
     def test_planned_changes_warn_in_notes(self):
         for check in self.checks:

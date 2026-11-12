@@ -4,8 +4,8 @@
       "name": "default",
       "roleARN": "arn:aws:iam::111122223333:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig",
       "recordingGroup": {
-        "allSupported": false,
-        "includeGlobalResourceTypes": false,
+        "allSupported": true,
+        "includeGlobalResourceTypes": true,
         "resourceTypes": [],
         "recordingStrategy": {
           "useOnly": "ALL_SUPPORTED_RESOURCE_TYPES"

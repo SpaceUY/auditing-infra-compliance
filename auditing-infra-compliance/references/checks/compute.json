@@ -427,6 +427,16 @@
       "verify": {
         "calls": [
           {
+            "name": "instances",
+            "service": "ec2",
+            "operation": "describe-instances",
+            "args": [
+              "--filters",
+              "Name=instance-state-name,Values=pending,running,stopping,stopped"
+            ],
+            "region": "each"
+          },
+          {
             "name": "info",
             "service": "ssm",
             "operation": "describe-instance-information",
@@ -447,8 +457,9 @@
           }
         ],
         "evaluator": "python:ssm_managed",
-        "pass_when_text": "Cada instancia está registrada en Systems Manager con el agente en línea (PingStatus=Online) y tiene un estado de parches de Patch Manager (describe-instance-patch-states). Las instancias detenidas aparecen como ConnectionLost y fallan.",
+        "pass_when_text": "Cada instancia está registrada en Systems Manager con el agente en línea (PingStatus=Online) y tiene un estado de parches de Patch Manager (describe-instance-patch-states). Las instancias que no están en estado running (por ejemplo detenidas) no pueden correr el agente y no se evalúan.",
         "needs": [
+          "ec2:DescribeInstances",
           "ssm:DescribeInstanceInformation",
           "ssm:DescribeInstancePatchStates"
         ]

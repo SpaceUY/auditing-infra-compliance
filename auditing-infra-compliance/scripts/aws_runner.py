@@ -8,9 +8,10 @@ import time
 from dataclasses import dataclass
 
 ALLOWED_PREFIXES = ("describe-", "list-", "get-")
-# batch-get-account-status (Inspector) only reads the scanning state; the batch-get- prefix stays closed
-# because batch-get-secret-value and batch-get-item return secrets or data.
-ALLOWED_EXACT = frozenset({"lookup-events", "generate-credential-report", "batch-get-account-status"})
+ALLOWED_EXACT = frozenset({"lookup-events", "generate-credential-report"})
+# Exact (service, operation) pairs that are read-only although they do not start with an allowed prefix. A bare
+# operation name would be allowed for every service, and batch-get-secret-value / batch-get-item expose data.
+ALLOWED_PAIRS = frozenset({("inspector2", "batch-get-account-status")})
 DENYLIST = frozenset(
     {
         ("secretsmanager", "get-secret-value"),
@@ -107,7 +108,8 @@ def assert_read_only(service: str, operation: str, args: list[str]) -> None:
         raise ReadOnlyViolation(f"nombre de servicio/operación inválido: {service!r} {operation!r}")
     if (service, "*") in DENYLIST or (service, operation) in DENYLIST:
         raise ReadOnlyViolation(f"{service} {operation} está en la denylist (puede exponer secretos o datos)")
-    if operation not in ALLOWED_EXACT and not operation.startswith(ALLOWED_PREFIXES):
+    allowed = (service, operation) in ALLOWED_PAIRS or operation in ALLOWED_EXACT or operation.startswith(ALLOWED_PREFIXES)
+    if not allowed:
         raise ReadOnlyViolation(f"{service} {operation} no es una operación de solo lectura")
     for arg in args:
         _check_arg(arg)

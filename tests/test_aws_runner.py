@@ -36,7 +36,8 @@ class AssertReadOnlyTest(unittest.TestCase):
         aws_runner.assert_read_only("inspector2", "batch-get-account-status", [])
 
     def test_other_batch_get_operations_stay_rejected(self):
-        for service, op in (("secretsmanager", "batch-get-secret-value"), ("dynamodb", "batch-get-item")):
+        for service, op in (("secretsmanager", "batch-get-secret-value"), ("dynamodb", "batch-get-item"),
+                            ("ec2", "batch-get-account-status"), ("secretsmanager", "batch-get-account-status")):
             with self.subTest(op=op), self.assertRaises(aws_runner.ReadOnlyViolation):
                 aws_runner.assert_read_only(service, op, [])
 

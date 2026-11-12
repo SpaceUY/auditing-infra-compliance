@@ -11,6 +11,11 @@ An offender is {"resource_id": str, "region": str, "detail": dict}. No offenders
 An entry {"resource_id": str, "region": str, "not_applicable": True} is NOT an offender: the resource was not
 evaluated (e.g. a bucket that is not a log bucket), so the engine emits neither a FAIL nor a PASS row for it.
 It only has effect in resource-scope checks; use the helper `_not_applicable(resource_id, region)`.
+An entry {"resource_id", "region", "detail", "unverified": True} (helper `_unverified`) is a result the evaluator could
+not decide for that region: the engine emits a NO_VERIFICADO row for it (missing = the check's permissions when
+detail["error_code"] is ACCESS_DENIED), never a FAIL or a PASS.
+responses["__inventory_errors__"] is the set of inventory types whose listing failed (the engine already returns
+NO_VERIFICADO for checks that declare those types in account_context_for / params.inventory_types).
 A call declared with "ok_errors" whose error was one of those codes shows up as {"__error__": "<code>"}.
 Evaluators that depend on the clock read an optional params["now"] (ISO 8601) so tests can pin it.
 
@@ -61,6 +66,10 @@ def _offender(resource_id: str, region: str, **detail) -> dict:
 
 def _not_applicable(resource_id: str, region: str) -> dict:
     return {"resource_id": resource_id, "region": region, "detail": {}, "not_applicable": True}
+
+
+def _unverified(resource_id: str, region: str, **detail) -> dict:
+    return {"resource_id": resource_id, "region": region, "detail": detail, "unverified": True}
 
 
 def _now(params: dict) -> datetime:
@@ -707,6 +716,11 @@ def _records_all_types(recorder: dict) -> bool:
     return group.get("allSupported") is True or (group.get("recordingStrategy") or {}).get("useOnly") == "ALL_SUPPORTED_RESOURCE_TYPES"
 
 
+def _records_global_types(recorder: dict) -> bool:
+    """allSupported only covers the IAM global types when includeGlobalResourceTypes is true."""
+    return (recorder.get("recordingGroup") or {}).get("includeGlobalResourceTypes") is True
+
+
 def _records_iam_daily(recorder: dict) -> bool:
     """Vanta: IAM global types overridden to DAILY (or everything recorded daily)."""
     mode = recorder.get("recordingMode") or {}
@@ -723,10 +737,12 @@ def _config_problems(recorders: list[dict], statuses: list[dict], channels: list
     recorder = recorders[0]
     status = next((s for s in statuses if s.get("name") == recorder.get("name")), {})
     problems = [] if status.get("recording") is True else ["el grabador está detenido (recording=false)"]
-    if status.get("lastStatus") == "FAILURE":
+    if str(status.get("lastStatus", "")).upper() == "FAILURE":  # the API enum is Success / Failure / Not_Applicable
         problems.append("el último estado del grabador es FAILURE")
     if not _records_all_types(recorder):
         problems.append("no graba todos los tipos de recurso")
+    elif not _records_global_types(recorder):
+        problems.append("no graba los tipos IAM globales (includeGlobalResourceTypes=false)")
     if not _records_iam_daily(recorder):
         problems.append("los tipos IAM globales no se graban a diario (override DAILY)")
     if not any(c.get("s3BucketName") for c in channels):
@@ -752,6 +768,11 @@ def inspector_status(responses: dict, params: dict) -> list[dict]:
     """Inspector scanning ENABLED (not ENABLING) for each of params["required"] (ec2, ecr, lambda) in every region."""
     offenders = []
     for region, data in responses.get("status", []):
+        failed = (data or {}).get("failedAccounts") or []
+        if failed:  # the account state could not be read: not evidence of a disabled Inspector
+            offenders.append(_unverified("account", region, reason="Inspector no pudo informar el estado de la cuenta",
+                                         error_code=failed[0].get("errorCode"), error_message=failed[0].get("errorMessage")))
+            continue
         accounts = (data or {}).get("accounts") or []
         states = (accounts[0].get("resourceState") or {}) if accounts else {}
         missing = [t for t in params["required"] if (states.get(t) or {}).get("status") != "ENABLED"]
@@ -852,7 +873,10 @@ def asg_present(responses: dict, params: dict) -> list[dict]:
 
 @register("ssm_managed")
 def ssm_managed(responses: dict, params: dict) -> list[dict]:
-    """Instances registered in Systems Manager with a live agent and a Patch Manager patch state."""
+    """Running instances registered in Systems Manager with a live agent and a Patch Manager patch state.
+    Instances in any other state (stopped...) cannot run the agent and are not applicable."""
+    states = {(region, i["InstanceId"]): (i.get("State") or {}).get("Name")
+              for region, data in responses.get("instances", []) for r in (data or {}).get("Reservations", []) for i in r.get("Instances", [])}
     managed = {(region, i["InstanceId"]): i for region, data in responses.get("info", [])
                for i in (data or {}).get("InstanceInformationList", [])}
     patched = {(region, s["InstanceId"]) for _, region, data in _for_each_pairs(responses, "patches")
@@ -860,6 +884,9 @@ def ssm_managed(responses: dict, params: dict) -> list[dict]:
     offenders = []
     for instance in _instances(responses):
         key = (instance["region"], instance["id"])
+        if states.get(key, "running") != "running":
+            offenders.append(_not_applicable(instance["id"], instance["region"]))
+            continue
         info = managed.get(key)
         if info is None:
             problems = ["no registrada en Systems Manager"]
