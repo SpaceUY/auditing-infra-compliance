@@ -246,6 +246,35 @@ class ValidateTests(CatalogTestCase):
         checks[1]["resource_types"] = []
         self.assert_errors_for(checks, "LOG-001")
 
+    def test_ok_errors_must_be_list_of_strings(self):
+        checks = self.checks()
+        checks[1]["verify"]["calls"][0]["ok_errors"] = ["NoSuchBucketPolicy"]
+        self.assertEqual(self.run_validate(checks), [])
+        for bad in ("NoSuchBucketPolicy", [1], [""]):
+            checks = self.checks()
+            checks[1]["verify"]["calls"][0]["ok_errors"] = bad
+            self.assert_errors_for(checks, "LOG-001")
+
+    def test_dns_params_validated(self):
+        def dns_check(params):
+            checks = self.checks()
+            checks[1]["verify"]["evaluator"] = "dns"
+            checks[1]["verify"]["params"] = params
+            return checks
+
+        good = {"rrtype": "TXT", "name_template": "_dmarc.{domain}", "must_match": "v=DMARC1"}
+        self.assertEqual(self.run_validate(dns_check(good)), [])
+        self.assertEqual(self.run_validate(dns_check({**good, "domains_from": "ses_identity"})), [])
+        for bad in (
+            {k: v for k, v in good.items() if k != "rrtype"},
+            {k: v for k, v in good.items() if k != "name_template"},
+            {k: v for k, v in good.items() if k != "must_match"},
+            {**good, "name_template": "_dmarc.example"},
+            {**good, "must_match": "("},
+            {**good, "rrtype": "-x"},
+        ):
+            self.assert_errors_for(dns_check(bad), "LOG-001")
+
 
 if __name__ == "__main__":
     unittest.main()

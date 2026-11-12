@@ -7,7 +7,12 @@ Check conventions (catalog): a jmespath check's `offenders` expression is passed
 project {resource_id, detail}; resource_id may be omitted when the call has for_each (the for_each
 value is used). A call's for_each is {"from": <earlier call name> | "__inventory__", "path", "arg"}:
 "__inventory__" iterates the check's evaluated inventory items (resource_types, narrowed to scope in
-feature/resource mode). A dns call has args [name, rrtype] (the for_each value replaces name).
+feature/resource mode). A call may list "ok_errors" (error codes): if its stderr contains one, a
+python evaluator receives {"__error__": <code>} as that call's data instead of the check becoming
+NO_VERIFICADO (never for ACCESS_DENIED / NO_CREDENTIALS, never for jmespath).
+The "dns" evaluator is run by the engine: params {rrtype, name_template with {domain}, must_match regex,
+domains_from (inventory type, default ses_identity)}; every domain-like inventory id of that type must
+have a record of rrtype at the templated name matching must_match.
 """
 
 import argparse
@@ -25,12 +30,13 @@ from typing import Callable
 import aws_runner
 import catalog
 import evaluators
+import inventory
 import paths
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_REGION = "us-east-1"
+DEFAULT_REGION = inventory.DEFAULT_REGION
 INVENTORY_SOURCE = "__inventory__"
-WORKERS = 8
+WORKERS = inventory.WORKERS
 SEVERITY_ORDER = {s: i for i, s in enumerate(catalog.SEVERITIES)}
 ADMIN_POLICY = "AdministratorAccess"
 ENABLED_REGIONS_FILTER = "Name=opt-in-status,Values=opt-in-not-required,opted-in"
@@ -47,7 +53,7 @@ class Ctx:
     regions: list = field(default_factory=list)
     inventory: list = field(default_factory=list)
     inventory_errors: dict = field(default_factory=dict)  # type -> {error kinds}
-    scope_pairs: set | None = None  # {(type, id)} in feature/resource mode, None in full mode
+    scope_entries: list | None = None  # [(type, ref)] in feature/resource mode, None in full mode
 
 
 def _oneline(text, limit):
@@ -68,63 +74,6 @@ def _row(check, status, resource_id, region, detail=None, missing=None, vacuous=
 
 
 # ---------------------------------------------------------------- inventory
-
-def _tags(nodes):
-    tags = {}
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        key = node.get("Key", node.get("key"))
-        if key is not None:
-            tags[str(key)] = str(node.get("Value", node.get("value", "")))
-        else:
-            tags.update({str(k): str(v) for k, v in node.items()})
-    return tags
-
-
-def _first(item, path):
-    values = paths.extract(item, path)
-    return str(values[0]) if values else ""
-
-
-def _to_item(type_, spec, raw, region):
-    item_id = _first(raw, spec["id_path"])
-    if not item_id:
-        return None
-    tags = _tags(paths.extract(raw, spec["tags_path"]))
-    name = _first(raw, spec["name_path"]) or tags.get("Name") or item_id
-    return {"type": type_, "id": item_id, "arn": _first(raw, spec["arn_path"]), "name": name,
-            "region": region, "tags": tags}
-
-
-def _list_type(ctx, type_, spec, region):
-    res = _aws(ctx, spec["service"], spec["operation"], spec["args"], region)
-    if not res.ok:
-        return [], res.error_kind
-    items = (_to_item(type_, spec, raw, region) for raw in paths.extract(res.data, spec["items_path"]))
-    return [i for i in items if i], None
-
-
-def _build_inventory(ctx, specs, regions):
-    """One job per region (ThreadPoolExecutor); global types run once in us-east-1."""
-    jobs = {r: [t for t, s in specs.items() if s["region"] == "each"] for r in regions}
-    jobs.setdefault(DEFAULT_REGION, [])
-    jobs[DEFAULT_REGION] = jobs[DEFAULT_REGION] + [t for t, s in specs.items() if s["region"] == "global"]
-
-    def run(region):
-        found, errors = [], []
-        for type_ in jobs[region]:
-            items, error = _list_type(ctx, type_, specs[type_], region)
-            found += items
-            if error:
-                errors.append((type_, region, error))
-        return found, errors
-
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        results = list(pool.map(run, sorted(jobs)))
-    items = sorted((i for found, _ in results for i in found), key=lambda i: (i["type"], i["region"], i["id"]))
-    return items, [e for _, errors in results for e in errors]
-
 
 def _inventory_warnings(ctx, errors):
     grouped = {}
@@ -150,10 +99,18 @@ def _call_regions(ctx, check, call):
     return ctx.enabled_regions if check["all_regions"] else ctx.regions
 
 
+def _matches(item, type_, ref):
+    return item["type"] == type_ and bool(ref) and ref in (item["id"], item["arn"], item["name"])
+
+
+def _scoped(ctx, items):
+    if ctx.scope_entries is None:
+        return items
+    return [i for i in items if any(_matches(i, t, ref) for t, ref in ctx.scope_entries)]
+
+
 def _items_for(ctx, check):
-    types = set(check["resource_types"])
-    return [i for i in ctx.inventory if i["type"] in types
-            and (ctx.scope_pairs is None or (i["type"], i["id"]) in ctx.scope_pairs)]
+    return _scoped(ctx, [i for i in ctx.inventory if i["type"] in set(check["resource_types"])])
 
 
 def _for_each_values(call, region, items, responses):
@@ -170,18 +127,12 @@ def _args_for(call, value):
     base = list(call.get("args", []))
     if value is None:
         return base
-    if call["service"] == "dns":
-        return [str(value), *base[-1:]]
     flag, text = call["for_each"]["arg"], str(value)
     return base + ([f"{flag}={text}"] if text.startswith("-") else [flag, text])
 
 
 def _execute(ctx, call, region, args, query):
-    if call["service"] != "dns":
-        return _aws(ctx, call["service"], call["operation"], args, region, query)
-    if len(args) < 2:
-        return aws_runner.CallResult(False, None, "ERROR", "llamada dns requiere [nombre, rrtype]", ())
-    return aws_runner.run_dns(args[0], args[-1], runner=ctx.runner, which=ctx.which)
+    return _aws(ctx, call["service"], call["operation"], args, region, query)
 
 
 def _write_raw(directory, call_name, region, index, res):
@@ -194,6 +145,12 @@ def _write_raw(directory, call_name, region, index, res):
         payload.update(error_kind=res.error_kind, error_message=_oneline(res.error_message, 300))
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{safe}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _ok_error(call, res, query):
+    if query is not None or res.error_kind in ("ACCESS_DENIED", "NO_CREDENTIALS"):
+        return None
+    return next((c for c in call.get("ok_errors") or [] if c in (res.error_message or "")), None)
 
 
 def _run_calls(ctx, check, items):
@@ -213,6 +170,9 @@ def _run_calls(ctx, check, items):
                 _write_raw(ctx.out / "raw" / check["id"], name, region, index if "for_each" in call else None, res)
                 if res.ok:
                     collected["responses"][name].append((region, res.data))
+                    collected["values"][name].append(value)
+                elif code := _ok_error(call, res, query):
+                    collected["responses"][name].append((region, {"__error__": code}))
                     collected["values"][name].append(value)
                 else:
                     collected["failures"].append({"call": name, "region": region, "error_kind": res.error_kind,
@@ -236,11 +196,11 @@ def _jmespath_offenders(collected, call_name):
     return offenders
 
 
-def _python_offenders(check, name, collected, inventory):
+def _python_offenders(check, name, collected, items):
     fn = evaluators.EVALUATORS.get(name)
     if fn is None:
         raise LookupError(f"evaluador python '{name}' no registrado")
-    responses = {**collected["responses"], "__for_each__": collected["values"], "__inventory__": inventory}
+    responses = {**collected["responses"], "__for_each__": collected["values"], "__inventory__": items}
     return [{"resource_id": str(o["resource_id"]), "region": o.get("region"), "detail": o.get("detail") or {}}
             for o in fn(responses, check["verify"].get("params") or {})]
 
@@ -257,8 +217,41 @@ def _unverified(check, failures, detail=None):
                 missing=list(check["verify"]["needs"]) if denied else [])
 
 
-def _vacuous_row(ctx, check):
-    broken = sorted(t for t in check["resource_types"] if t in ctx.inventory_errors)
+class _Unverifiable(Exception):
+    """An evaluator could not decide; args[0] is the NO_VERIFICADO detail."""
+
+
+def _dns_source(check):
+    return (check["verify"].get("params") or {}).get("domains_from", "ses_identity")
+
+
+def _dns_items(ctx, check):
+    return _scoped(ctx, [i for i in ctx.inventory if i["type"] == _dns_source(check)
+                         and "." in i["id"] and "@" not in i["id"]])
+
+
+def _dns_offenders(ctx, check, domains):
+    params = check["verify"]["params"]
+    rrtype = params["rrtype"]
+    names = {d["id"]: params["name_template"].format(domain=d["id"]) for d in domains}
+    bad = [n for n in (rrtype, *names.values()) if n.startswith(("-", "+", "@")) or any(c.isspace() for c in n)]
+    if bad:
+        raise _Unverifiable({"reason": "nombre DNS inválido", "names": [_oneline(n, 80) for n in bad[:5]]})
+    offenders, failed = [], []
+    for item in domains:
+        res = aws_runner.run_dns(names[item["id"]], rrtype, runner=ctx.runner, which=ctx.which)
+        if not res.ok:
+            failed.append({"domain": item["id"], "error": _oneline(res.error_message, 200)})
+        elif not any(re.search(params["must_match"], line) for line in res.data):
+            offenders.append({"resource_id": item["id"], "region": item["region"],
+                              "detail": {"record": names[item["id"]], "found": res.data[:10]}})
+    if failed:
+        raise _Unverifiable({"reason": "consulta DNS fallida", "failed": failed[:20]})
+    return offenders
+
+
+def _vacuous_row(ctx, check, types):
+    broken = sorted(t for t in types if t in ctx.inventory_errors)
     if broken:
         return _row(check, "NO_VERIFICADO", "account", None,
                     {"reason": "inventario no disponible", "types": broken}, missing=[f"inventory:{t}" for t in broken])
@@ -266,10 +259,19 @@ def _vacuous_row(ctx, check):
 
 
 def _run_check(ctx, check):
-    items = _items_for(ctx, check)
+    try:
+        return _check_rows(ctx, check)
+    except Exception as exc:  # one broken check must not lose the whole run
+        detail = {"reason": "error interno del motor", "error": _oneline(f"{type(exc).__name__}: {exc}", 300)}
+        return [_row(check, "NO_VERIFICADO", "account", None, detail)]
+
+
+def _check_rows(ctx, check):
+    kind, _, name = check["verify"]["evaluator"].partition(":")
     is_resource = check["scope"] == "resource"
-    if is_resource and not items:
-        return [_vacuous_row(ctx, check)]
+    items = _dns_items(ctx, check) if kind == "dns" else _items_for(ctx, check)
+    if (is_resource or kind == "dns") and not items:
+        return [_vacuous_row(ctx, check, [_dns_source(check)] if kind == "dns" else check["resource_types"])]
     collected = _run_calls(ctx, check, items)
     failures = collected["failures"]
     blocking = [f for f in failures if f["error_kind"] != "NOT_ENABLED" or check["not_enabled_means"] != "fail"]
@@ -277,18 +279,22 @@ def _run_check(ctx, check):
         return [_unverified(check, blocking)]
     rows = [_row(check, "FAIL", "account", region, {"reason": "servicio no habilitado", "call": call})
             for region, call in sorted({(f["region"], f["call"]) for f in failures})]
-    kind, _, name = check["verify"]["evaluator"].partition(":")
-    if kind in ("claude", "dns"):
+    if kind == "claude":
         return rows + [_row(check, "PENDING_CLAUDE", "account", None,
                             {"evaluator": kind, "calls": [c["name"] for c in check["verify"]["calls"]]})]
     try:
         if kind == "jmespath":
             offenders = _jmespath_offenders(collected, check["verify"]["calls"][0]["name"])
+        elif kind == "dns":
+            offenders = _dns_offenders(ctx, check, items)
         else:
             offenders = _python_offenders(check, name, collected, ctx.inventory)
+    except _Unverifiable as exc:
+        return rows + [_unverified(check, [], exc.args[0])]
     except Exception as exc:  # evaluator code is third-party to the engine
-        return rows + [_unverified(check, [], {"reason": "error del evaluador", "error": _oneline(f"{type(exc).__name__}: {exc}", 300)})]
-    if is_resource and ctx.scope_pairs is not None:
+        detail = {"reason": "error del evaluador", "error": _oneline(f"{type(exc).__name__}: {exc}", 300)}
+        return rows + [_unverified(check, [], detail)]
+    if is_resource and ctx.scope_entries is not None:
         allowed = _identifiers(items)
         offenders = [o for o in offenders if o["resource_id"] in allowed]
     rows += [_row(check, "FAIL", o["resource_id"], o["region"], o["detail"]) for o in offenders]
@@ -387,7 +393,8 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     else:
         inventory_regions = [r for r in wanted if r in enabled or not known]
         warnings += [f"región fuera de las habilitadas, se omite: {r}" for r in wanted if r not in inventory_regions]
-    ctx.inventory, errors = _build_inventory(ctx, specs, inventory_regions)
+    ctx.inventory, errors = inventory.build_inventory(
+        lambda service, op, args, region: _aws(ctx, service, op, args, region), specs, inventory_regions)
     warnings += _inventory_warnings(ctx, errors)
     if wanted == "auto":
         with_resources = {i["region"] for i in ctx.inventory if specs[i["type"]]["region"] == "each"}
@@ -395,7 +402,9 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     else:
         ctx.regions = sorted(inventory_regions)
     if scope["mode"] != "full":
-        ctx.scope_pairs = {(r["type"], r["id"]) for r in scope.get("resources") or []}
+        ctx.scope_entries = [(r["type"], r["id"]) for r in scope.get("resources") or []]
+        warnings += [f"recurso del alcance sin coincidencia en el inventario: {t} {ref}" for t, ref in ctx.scope_entries
+                     if not any(_matches(i, t, ref) for i in ctx.inventory)]
 
     selected = _select(checks, scope)
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:

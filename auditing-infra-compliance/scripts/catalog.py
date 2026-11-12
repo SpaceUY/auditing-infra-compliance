@@ -29,6 +29,7 @@ _REQUIRED_FIELDS = (
 )
 _REQUIRED_VERIFY = ("calls", "evaluator", "pass_when_text", "needs")
 _REQUIRED_REMEDIATION = ("kind", "risk", "downtime", "steps", "commands", "verify_after", "notes")
+_DNS_REQUIRED_PARAMS = ("rrtype", "name_template", "must_match")
 _REQUIRED_MAPPINGS = ("drata", "vanta", "tsc_inferred", "iso_inferred", "security_hub", "cis_aws")
 
 
@@ -195,6 +196,38 @@ def _check_jmespath(check):
     return errors
 
 
+def _check_call_options(check):
+    cid = check["id"]
+    errors = []
+    for call in check["verify"]["calls"]:
+        ok_errors = call.get("ok_errors")
+        if ok_errors is not None and not (
+            isinstance(ok_errors, list) and all(isinstance(e, str) and e for e in ok_errors)
+        ):
+            errors.append(f"{cid}: call '{call.get('name')}' ok_errors debe ser lista de textos no vacios")
+    if check["verify"]["evaluator"] == "dns":
+        errors += _check_dns_params(cid, check["verify"].get("params") or {})
+    return errors
+
+
+def _check_dns_params(cid, params):
+    errors = [
+        f"{cid}: evaluador dns requiere params.{key}"
+        for key in _DNS_REQUIRED_PARAMS
+        if not isinstance(params.get(key), str) or not params[key].strip()
+    ]
+    if isinstance(params.get("rrtype"), str) and not re.fullmatch(r"[A-Za-z0-9]+", params["rrtype"]):
+        errors.append(f"{cid}: params.rrtype invalido '{params['rrtype']}'")
+    if isinstance(params.get("name_template"), str) and "{domain}" not in params["name_template"]:
+        errors.append(f"{cid}: params.name_template debe contener {{domain}}")
+    if isinstance(params.get("must_match"), str):
+        try:
+            re.compile(params["must_match"])
+        except re.error:
+            errors.append(f"{cid}: params.must_match no es una regex valida")
+    return errors
+
+
 def _check_remediation(check):
     cid = check["id"]
     rem = check["remediation"]
@@ -237,6 +270,7 @@ def validate(checks, tsc_ids, iso_ids, drata) -> list[str]:
         errors += _check_calls_read_only(check)
         errors += _check_framework_ids(check, tsc_ids, iso_ids)
         errors += _check_jmespath(check)
+        errors += _check_call_options(check)
         errors += _check_remediation(check)
         errors += _check_coverage(check, drata)
     return errors

@@ -57,7 +57,8 @@ class CollectCase(unittest.TestCase):
         path.write_text(json.dumps(scope), encoding="utf-8")
         return path
 
-    def run_collect(self, responses=None, scope=None, checks_dir=ENGINE_DIR, inventory=INVENTORY_MIN):
+    def run_collect(self, responses=None, scope=None, checks_dir=ENGINE_DIR, inventory=INVENTORY_MIN,
+                    which=lambda name: "/usr/bin/dig" if name == "dig" else None):
         runner = FakeRunner(base_responses() if responses is None else responses)
         out = self.tmp / "out"
         stdout = io.StringIO()
@@ -65,7 +66,7 @@ class CollectCase(unittest.TestCase):
             code = collect.main(
                 ["--scope", str(scope or self.scope_file()), "--out", str(out),
                  "--checks-dir", str(checks_dir), "--inventory", str(inventory)],
-                runner=runner, sleep=lambda s: None,
+                runner=runner, sleep=lambda s: None, which=which,
             )
         self.runner, self.out, self.stdout, self.code = runner, out, stdout.getvalue(), code
         self.result = json.loads((out / "checks-result.json").read_text(encoding="utf-8"))
@@ -322,26 +323,93 @@ class EngineTests(CollectCase):
         self.assertEqual((row["status"], row["resource_id"]), ("PENDING_CLAUDE", "account"))
         self.assertTrue((self.out / "raw" / "IAM-902" / "summary-us-east-1.json").exists())
 
-    def test_dns_evaluator_runs_dns_and_marks_pending(self):
-        def dns(check):
-            check["id"] = "EML-901"
-            check["verify"]["calls"] = [{"name": "spf", "service": "dns", "operation": "get-record", "args": ["acme-notes.example", "TXT"], "region": "global"}]
-            check["verify"]["evaluator"] = "dns"
+    def test_scope_entry_by_arn_matches_inventory_item(self):
+        spec = json.loads(INVENTORY_MIN.read_text(encoding="utf-8"))
+        spec["s3_bucket"]["arn_path"] = "Arn"
+        inventory_file = self.tmp / "inventory-arn.json"
+        inventory_file.write_text(json.dumps(spec), encoding="utf-8")
+        buckets = {"Buckets": [{"Name": "acme-notes-data", "Arn": "arn:aws:s3:::acme-notes-data"},
+                               {"Name": "acme-notes-logs", "Arn": "arn:aws:s3:::acme-notes-logs"}]}
+        responses = base_responses()
+        responses[("s3api", "list-buckets", "us-east-1")] = ok(buckets)
+        responses[("s3api", "get-bucket-versioning", "us-east-1")] = ok(
+            load_fixture("aws/core/s3api-get-bucket-versioning-offenders.json"))
+        scope = self.scope_file("scope-resource.json", resources=[
+            {"type": "s3_bucket", "id": "arn:aws:s3:::acme-notes-logs", "region": "us-east-1"}])
+        self.run_collect(responses, scope=scope, inventory=inventory_file)
+        self.assertEqual([(r["status"], r["resource_id"]) for r in self.rows("DAT-901")], [("FAIL", "acme-notes-logs")])
+        self.assertFalse(any("sin coincidencia" in w for w in self.result["warnings"]))
+
+    def test_unmatched_scope_entry_warns_and_is_not_silent(self):
+        scope = self.scope_file("scope-resource.json", resources=[
+            {"type": "s3_bucket", "id": "acme-notes-ghost", "region": "us-east-1"}])
+        self.run_collect(scope=scope)
+        self.assertTrue(any("acme-notes-ghost" in w and "sin coincidencia" in w for w in self.result["warnings"]))
+        (row,) = self.rows("DAT-901")
+        self.assertEqual((row["status"], row["vacuous"]), ("N/A", True))
+
+    def test_crashing_check_does_not_lose_the_run(self):
+        def bad_path(check):
+            check["id"] = "DAT-905"
+            check["scope"], check["resource_types"] = "resource", ["s3_bucket"]
+            check["verify"]["calls"][0]["for_each"] = {"from": "__inventory__", "path": "id[0]", "arg": "--bucket"}
+
+        directory = self.tmp / "crash"
+        directory.mkdir()
+        shutil.copy(ENGINE_DIR / "engine.json", directory / "engine.json")
+        shutil.copy(self.catalog_with(bad_path) / "extra.json", directory / "extra.json")
+        self.run_collect(checks_dir=directory)
+        (row,) = self.rows("DAT-905")
+        self.assertEqual(row["status"], "NO_VERIFICADO")
+        self.assertIn("reason", row["detail"])
+        self.assertEqual([r["status"] for r in self.rows("IAM-901")], ["FAIL"])
+
+    def policy_check(self, ok_errors):
+        def check_with_policy(check):
+            check["id"] = "TLS-901"
+            check["scope"], check["resource_types"] = "resource", ["s3_bucket"]
+            call = {"name": "policy", "service": "s3api", "operation": "get-bucket-policy", "args": [], "region": "global",
+                    "for_each": {"from": "__inventory__", "path": "id", "arg": "--bucket"}}
+            if ok_errors:
+                call["ok_errors"] = ok_errors
+            check["verify"]["calls"] = [call]
+            check["verify"]["evaluator"] = "python:test_policy_probe"
             check["verify"].pop("offenders")
 
-        runner = FakeRunner({("dig", None, None): {"stdout": '"v=spf1 -all"\n'}})
-        out = self.tmp / "out"
+        @evaluators.register("test_policy_probe")
+        def probe(responses, params):
+            return [{"resource_id": bucket, "region": region, "detail": {}}
+                    for (region, data), bucket in zip(responses["policy"], responses["__for_each__"]["policy"])
+                    if data == {"__error__": "NoSuchBucketPolicy"}]
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_policy_probe")
+        return self.catalog_with(check_with_policy)
+
+    def test_ok_errors_reach_evaluator_as_data(self):
         responses = base_responses()
-        runner.responses.update(FakeRunner(responses).responses)
-        with contextlib.redirect_stdout(io.StringIO()):
-            collect.main(["--scope", str(self.scope_file()), "--out", str(out), "--checks-dir", str(self.catalog_with(dns)),
-                          "--inventory", str(INVENTORY_MIN)],
-                         runner=runner, sleep=lambda s: None, which=lambda name: "/usr/bin/dig" if name == "dig" else None)
-        result = json.loads((out / "checks-result.json").read_text(encoding="utf-8"))
-        (row,) = [r for r in result["results"] if r["check_id"] == "EML-901"]
-        self.assertEqual(row["status"], "PENDING_CLAUDE")
-        raw = json.loads((out / "raw" / "EML-901" / "spf-us-east-1.json").read_text(encoding="utf-8"))
-        self.assertEqual(raw["data"], ['"v=spf1 -all"'])
+        responses[("s3api", "get-bucket-policy", "us-east-1")] = [
+            err("An error occurred (NoSuchBucketPolicy) when calling the GetBucketPolicy operation: The bucket policy does not exist"),
+            ok({"Policy": "{}"})]
+        self.run_collect(responses, checks_dir=self.policy_check(["NoSuchBucketPolicy"]))
+        self.assertEqual([(r["status"], r["resource_id"]) for r in self.rows("TLS-901")],
+                         [("FAIL", "acme-notes-data"), ("PASS", "acme-notes-logs")])
+        raw = json.loads((self.out / "raw" / "TLS-901" / "policy-us-east-1-0.json").read_text(encoding="utf-8"))
+        self.assertEqual(raw["error_kind"], "ERROR")
+
+    def test_unlisted_error_is_still_not_verified(self):
+        responses = base_responses()
+        responses[("s3api", "get-bucket-policy", "us-east-1")] = err("An error occurred (InternalFailure) boom")
+        self.run_collect(responses, checks_dir=self.policy_check(["NoSuchBucketPolicy"]))
+        (row,) = self.rows("TLS-901")
+        self.assertEqual(row["status"], "NO_VERIFICADO")
+
+    def test_ok_errors_never_hides_access_denied(self):
+        responses = base_responses()
+        responses[("s3api", "get-bucket-policy", "us-east-1")] = err(
+            "An error occurred (AccessDenied) when calling the GetBucketPolicy operation: not authorized to perform")
+        self.run_collect(responses, checks_dir=self.policy_check(["AccessDenied"]))
+        (row,) = self.rows("TLS-901")
+        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["iam:GetAccountSummary"]))
 
     def test_inventory_available_to_evaluators(self):
         seen = {}
@@ -394,6 +462,67 @@ class EngineTests(CollectCase):
         (row,) = self.rows("IAM-903")
         self.assertEqual(row["status"], "NO_VERIFICADO")
         self.assertEqual(self.calls("iam", "delete-account-alias"), [])
+
+
+class DnsEvaluatorTests(CollectCase):
+    PARAMS = {"rrtype": "TXT", "name_template": "_dmarc.{domain}", "must_match": "^\"?v=DMARC1"}
+
+    def dns_run(self, identities, dig, params=None, which=None):
+        spec = json.loads(INVENTORY_MIN.read_text(encoding="utf-8"))
+        spec["ses_identity"] = {"service": "sesv2", "operation": "list-email-identities", "args": [], "region": "each",
+                                "items_path": "EmailIdentities[]", "id_path": "IdentityName", "name_path": "",
+                                "tags_path": "", "arn_path": ""}
+        inventory_file = self.tmp / "inventory-ses.json"
+        inventory_file.write_text(json.dumps(spec), encoding="utf-8")
+
+        def dns_check(check):
+            check["id"] = "EML-901"
+            check["scope"], check["resource_types"] = "resource", ["ses_identity"]
+            check["verify"]["calls"] = []
+            check["verify"]["evaluator"] = "dns"
+            check["verify"]["params"] = params or self.PARAMS
+            check["verify"].pop("offenders")
+
+        responses = base_responses()
+        responses[("sesv2", "list-email-identities", "us-east-1")] = ok(
+            {"EmailIdentities": [{"IdentityName": name} for name in identities]})
+        if dig is not None:
+            responses[("dig", None, None)] = dig
+        kwargs = {} if which is None else {"which": which}
+        self.run_collect(responses, checks_dir=self.catalog_with(dns_check), inventory=inventory_file, **kwargs)
+        return [c for c in self.runner.calls if c[0] == "dig"]
+
+    def test_dmarc_present_and_absent(self):
+        dig_calls = self.dns_run(
+            ["noreply@acme-notes.example", "mail.acme-notes.example", "acme-notes.example"],
+            [{"stdout": '"v=DMARC1; p=reject"\n'}, {"stdout": ""}])
+        self.assertEqual([c[2:] for c in dig_calls],
+                         [["TXT", "_dmarc.acme-notes.example"], ["TXT", "_dmarc.mail.acme-notes.example"]])
+        self.assertEqual(
+            [(r["status"], r["resource_id"]) for r in self.rows("EML-901")],
+            [("PASS", "acme-notes.example"), ("FAIL", "mail.acme-notes.example")])
+        self.assertEqual(self.rows("EML-901")[1]["detail"], {"record": "_dmarc.mail.acme-notes.example", "found": []})
+
+    def test_no_domain_identities_is_vacuous(self):
+        dig_calls = self.dns_run(["noreply@acme-notes.example"], None)
+        self.assertEqual(dig_calls, [])
+        (row,) = self.rows("EML-901")
+        self.assertEqual((row["status"], row["vacuous"]), ("N/A", True))
+
+    def test_invalid_names_are_rejected_before_any_query(self):
+        for bad in ("-x.example", "+x.example", "a b.example"):
+            with self.subTest(bad=bad):
+                dig_calls = self.dns_run([bad], [{"stdout": '"v=DMARC1"\n'}], params={**self.PARAMS, "name_template": "{domain}"})
+                self.assertEqual(dig_calls, [])
+                (row,) = self.rows("EML-901")
+                self.assertEqual(row["status"], "NO_VERIFICADO")
+                self.assertEqual(row["detail"]["reason"], "nombre DNS inválido")
+
+    def test_dig_missing_is_not_verified(self):
+        self.dns_run(["acme-notes.example"], None, which=lambda name: None)
+        (row,) = self.rows("EML-901")
+        self.assertEqual(row["status"], "NO_VERIFICADO")
+        self.assertEqual(row["detail"]["reason"], "consulta DNS fallida")
 
 
 class InventorySpecTests(unittest.TestCase):
