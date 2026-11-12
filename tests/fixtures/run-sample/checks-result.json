@@ -1,0 +1,164 @@
+{
+  "aws": {
+    "account_id": "111122223333",
+    "identity_arn": "arn:aws:iam::111122223333:user/acme-auditor",
+    "regions": [
+      "us-east-1"
+    ],
+    "enabled_regions": [
+      "us-east-1"
+    ]
+  },
+  "results": [
+    {
+      "check_id": "DAT-001",
+      "status": "NO_VERIFICADO",
+      "resource_id": "account",
+      "region": null,
+      "detail": {
+        "failed_calls": [
+          {
+            "call": "instances",
+            "region": "us-east-1",
+            "error_kind": "ACCESS_DENIED"
+          }
+        ]
+      },
+      "missing": [
+        "rds:DescribeDBInstances"
+      ],
+      "vacuous": false
+    },
+    {
+      "check_id": "DAT-007",
+      "status": "FAIL",
+      "resource_id": "acme-notes-uploads",
+      "region": "us-east-1",
+      "detail": {
+        "BlockPublicAcls": false,
+        "severity_override": "low"
+      },
+      "missing": [],
+      "vacuous": false
+    },
+    {
+      "check_id": "DAT-007",
+      "status": "PASS",
+      "resource_id": "acme-notes-assets",
+      "region": "us-east-1",
+      "detail": {},
+      "missing": [],
+      "vacuous": false
+    },
+    {
+      "check_id": "DET-001",
+      "status": "PASS",
+      "resource_id": "account",
+      "region": null,
+      "detail": {},
+      "missing": [],
+      "vacuous": false
+    },
+    {
+      "check_id": "IAM-001",
+      "status": "FAIL",
+      "resource_id": "account",
+      "region": "us-east-1",
+      "detail": {
+        "AccountMFAEnabled": 0
+      },
+      "missing": [],
+      "vacuous": false
+    },
+    {
+      "check_id": "IAM-013",
+      "status": "PENDING_CLAUDE",
+      "resource_id": "account",
+      "region": null,
+      "detail": {
+        "evaluator": "claude",
+        "calls": [
+          "policies"
+        ]
+      },
+      "missing": [],
+      "vacuous": false
+    },
+    {
+      "check_id": "INV-001",
+      "status": "FAIL",
+      "resource_id": "acme-notes-assets",
+      "region": "us-east-1",
+      "detail": {
+        "missing_tag": "VantaOwner"
+      },
+      "missing": [],
+      "vacuous": false
+    },
+    {
+      "check_id": "INV-001",
+      "status": "FAIL",
+      "resource_id": "acme-notes-uploads",
+      "region": "us-east-1",
+      "detail": {
+        "missing_tag": "VantaOwner"
+      },
+      "missing": [],
+      "vacuous": false
+    },
+    {
+      "check_id": "LOG-002",
+      "status": "N/A",
+      "resource_id": "account",
+      "region": null,
+      "detail": {
+        "reason": "sin recursos en el alcance"
+      },
+      "missing": [],
+      "vacuous": true
+    },
+    {
+      "check_id": "NET-001",
+      "status": "FAIL",
+      "resource_id": "sg-0a1b2c3d4e5f60718",
+      "region": "us-east-1",
+      "detail": {
+        "ip_permissions": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 22,
+            "ToPort": 22,
+            "IpRanges": [
+              {
+                "CidrIp": "0.0.0.0/0"
+              }
+            ]
+          }
+        ]
+      },
+      "missing": [],
+      "vacuous": false
+    },
+    {
+      "check_id": "NET-001",
+      "status": "PASS",
+      "resource_id": "sg-0f1e2d3c4b5a69788",
+      "region": "us-east-1",
+      "detail": {},
+      "missing": [],
+      "vacuous": false
+    },
+    {
+      "check_id": "NET-004",
+      "status": "PASS",
+      "resource_id": "sg-0f1e2d3c4b5a69788",
+      "region": "us-east-1",
+      "detail": {},
+      "missing": [],
+      "vacuous": false
+    }
+  ],
+  "warnings": [
+    "inventario incompleto: rds_instance ACCESS_DENIED en us-east-1"
+  ]
+}

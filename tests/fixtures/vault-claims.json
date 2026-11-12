@@ -1,0 +1,97 @@
+[
+  {
+    "kind": "DRIFT",
+    "check_id": "DAT-007",
+    "resource": {
+      "type": "s3_bucket",
+      "id": "acme-notes-uploads",
+      "region": "us-east-1"
+    },
+    "vault_note": "systems/Uploads Bucket.md",
+    "vault_claim": "El bucket de uploads bloquea todo acceso público",
+    "actual": "Block Public Access desactivado",
+    "status": null,
+    "detail": null,
+    "severity": null,
+    "breaks_tests": []
+  },
+  {
+    "kind": "UNDOCUMENTED",
+    "check_id": null,
+    "resource": {
+      "type": "sqs_queue",
+      "id": "acme-notes-dlq",
+      "region": "us-east-1"
+    },
+    "vault_note": null,
+    "vault_claim": null,
+    "actual": "Cola sin documentar en el vault",
+    "status": null,
+    "detail": null,
+    "severity": null,
+    "breaks_tests": []
+  },
+  {
+    "kind": "DOCUMENTED_ONLY",
+    "check_id": null,
+    "resource": {
+      "type": "sqs_queue",
+      "id": "acme-notes-mail-queue",
+      "region": "us-east-1"
+    },
+    "vault_note": "systems/Mail Queue.md",
+    "vault_claim": "Existe la cola acme-notes-mail-queue",
+    "actual": null,
+    "status": null,
+    "detail": null,
+    "severity": "low",
+    "breaks_tests": []
+  },
+  {
+    "kind": "DOCUMENTED_GAP",
+    "check_id": "LOG-001",
+    "resource": null,
+    "vault_note": "failures/No multi-region trail.md",
+    "vault_claim": "Falta un trail multirregión; pendiente de ticket",
+    "actual": null,
+    "status": null,
+    "detail": null,
+    "severity": null,
+    "breaks_tests": []
+  },
+  {
+    "kind": "DOCUMENTED_GAP",
+    "check_id": "NET-001",
+    "resource": {
+      "type": "security_group",
+      "id": "sg-0f1e2d3c4b5a69788",
+      "region": "us-east-1"
+    },
+    "vault_note": "decisions/Open SSH to office.md",
+    "vault_claim": "Recomendación: cerrar el SSH del grupo web",
+    "actual": null,
+    "status": null,
+    "detail": null,
+    "severity": "low",
+    "breaks_tests": [
+      {
+        "tool": "drata",
+        "test": 102
+      }
+    ]
+  },
+  {
+    "kind": "EVAL",
+    "check_id": "IAM-013",
+    "resource": null,
+    "vault_note": null,
+    "vault_claim": null,
+    "actual": null,
+    "status": "PASS",
+    "detail": {
+      "reason": "Las políticas administrativas están acotadas a un rol de emergencia"
+    },
+    "severity": null,
+    "breaks_tests": []
+  }
+]
