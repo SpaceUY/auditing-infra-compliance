@@ -1,0 +1,42 @@
+{
+  "UserDetailList": [],
+  "GroupDetailList": [],
+  "RoleDetailList": [
+    {
+      "RoleName": "DrataAutopilotRole",
+      "Arn": "arn:aws:iam::111122223333:role/DrataAutopilotRole",
+      "RolePolicyList": [
+        {
+          "PolicyName": "DrataBackupRead",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "backup:ListRecoveryPointsByResource",
+                  "backup:ListBackupJobs"
+                ],
+                "Resource": "arn:aws:backup:us-east-1:111122223333:backup-vault:other"
+              }
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": [
+        {
+          "PolicyName": "SecurityAudit",
+          "PolicyArn": "arn:aws:iam::aws:policy/SecurityAudit"
+        }
+      ]
+    },
+    {
+      "RoleName": "acme-notes-app",
+      "Arn": "arn:aws:iam::111122223333:role/acme-notes-app",
+      "RolePolicyList": [],
+      "AttachedManagedPolicies": []
+    }
+  ],
+  "Policies": [],
+  "IsTruncated": false
+}

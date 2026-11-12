@@ -1,0 +1,26 @@
+[
+  {
+    "type": "iam_role",
+    "id": "acme-notes-app",
+    "arn": "arn:aws:iam::111122223333:role/acme-notes-app",
+    "name": "acme-notes-app",
+    "region": "us-east-1",
+    "tags": {}
+  },
+  {
+    "type": "iam_role",
+    "id": "DrataAutopilotRole",
+    "arn": "arn:aws:iam::111122223333:role/DrataAutopilotRole",
+    "name": "DrataAutopilotRole",
+    "region": "us-east-1",
+    "tags": {}
+  },
+  {
+    "type": "iam_role",
+    "id": "vanta-auditor",
+    "arn": "arn:aws:iam::111122223333:role/vanta-auditor",
+    "name": "vanta-auditor",
+    "region": "us-east-1",
+    "tags": {}
+  }
+]

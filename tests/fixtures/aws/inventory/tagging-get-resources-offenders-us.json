@@ -1,0 +1,114 @@
+{
+  "PaginationToken": "",
+  "ResourceTagMappingList": [
+    {
+      "ResourceARN": "arn:aws:s3:::acme-notes-data",
+      "Tags": [
+        {
+          "Key": "VantaOwner",
+          "Value": "ana@acme-notes.example"
+        },
+        {
+          "Key": "VantaContainsUserData",
+          "Value": "true"
+        },
+        {
+          "Key": "Project",
+          "Value": "acme-notes"
+        },
+        {
+          "Key": "Environment",
+          "Value": "prod"
+        },
+        {
+          "Key": "Owner",
+          "Value": "ana@acme-notes.example"
+        }
+      ]
+    },
+    {
+      "ResourceARN": "arn:aws:s3:::acme-notes-logs",
+      "Tags": [
+        {
+          "Key": "VantaOwner",
+          "Value": "ana"
+        },
+        {
+          "Key": "VantaContainsUserData",
+          "Value": "maybe"
+        },
+        {
+          "Key": "Environment",
+          "Value": "Production"
+        },
+        {
+          "Key": "Owner",
+          "Value": "ana@acme-notes.example"
+        },
+        {
+          "Key": "VantaNonProd",
+          "Value": "TRUE"
+        }
+      ]
+    },
+    {
+      "ResourceARN": "arn:aws:dynamodb:us-east-1:111122223333:table/acme-notes-sessions",
+      "Tags": [
+        {
+          "Key": "VantaOwner",
+          "Value": "ana@acme-notes.example"
+        },
+        {
+          "Key": "VantaContainsUserData",
+          "Value": "yes"
+        },
+        {
+          "Key": "Project",
+          "Value": "acme-notes"
+        },
+        {
+          "Key": "Environment",
+          "Value": "prod"
+        },
+        {
+          "Key": "Owner",
+          "Value": ""
+        }
+      ]
+    },
+    {
+      "ResourceARN": "arn:aws:sqs:us-east-1:111122223333:acme-notes-jobs",
+      "Tags": [
+        {
+          "Key": "VantaOwner",
+          "Value": "bruno@acme-notes.example"
+        },
+        {
+          "Key": "VantaContainsUserData",
+          "Value": "true"
+        },
+        {
+          "Key": "Project",
+          "Value": "acme-notes"
+        },
+        {
+          "Key": "Environment",
+          "Value": "prod"
+        },
+        {
+          "Key": "Owner",
+          "Value": "ana@acme-notes.example"
+        }
+      ]
+    },
+    {
+      "ResourceARN": "arn:aws:rds:us-west-2:111122223333:db:acme-notes-db",
+      "Tags": [
+        {
+          "Key": "Project",
+          "Value": "elsewhere"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,461 @@
+{
+  "domain": "email",
+  "checks": [
+    {
+      "id": "EML-001",
+      "title": "Las identidades de SES están verificadas para enviar y tienen DKIM habilitado con estado SUCCESS",
+      "scope": "resource",
+      "resource_types": [
+        "ses_identity"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "identity",
+            "service": "sesv2",
+            "operation": "get-email-identity",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "__inventory__",
+              "path": "id",
+              "arg": "--email-identity"
+            }
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "(VerifiedForSendingStatus != `true` || (IdentityType != 'EMAIL_ADDRESS' && (DkimAttributes.Status != 'SUCCESS' || DkimAttributes.SigningEnabled != `true`))) && [{detail: {identity_type: IdentityType, verified_for_sending: VerifiedForSendingStatus, dkim_status: DkimAttributes.Status, dkim_signing_enabled: DkimAttributes.SigningEnabled, dkim_origin: DkimAttributes.SigningAttributesOrigin}}] || `[]`",
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Toda identidad (dominio o dirección) tiene VerifiedForSendingStatus=true. Las identidades de dominio además tienen la firma DKIM habilitada (SigningEnabled=true) con DkimAttributes.Status=SUCCESS, sea Easy DKIM (SigningAttributesOrigin=AWS_SES) o BYODKIM. Las direcciones de email verificadas (EMAIL_ADDRESS) no exigen DKIM propio: se firman con el DKIM del dominio. PENDING, FAILED, TEMPORARY_FAILURE y NOT_STARTED fallan: los registros CNAME de DKIM no están publicados o no se resuelven.",
+        "needs": [
+          "ses:ListEmailIdentities",
+          "ses:GetEmailIdentity"
+        ]
+      },
+      "vault_signals": [
+        "SES",
+        "DKIM",
+        "identidad verificada",
+        "firma de correo",
+        "dominio de envío",
+        "Amazon SES",
+        "autenticación de correo"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC6.7"
+        ],
+        "iso_inferred": [
+          "A.8.24",
+          "A.5.14"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Obtener los tokens de DKIM de {resource_id} y publicar, en el DNS del dominio, un registro CNAME por token (a partir de Easy DKIM, 3 tokens).",
+          "Esperar a que el DNS propague (puede tardar hasta 72 horas) hasta que Status pase a SUCCESS.",
+          "Si la firma está apagada, habilitarla con put-email-identity-dkim-attributes."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws sesv2 put-email-identity-dkim-signing-attributes --email-identity \"{resource_id}\" --signing-attributes-origin AWS_SES --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws sesv2 put-email-identity-dkim-attributes --email-identity \"{resource_id}\" --signing-enabled --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws sesv2 get-email-identity --email-identity \"{resource_id}\" --region \"$REGION\" --query 'DkimAttributes.Tokens'"
+        ],
+        "verify_after": "aws sesv2 get-email-identity --email-identity \"{resource_id}\" --region \"{region}\" --query '{Verified:VerifiedForSendingStatus,Dkim:DkimAttributes.Status,Signing:DkimAttributes.SigningEnabled}'",
+        "notes": "Sin downtime. El primer bloque pasa la identidad a Easy DKIM y devuelve los tokens (si ya usa Easy DKIM, no hace falta): rotar los tokens cambia los registros CNAME. Para cada token publicar en el DNS (consola de Route 53 o el registrador) un CNAME TOKEN._domainkey.DOMINIO apuntando a TOKEN.dkim.amazonses.com. Mientras los registros no se resuelvan el estado queda PENDING. Una identidad de dominio sin verificar necesita además el registro de verificación que muestra la consola de SES. Algunos registradores agregan el dominio al nombre por su cuenta: en ese caso escribir solo TOKEN._domainkey."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/ses/latest/dg/send-email-authentication-dkim.html",
+        "https://dev.to/rronyecz/soc2-cc66-made-easy-automating-logical-access-evidence-7hn"
+      ]
+    },
+    {
+      "id": "EML-002",
+      "title": "La identidad de SES envía por defecto con un configuration set que exige TLS (TlsPolicy=REQUIRE)",
+      "scope": "resource",
+      "resource_types": [
+        "ses_identity"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "identity",
+            "service": "sesv2",
+            "operation": "get-email-identity",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "__inventory__",
+              "path": "id",
+              "arg": "--email-identity"
+            },
+            "ok_errors": [
+              "NotFoundException"
+            ],
+            "item_errors": "evaluator"
+          },
+          {
+            "name": "cset",
+            "service": "sesv2",
+            "operation": "get-configuration-set",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "identity",
+              "path": "ConfigurationSetName",
+              "arg": "--configuration-set-name"
+            },
+            "ok_errors": [
+              "NotFoundException"
+            ],
+            "item_errors": "evaluator"
+          }
+        ],
+        "evaluator": "python:ses_default_config_tls",
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad tiene un configuration set por defecto (get-email-identity, ConfigurationSetName) y ese set tiene DeliveryOptions.TlsPolicy=REQUIRE: SES no entrega a servidores que no negocian TLS (la protección en tránsito que busca CC6.7). Sin TlsPolicy rige el valor por defecto de AWS, OPTIONAL, y falla. Una identidad sin configuration set por defecto falla, porque SES solo aplica TLS obligatorio a través de un set. El chequeo evalúa el set por defecto de la identidad: un set elegido en cada envío (por ejemplo con el header X-SES-CONFIGURATION-SET) no se evalúa. Si el set por defecto no se puede leer con los permisos del auditor, esa identidad queda NO_VERIFICADO.",
+        "needs": [
+          "ses:GetEmailIdentity",
+          "ses:GetConfigurationSet"
+        ]
+      },
+      "vault_signals": [
+        "TLS en el correo",
+        "TlsPolicy",
+        "configuration set",
+        "SES",
+        "cifrado en tránsito del correo",
+        "Amazon SES"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC6.7"
+        ],
+        "iso_inferred": [
+          "A.8.24",
+          "A.5.14"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Elegir o crear un configuration set para {resource_id} y poner su TlsPolicy en REQUIRE.",
+          "Dejar ese set como el configuration set por defecto de la identidad.",
+          "Verificar que el set tiene TLS obligatorio y que la identidad lo usa por defecto."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__COMPLETAR_CONFIGURATION_SET__\"\naws sesv2 put-configuration-set-delivery-options --configuration-set-name \"$CONFIG_SET\" --tls-policy REQUIRE --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__COMPLETAR_CONFIGURATION_SET__\"\naws sesv2 create-configuration-set --configuration-set-name \"$CONFIG_SET\" --delivery-options TlsPolicy=REQUIRE --region \"$REGION\" && aws sesv2 put-email-identity-configuration-set-attributes --email-identity \"{resource_id}\" --configuration-set-name \"$CONFIG_SET\" --region \"$REGION\""
+        ],
+        "verify_after": "aws sesv2 get-email-identity --email-identity \"{resource_id}\" --region \"{region}\" --query 'ConfigurationSetName'",
+        "notes": "Sin downtime, pero con TlsPolicy=REQUIRE SES no entrega a los destinatarios cuyo servidor no soporta TLS (el mensaje rebota): revisar las métricas de rebotes después del cambio. Usar el primer bloque si la identidad ya tiene un configuration set, y el segundo si no tiene (crea el set y lo deja como por defecto en un solo paso: el put solo corre si el create tuvo éxito). Reemplazar __COMPLETAR_CONFIGURATION_SET__ por el nombre del set. Los envíos que indican otro set en cada mensaje no usan el set por defecto: configurar también esos sets."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/ses/latest/dg/using-configuration-sets.html",
+        "https://docs.aws.amazon.com/ses/latest/dg/configure-ses-connection-tls.html",
+        "https://dev.to/rronyecz/soc2-cc66-made-easy-automating-logical-access-evidence-7hn"
+      ]
+    },
+    {
+      "id": "EML-003",
+      "title": "El configuration set por defecto de la identidad tiene un event destination habilitado",
+      "scope": "resource",
+      "resource_types": [
+        "ses_identity"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "identity",
+            "service": "sesv2",
+            "operation": "get-email-identity",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "__inventory__",
+              "path": "id",
+              "arg": "--email-identity"
+            },
+            "ok_errors": [
+              "NotFoundException"
+            ],
+            "item_errors": "evaluator"
+          },
+          {
+            "name": "events",
+            "service": "sesv2",
+            "operation": "get-configuration-set-event-destinations",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "identity",
+              "path": "ConfigurationSetName",
+              "arg": "--configuration-set-name"
+            },
+            "ok_errors": [
+              "NotFoundException"
+            ],
+            "item_errors": "evaluator"
+          }
+        ],
+        "evaluator": "python:ses_default_config_events",
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad tiene un configuration set por defecto con al menos un event destination habilitado (Enabled=true), por ejemplo SNS, CloudWatch o Firehose. Sin destino de eventos nadie se entera de los rebotes ni de las quejas. Una identidad sin configuration set por defecto falla. El chequeo no exige tipos de evento concretos; para operar el correo conviene al menos BOUNCE y COMPLAINT. Un set elegido en cada envío no se evalúa. Si no se puede leer con los permisos del auditor, la identidad queda NO_VERIFICADO.",
+        "needs": [
+          "ses:GetEmailIdentity",
+          "ses:GetConfigurationSetEventDestinations"
+        ]
+      },
+      "vault_signals": [
+        "rebotes",
+        "quejas",
+        "bounce",
+        "complaint",
+        "event destination",
+        "eventos de SES",
+        "monitoreo del correo"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC6.7"
+        ],
+        "iso_inferred": [
+          "A.8.24",
+          "A.5.14"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir adónde van los eventos de rebote y queja de {resource_id}: un topic SNS del equipo, CloudWatch o Firehose.",
+          "Crear el event destination en el configuration set por defecto de la identidad, con al menos BOUNCE y COMPLAINT.",
+          "Verificar el destino y suscribir una casilla del equipo al topic."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__COMPLETAR_CONFIGURATION_SET__\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sesv2 create-configuration-set-event-destination --configuration-set-name \"$CONFIG_SET\" --event-destination-name eventos-sns --event-destination '{\"Enabled\":true,\"MatchingEventTypes\":[\"BOUNCE\",\"COMPLAINT\"],\"SnsDestination\":{\"TopicArn\":\"'\"$TOPIC_ARN\"'\"}}' --region \"$REGION\""
+        ],
+        "verify_after": "aws sesv2 get-configuration-set-event-destinations --configuration-set-name \"__COMPLETAR_CONFIGURATION_SET__\" --region \"{region}\" --query 'EventDestinations[].[Name,Enabled,MatchingEventTypes]'",
+        "notes": "Sin downtime. Reemplazar __COMPLETAR_CONFIGURATION_SET__ por el configuration set por defecto de la identidad (aws sesv2 get-email-identity muestra el nombre; si no tiene, ver EML-002) y __COMPLETAR_SNS_TOPIC_ARN__ por un topic de la misma región. El topic necesita una policy que deje publicar a ses.amazonaws.com; si no, los eventos no llegan. Un set con un event destination del mismo nombre falla al crearse: elegir otro nombre. Agregar suscripciones confirmadas al topic para que alguien reciba los avisos (ver MON-007 para alarmas)."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/ses/latest/dg/monitor-using-event-publishing.html",
+        "https://docs.aws.amazon.com/ses/latest/dg/using-configuration-sets.html"
+      ]
+    },
+    {
+      "id": "EML-004",
+      "title": "El dominio de envío tiene un registro SPF (v=spf1)",
+      "scope": "resource",
+      "resource_types": [
+        "ses_identity"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [],
+        "evaluator": "dns",
+        "params": {
+          "rrtype": "TXT",
+          "name_template": "{domain}",
+          "must_match": "v=spf1",
+          "domains_from": "ses_identity"
+        },
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad de dominio de SES (las direcciones de email no se evalúan) tiene un registro TXT en el propio dominio que contiene v=spf1. El motor consulta el DNS público con dig o nslookup. No verifica que el registro incluya amazonses.com ni el MAIL FROM personalizado: solo que el dominio publica una política SPF. Si no hay identidades de dominio, el resultado es N/A (vacío); si el DNS no se puede consultar, NO_VERIFICADO.",
+        "needs": []
+      },
+      "vault_signals": [
+        "SPF",
+        "registro SPF",
+        "v=spf1",
+        "dominio de envío",
+        "DNS del correo",
+        "autenticación de correo"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC6.7"
+        ],
+        "iso_inferred": [
+          "A.8.24",
+          "A.5.14"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "En el DNS de {resource_id} (consola de Route 53 o el panel del registrador), buscar si ya existe un registro TXT que empiece con v=spf1.",
+          "Si no existe, crear un registro TXT en {resource_id} con el valor v=spf1 include:amazonses.com ~all.",
+          "Si ya existe, agregarle include:amazonses.com antes del ~all o -all: un dominio no puede tener dos registros SPF.",
+          "Esperar a que el DNS propague y verificar con dig."
+        ],
+        "commands": [],
+        "verify_after": "dig +short TXT \"{resource_id}\"",
+        "notes": "Sin downtime. Un dominio con dos registros SPF falla en SPF (PermError): editar el existente, no agregar otro. Si el dominio usa un MAIL FROM personalizado de SES, SPF se alinea con ese subdominio y el registro SPF va allí (SES indica el MX y el TXT). Elegir ~all (softfail) o -all (hardfail) es una decisión de política del equipo. Con el límite de 10 consultas DNS de SPF, revisar el total si el dominio ya incluye varios servicios."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/ses/latest/dg/send-email-authentication-spf.html",
+        "https://dev.to/rronyecz/soc2-cc66-made-easy-automating-logical-access-evidence-7hn"
+      ]
+    },
+    {
+      "id": "EML-005",
+      "title": "El dominio de envío tiene DMARC con política quarantine o reject",
+      "scope": "resource",
+      "resource_types": [
+        "ses_identity"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [],
+        "evaluator": "dns",
+        "params": {
+          "rrtype": "TXT",
+          "name_template": "_dmarc.{domain}",
+          "must_match": "p=(quarantine|reject)",
+          "domains_from": "ses_identity"
+        },
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad de dominio de SES (las direcciones de email no se evalúan) tiene un registro TXT en _dmarc.DOMINIO con una política p=quarantine o p=reject. Sin registro DMARC, o con p=none (solo monitoreo), falla con severidad alta: el dominio se puede suplantar. El motor consulta el DNS público con dig o nslookup. El patrón p=(quarantine|reject) también coincide con sp=quarantine o sp=reject: un registro con p=none y sp=reject pasa por error, revisar a mano los DMARC con p=none. Si no hay identidades de dominio, el resultado es N/A (vacío); si el DNS no se puede consultar, NO_VERIFICADO.",
+        "needs": []
+      },
+      "vault_signals": [
+        "DMARC",
+        "_dmarc",
+        "suplantación de dominio",
+        "política de correo",
+        "reportes DMARC",
+        "autenticación de correo"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC6.7"
+        ],
+        "iso_inferred": [
+          "A.8.24",
+          "A.5.14"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Crear una casilla del equipo que reciba los reportes agregados de DMARC (rua).",
+          "Publicar en el DNS de {resource_id} (consola de Route 53 o el panel del registrador) un registro TXT en _dmarc.{resource_id} con el valor v=DMARC1; p=none; rua=mailto:__COMPLETAR_EMAIL_DMARC__ para empezar a observar.",
+          "Revisar los reportes durante unas semanas y corregir las fuentes legítimas que no pasan SPF o DKIM.",
+          "Subir la política a p=quarantine y, cuando no haya falsos positivos, a p=reject. El chequeo solo pasa con quarantine o reject.",
+          "Esperar a que el DNS propague y verificar con dig."
+        ],
+        "commands": [],
+        "verify_after": "dig +short TXT \"_dmarc.{resource_id}\"",
+        "notes": "Sin downtime, pero p=quarantine y p=reject hacen que los receptores manden a spam o rechacen el correo que no pasa DMARC: empezar con p=none y subir gradualmente, o se pierde correo legítimo (facturas, avisos). DMARC pasa si SPF o DKIM pasan y están alineados con el dominio del From. SES alinea DKIM con el dominio de la identidad cuando se usa Easy DKIM (ver EML-001). Reemplazar __COMPLETAR_EMAIL_DMARC__ por una casilla del equipo. Los subdominios heredan la política salvo que se defina sp=."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/ses/latest/dg/send-email-authentication-dmarc.html",
+        "https://dev.to/rronyecz/soc2-cc66-made-easy-automating-logical-access-evidence-7hn"
+      ]
+    },
+    {
+      "id": "EML-006",
+      "title": "La cuenta SES de la región tiene acceso a producción y lista de supresión a nivel de cuenta",
+      "scope": "resource",
+      "resource_types": [
+        "ses_identity"
+      ],
+      "all_regions": false,
+      "severity": "low",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "account",
+            "service": "sesv2",
+            "operation": "get-account",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:ses_account_sending",
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). En cada región que tiene identidades de SES, get-account devuelve ProductionAccessEnabled=true y SuppressionAttributes.SuppressedReasons con al menos una razón (BOUNCE o COMPLAINT). Una cuenta en sandbox solo envía a direcciones verificadas y con un cupo bajo; sin lista de supresión se vuelve a enviar a direcciones que rebotan y se daña la reputación. Se informa una fila por identidad de la región, porque el problema es de la cuenta SES. Una región sin identidades no se evalúa.",
+        "needs": [
+          "ses:GetAccount"
+        ]
+      },
+      "vault_signals": [
+        "sandbox de SES",
+        "acceso a producción",
+        "lista de supresión",
+        "suppression list",
+        "cuota de envío",
+        "Amazon SES"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC6.7"
+        ],
+        "iso_inferred": [
+          "A.8.24",
+          "A.5.14"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "console_only",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "En la consola de SES de la región {region}, entrar a Account dashboard y elegir Request production access (es un caso de soporte de AWS: describir el caso de uso, cómo se manejan rebotes y quejas, y cómo se consiguen los destinatarios).",
+          "En Suppression list, abrir Account-level settings y habilitar la supresión para Bounces y Complaints.",
+          "Verificar con get-account que ProductionAccessEnabled es true y que SuppressedReasons tiene las razones."
+        ],
+        "commands": [],
+        "verify_after": "aws sesv2 get-account --region \"{region}\" --query '{ProductionAccessEnabled:ProductionAccessEnabled,SuppressedReasons:SuppressionAttributes.SuppressedReasons}'",
+        "notes": "La salida de sandbox no se puede pedir con AWS CLI: es un caso de soporte que AWS aprueba (suele tardar hasta un día). La lista de supresión a nivel de cuenta se puede cambiar con aws sesv2 put-account-suppression-attributes --suppressed-reasons BOUNCE COMPLAINT, pero la parte que bloquea es el acceso a producción. Una cuenta SES que solo envía a direcciones propias verificadas puede seguir en sandbox a propósito: documentarlo y aceptar este hallazgo."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html",
+        "https://docs.aws.amazon.com/ses/latest/dg/sending-email-suppression-list.html"
+      ]
+    }
+  ]
+}

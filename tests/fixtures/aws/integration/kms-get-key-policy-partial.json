@@ -1,0 +1,4 @@
+{
+  "PolicyName": "default",
+  "Policy": "{\"Version\": \"2012-10-17\", \"Id\": \"key-default-1\", \"Statement\": [{\"Sid\": \"Admin\", \"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"arn:aws:iam::111122223333:role/acme-notes-admin\"}, \"Action\": \"kms:*\", \"Resource\": \"*\"}, {\"Sid\": \"Drata\", \"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"arn:aws:iam::111122223333:role/DrataAutopilotRole\"}, \"Action\": [\"kms:DescribeKey\"], \"Resource\": \"*\"}, {\"Sid\": \"Vanta\", \"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"arn:aws:iam::111122223333:role/vanta-auditor\"}, \"Action\": [\"kms:Describe*\", \"kms:List*\", \"kms:GetPublicKey\"], \"Resource\": \"*\"}]}"
+}

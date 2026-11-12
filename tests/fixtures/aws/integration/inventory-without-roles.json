@@ -1,0 +1,10 @@
+[
+  {
+    "type": "iam_role",
+    "id": "acme-notes-app",
+    "arn": "arn:aws:iam::111122223333:role/acme-notes-app",
+    "name": "acme-notes-app",
+    "region": "us-east-1",
+    "tags": {}
+  }
+]

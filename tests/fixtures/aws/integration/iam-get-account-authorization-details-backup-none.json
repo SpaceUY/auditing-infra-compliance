@@ -1,0 +1,25 @@
+{
+  "UserDetailList": [],
+  "GroupDetailList": [],
+  "RoleDetailList": [
+    {
+      "RoleName": "DrataAutopilotRole",
+      "Arn": "arn:aws:iam::111122223333:role/DrataAutopilotRole",
+      "RolePolicyList": [],
+      "AttachedManagedPolicies": [
+        {
+          "PolicyName": "SecurityAudit",
+          "PolicyArn": "arn:aws:iam::aws:policy/SecurityAudit"
+        }
+      ]
+    },
+    {
+      "RoleName": "acme-notes-app",
+      "Arn": "arn:aws:iam::111122223333:role/acme-notes-app",
+      "RolePolicyList": [],
+      "AttachedManagedPolicies": []
+    }
+  ],
+  "Policies": [],
+  "IsTruncated": false
+}

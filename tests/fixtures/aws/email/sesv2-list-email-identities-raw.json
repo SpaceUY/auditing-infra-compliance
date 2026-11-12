@@ -1,0 +1,22 @@
+{
+  "EmailIdentities": [
+    {
+      "IdentityType": "DOMAIN",
+      "IdentityName": "acme-notes.example",
+      "SendingEnabled": true,
+      "VerificationStatus": "SUCCESS"
+    },
+    {
+      "IdentityType": "DOMAIN",
+      "IdentityName": "mail.acme-notes.example",
+      "SendingEnabled": false,
+      "VerificationStatus": "PENDING"
+    },
+    {
+      "IdentityType": "EMAIL_ADDRESS",
+      "IdentityName": "noreply@acme-notes.example",
+      "SendingEnabled": true,
+      "VerificationStatus": "SUCCESS"
+    }
+  ]
+}

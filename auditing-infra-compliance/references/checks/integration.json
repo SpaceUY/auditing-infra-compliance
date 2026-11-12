@@ -1,0 +1,401 @@
+{
+  "domain": "integration",
+  "checks": [
+    {
+      "id": "INT-001",
+      "title": "El rol DrataAutopilotRole (si existe) tiene la política administrada SecurityAudit",
+      "scope": "resource",
+      "resource_types": [
+        "iam_role"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "attached",
+            "service": "iam",
+            "operation": "list-attached-role-policies",
+            "args": [
+              "--role-name",
+              "DrataAutopilotRole"
+            ],
+            "region": "global",
+            "ok_errors": [
+              "NoSuchEntity"
+            ]
+          }
+        ],
+        "evaluator": "python:drata_role",
+        "params": {
+          "role_name": "DrataAutopilotRole"
+        },
+        "pass_when_text": "Si la cuenta no tiene el rol DrataAutopilotRole, el chequeo es N/A (vacío), nunca PASS: no hay nada que verificar. Los demás roles de la cuenta no se evalúan. Si existe, tiene adjunta la política administrada por AWS arn:aws:iam::aws:policy/SecurityAudit (una política propia llamada SecurityAudit no cuenta). Sin ella Drata no puede leer la infraestructura y el test 123 (Cloud Infrastructure Linked to Drata) falla. El chequeo no verifica la relación de confianza ni el external ID del rol: eso lo valida Drata al conectar.",
+        "needs": [
+          "iam:ListRoles",
+          "iam:ListAttachedRolePolicies"
+        ]
+      },
+      "vault_signals": [
+        "Drata",
+        "DrataAutopilotRole",
+        "conexión con Drata",
+        "rol de auditoría",
+        "SecurityAudit",
+        "monitoreo continuo"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 123,
+            "name": "Cloud Infrastructure Linked to Drata",
+            "source": "https://help.drata.com/en/articles/4778777"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Adjuntar la política administrada SecurityAudit al rol DrataAutopilotRole.",
+          "Verificar que el rol la tiene y esperar al próximo ciclo de Drata (o reintentar el test 123 desde Drata)."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws iam attach-role-policy --role-name DrataAutopilotRole --policy-arn arn:aws:iam::aws:policy/SecurityAudit"
+        ],
+        "verify_after": "aws iam list-attached-role-policies --role-name DrataAutopilotRole --query 'AttachedPolicies[].PolicyArn'",
+        "notes": "Sin downtime. Es una política de solo lectura. attach-role-policy es idempotente. Drata también pide la cuenta de confianza de Drata y un external ID propio de cada tenant en la relación de confianza del rol: no se cambian desde este comando."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4778777",
+        "https://help.drata.com/en/articles/4663372-connecting-aws-to-drata",
+        "https://help.drata.com/en/articles/8852274-aws-resource-permissions"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "title": "El rol DrataAutopilotRole (si existe) permite backup:ListRecoveryPointsByResource y backup:ListBackupJobs",
+      "scope": "resource",
+      "resource_types": [
+        "iam_role"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "details",
+            "service": "iam",
+            "operation": "get-account-authorization-details",
+            "args": [
+              "--filter",
+              "Role",
+              "LocalManagedPolicy"
+            ],
+            "region": "global"
+          }
+        ],
+        "evaluator": "python:drata_backup_perms",
+        "params": {
+          "role_name": "DrataAutopilotRole",
+          "actions": [
+            "backup:ListRecoveryPointsByResource",
+            "backup:ListBackupJobs"
+          ]
+        },
+        "pass_when_text": "Si la cuenta no tiene el rol DrataAutopilotRole, el chequeo es N/A (vacío), nunca PASS: no hay nada que verificar. Los demás roles de la cuenta no se evalúan. Si existe, una política inline o administrada por el cliente del rol permite las dos acciones (con Resource \"*\"; se aceptan comodidades como backup:List*) y ninguna política de ese tipo las deniega. Las políticas administradas por AWS no se leen: si el rol tiene alguna, detail.aws_managed_not_evaluated la nombra. Sin esos permisos fallan los tests de Drata 132 (Daily backup job status monitored) y 133 (Failed Backup Alerts Being Sent). Una Condition en el Allow, NotAction o un Resource distinto de \"*\" no se modelan: no cuentan como permiso concedido.",
+        "needs": [
+          "iam:ListRoles",
+          "iam:GetAccountAuthorizationDetails"
+        ]
+      },
+      "vault_signals": [
+        "Drata",
+        "DrataAutopilotRole",
+        "backups monitoreados",
+        "AWS Backup",
+        "ListBackupJobs",
+        "permisos de backup"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 132,
+            "name": "Daily backup job status monitored",
+            "source": "https://help.drata.com/en/articles/9999495"
+          },
+          {
+            "test": 133,
+            "name": "Failed Backup Alerts Being Sent",
+            "source": "https://help.drata.com/en/articles/4778878"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Agregar al rol DrataAutopilotRole una política inline con los permisos de AWS Backup que pide Drata.",
+          "Verificar la política y esperar al próximo ciclo de Drata."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws iam put-role-policy --role-name DrataAutopilotRole --policy-name DrataBackupMonitoring --policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"backup:ListRecoveryPointsByResource\",\"backup:ListBackupJobs\"],\"Resource\":\"*\"}]}'"
+        ],
+        "verify_after": "aws iam get-role-policy --role-name DrataAutopilotRole --policy-name DrataBackupMonitoring --query 'PolicyDocument.Statement[].Action'",
+        "notes": "Sin downtime. Solo lectura de metadatos de AWS Backup. put-role-policy con un nombre que ya existe reemplaza esa política: si el rol ya tiene una política inline propia, elegir otro nombre. Drata documenta esta política inline como el requisito extra de los tests 132, 133, 134 y 301."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9999495",
+        "https://help.drata.com/en/articles/4778878",
+        "https://help.drata.com/en/articles/8852274-aws-resource-permissions"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "title": "El rol vanta-auditor (si existe) tiene SecurityAudit y la política administrada VantaAdditionalPermissions (no inline)",
+      "scope": "resource",
+      "resource_types": [
+        "iam_role"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "attached",
+            "service": "iam",
+            "operation": "list-attached-role-policies",
+            "args": [
+              "--role-name",
+              "vanta-auditor"
+            ],
+            "region": "global",
+            "ok_errors": [
+              "NoSuchEntity"
+            ]
+          },
+          {
+            "name": "inline",
+            "service": "iam",
+            "operation": "list-role-policies",
+            "args": [
+              "--role-name",
+              "vanta-auditor"
+            ],
+            "region": "global",
+            "ok_errors": [
+              "NoSuchEntity"
+            ]
+          }
+        ],
+        "evaluator": "python:vanta_role",
+        "params": {
+          "role_name": "vanta-auditor",
+          "additional_policy": "VantaAdditionalPermissions"
+        },
+        "pass_when_text": "Si la cuenta no tiene el rol vanta-auditor, el chequeo es N/A (vacío), nunca PASS: no hay nada que verificar. Los demás roles de la cuenta no se evalúan. Si existe, tiene adjunta la política administrada por AWS SecurityAudit y una política administrada por el cliente (customer-managed, de esta cuenta) llamada VantaAdditionalPermissions. Una política inline con ese nombre no la detecta Vanta: falla, y detail.additional_permissions dice inline, ausente o administrada por el cliente. El chequeo no verifica el contenido de VantaAdditionalPermissions ni la relación de confianza.",
+        "needs": [
+          "iam:ListRoles",
+          "iam:ListAttachedRolePolicies",
+          "iam:ListRolePolicies"
+        ]
+      },
+      "vault_signals": [
+        "Vanta",
+        "vanta-auditor",
+        "VantaAdditionalPermissions",
+        "conexión con Vanta",
+        "rol de auditoría",
+        "SecurityAudit"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "Permisos del rol vanta-auditor en la cuenta AWS (SecurityAudit + VantaAdditionalPermissions)",
+            "source": "https://help.vanta.com/en/articles/11345630-connecting-vanta-aws-accounts"
+          }
+        ],
+        "tsc_inferred": [
+          "CC4.1"
+        ],
+        "iso_inferred": [
+          "9.1",
+          "A.5.36"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Si falta SecurityAudit, adjuntarla al rol vanta-auditor.",
+          "Crear la política administrada por el cliente VantaAdditionalPermissions con el contenido actual de la consola de Vanta (la base es un Deny de datapipeline y rds:DownloadDBLogFilePortion; los productos opcionales de Vanta agregan permisos).",
+          "Adjuntar VantaAdditionalPermissions al rol vanta-auditor.",
+          "Solo si el chequeo informó una política inline con ese nombre y el paso anterior ya la adjuntó, borrar la política inline para no dejar un duplicado."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws iam attach-role-policy --role-name vanta-auditor --policy-arn arn:aws:iam::aws:policy/SecurityAudit",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws iam create-policy --policy-name VantaAdditionalPermissions --policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Deny\",\"Action\":[\"datapipeline:EvaluateExpression\",\"datapipeline:QueryObjects\",\"rds:DownloadDBLogFilePortion\"],\"Resource\":\"*\"}]}'",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws iam attach-role-policy --role-name vanta-auditor --policy-arn \"arn:aws:iam::$ACCOUNT_ID:policy/VantaAdditionalPermissions\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws iam attach-role-policy --role-name vanta-auditor --policy-arn \"arn:aws:iam::$ACCOUNT_ID:policy/VantaAdditionalPermissions\" && aws iam delete-role-policy --role-name vanta-auditor --policy-name VantaAdditionalPermissions"
+        ],
+        "verify_after": "aws iam list-attached-role-policies --role-name vanta-auditor --query 'AttachedPolicies[].PolicyArn'",
+        "notes": "Sin downtime. Los bloques son independientes: ejecutar solo los que correspondan al detalle del hallazgo (SecurityAudit falta; la política no existe todavía; adjuntarla; borrar la inline). El último bloque borra la política inline solo si el attach tuvo éxito (va encadenado con &&); no ejecutarlo si el rol no tiene una inline con ese nombre. El contenido de VantaAdditionalPermissions que se muestra es solo la base: copiar el actual desde la consola de Vanta (Connect AWS) para incluir los permisos de los productos que se usan (CodeCommit, IAM Identity Center...). create-policy falla si la política ya existe."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345630-connecting-vanta-aws-accounts",
+        "https://help.vanta.com/en/articles/11345613",
+        "https://docs.cloudposse.com/components/library/aws/vanta/"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "title": "Las key policies de las claves KMS propias permiten a los roles auditores (Drata y Vanta) las acciones de lectura",
+      "scope": "resource",
+      "resource_types": [
+        "kms_key"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "describe",
+            "service": "kms",
+            "operation": "describe-key",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "__inventory__",
+              "path": "id",
+              "arg": "--key-id"
+            },
+            "ok_errors": [
+              "NotFoundException"
+            ],
+            "item_errors": "evaluator"
+          },
+          {
+            "name": "policy",
+            "service": "kms",
+            "operation": "get-key-policy",
+            "args": [
+              "--policy-name",
+              "default"
+            ],
+            "region": "each",
+            "for_each": {
+              "from": "__inventory__",
+              "path": "id",
+              "arg": "--key-id"
+            },
+            "ok_errors": [
+              "NotFoundException"
+            ],
+            "item_errors": "evaluator"
+          }
+        ],
+        "evaluator": "python:kms_auditor_access",
+        "params": {
+          "auditors": {
+            "DrataAutopilotRole": [
+              "kms:DescribeKey",
+              "kms:GetKeyRotationStatus"
+            ],
+            "vanta-auditor": [
+              "kms:DescribeKey",
+              "kms:GetPublicKey",
+              "kms:ListAliases",
+              "kms:ListGrants",
+              "kms:ListKeyPolicies",
+              "kms:ListResourceTags",
+              "kms:ListRetirableGrants"
+            ]
+          },
+          "inventory_types": [
+            "kms_key",
+            "iam_role"
+          ]
+        },
+        "pass_when_text": "Para cada clave KMS administrada por el cliente (no pendiente de borrado) y cada rol auditor que existe en la cuenta (DrataAutopilotRole, vanta-auditor), la key policy permite al rol las acciones de lectura: kms:DescribeKey y kms:GetKeyRotationStatus para Drata (test 223), y kms:DescribeKey, GetPublicKey, ListAliases, ListGrants, ListKeyPolicies, ListResourceTags y ListRetirableGrants para Vanta. Vale un statement que nombre al rol o la delegación a la raíz de la cuenta (Principal arn:aws:iam::CUENTA:root con kms:*, el statement \"Enable IAM User Permissions\"), que entrega la decisión a las políticas IAM del rol. kms:ListKeys no se pide en la key policy: no es una acción de una clave. Un Allow con Condition no se modela y no cuenta; un Deny sobre el rol y la acción sí cuenta en contra. Si ninguno de los dos roles existe, o la clave es de AWS, el resultado es N/A (vacío), nunca PASS. Si la key policy impide al auditor leer la clave (AccessDenied), esa clave queda NO_VERIFICADO con el permiso que falta y las demás se evalúan.",
+        "needs": [
+          "kms:ListKeys",
+          "kms:DescribeKey",
+          "kms:GetKeyPolicy",
+          "iam:ListRoles"
+        ]
+      },
+      "vault_signals": [
+        "KMS",
+        "key policy",
+        "política de la clave",
+        "CMK",
+        "Drata",
+        "Vanta",
+        "acceso de auditoría a las claves"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 223,
+            "name": "AWS CMK Rotation",
+            "source": "https://help.drata.com/en/articles/9828731"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Acceso del rol vanta-auditor a claves KMS con key policy propia",
+            "source": "https://help.vanta.com/en/articles/11345859-understanding-kms-key-policy-permissions-and-access-issues-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "high",
+        "downtime": false,
+        "steps": [
+          "Leer la key policy actual de {resource_id} y guardarla en un archivo.",
+          "Agregarle un statement que permita a los roles auditores que existen las acciones de lectura, sin sacar los statements actuales (si el rol de Drata o el de Vanta no existe, sacar su ARN del Principal: KMS rechaza principals que no existen).",
+          "Revisar el archivo nuevo y aplicarlo con put-key-policy, que reemplaza la policy entera.",
+          "Verificar la policy y esperar al próximo ciclo de Drata y Vanta."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nKEY_ID=\"{resource_id}\"\naws kms get-key-policy --key-id \"$KEY_ID\" --policy-name default --region \"$REGION\" --query Policy --output text > key-policy.json",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSTATEMENT='{\"Sid\":\"AllowAuditorRead\",\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"arn:aws:iam::'\"$ACCOUNT_ID\"':role/DrataAutopilotRole\",\"arn:aws:iam::'\"$ACCOUNT_ID\"':role/vanta-auditor\"]},\"Action\":[\"kms:DescribeKey\",\"kms:GetKeyRotationStatus\",\"kms:GetPublicKey\",\"kms:ListAliases\",\"kms:ListGrants\",\"kms:ListKeyPolicies\",\"kms:ListResourceTags\",\"kms:ListRetirableGrants\"],\"Resource\":\"*\"}'\njq --argjson statement \"$STATEMENT\" '.Statement += [$statement]' key-policy.json > key-policy-nuevo.json",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nKEY_ID=\"{resource_id}\"\naws kms put-key-policy --key-id \"$KEY_ID\" --policy-name default --policy file://key-policy-nuevo.json --region \"$REGION\""
+        ],
+        "verify_after": "aws kms get-key-policy --key-id \"{resource_id}\" --policy-name default --region \"{region}\" --query Policy --output text",
+        "notes": "Sin downtime, pero riesgo alto: put-key-policy reemplaza la policy completa y una policy equivocada puede dejar la clave sin administradores. Conservar siempre los statements actuales, en especial el que delega a la raíz de la cuenta, y revisar key-policy-nuevo.json antes del tercer bloque; no ejecutarlo si el segundo bloque falló. Las claves de otra cuenta se corrigen desde la cuenta dueña. El statement concede a cada rol la unión de las acciones de Drata y de Vanta: separarlo en un statement por rol si se quiere el mínimo privilegio. Si la key policy ya delega a la raíz de la cuenta con kms:*, el chequeo pasa sin cambios (los roles auditores entran por sus políticas IAM, que incluyen SecurityAudit)."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828731",
+        "https://help.vanta.com/en/articles/11345859-understanding-kms-key-policy-permissions-and-access-issues-in-vanta",
+        "https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-default.html",
+        "https://docs.aws.amazon.com/cli/latest/reference/kms/put-key-policy.html"
+      ]
+    }
+  ]
+}
