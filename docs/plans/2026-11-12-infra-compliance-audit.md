@@ -131,13 +131,14 @@ infra-compliance-audit/
   .gitignore                                  compliance-reports/, __pycache__/, *.pyc
   docs/specs/… docs/research/… docs/plans/…   (existentes)
   auditing-infra-compliance/
-    SKILL.md                                  flujo procedural (Tarea 15)
+    SKILL.md                                  flujo procedural (Tarea 16)
     references/
-      vault-reading.md                        contrato tipado, heurísticas libres, feature/recurso (T15)
-      remediation-guidelines.md               reglas CloudShell, placeholders, planned_change (T15)
-      report-format.md                        esquemas scope.json, vault-claims.json, findings.json (T15)
-      drata-vanta.md                          roles, permisos, tags, pase vacío, fase 2 (T15)
+      vault-reading.md                        contrato tipado, heurísticas libres, feature/recurso (T16)
+      remediation-guidelines.md               reglas CloudShell, placeholders, planned_change (T16)
+      report-format.md                        esquemas scope.json, vault-claims.json, findings.json (T16)
+      drata-vanta.md                          roles, permisos, tags, pase vacío, fase 2 (T16)
       inventory.json                          tipos de recurso → llamada de listado (T4)
+      conflict-rules.json                     reglas de conflicto entre arreglos (T15)
       checks/{iam,logging,detection,compute,encryption,network,data,monitoring,inventory,
               integration,email}.json         catálogo (T5–T11)
       frameworks/iso27001-2022.json           93 controles Anexo A + cláusulas 4–10 (T1)
@@ -153,7 +154,8 @@ infra-compliance-audit/
       vault_index.py                          índice del vault + resolución de feature (T12)
       redact.py                               enmascarado (T12 mínimo, T13 completo)
       assemble_findings.py                    findings.json (T13)
-      render_report.py                        HTML (T14)
+      render_report.py                        HTML (T14; sección Verificación en T15)
+      verify_remediation.py                   etapa de verificación de arreglos (T15)
     assets/report-template.html               plantilla (T14)
   tests/
     helpers.py                                FakeRunner, load_fixture, make_secret_note
@@ -173,7 +175,7 @@ Rutas de los scripts en los comandos: relativas a `infra-compliance-audit/`. `SK
 ### Tarea 1: bootstrap del repo y catálogos de normas
 
 **Archivos:**
-- Crear: `.gitignore`, `README.md` (esqueleto: título, una línea de propósito; se completa en la T16)
+- Crear: `.gitignore`, `README.md` (esqueleto: título, una línea de propósito; se completa en la T17)
 - Crear: `auditing-infra-compliance/references/frameworks/iso27001-2022.json`
 - Crear: `auditing-infra-compliance/references/frameworks/tsc-2017.json`
 - Crear: `auditing-infra-compliance/references/mappings/drata-dcf.json` (copia exacta de
@@ -1022,7 +1024,102 @@ el paso de suscribir y confirmar el email.
 
 ---
 
-### Tarea 15: SKILL.md y referencias, con TDD de skill
+### Tarea 15: etapa de verificación de los arreglos
+
+Pedido del usuario del 2026-11-12. Spec §9bis.
+
+**Archivos:**
+- Crear: `auditing-infra-compliance/scripts/verify_remediation.py`
+- Crear: `auditing-infra-compliance/references/conflict-rules.json` (CR-001 a CR-010 de la spec §9bis.2)
+- Modificar: `scripts/validate_catalog.py` y `scripts/catalog.py`: validar que los `check_id` citados en
+  `conflict-rules.json` existan
+- Modificar: `scripts/render_report.py` y `assets/report-template.html`: sello por tarjeta, sección
+  "Verificación", y botón de bajo riesgo que excluye `CONFLICTO`
+- Prueba: `tests/test_verify.py`, `tests/fixtures/findings-verify.json`, `tests/fixtures/verification-claims.json`
+
+**Interfaces:**
+- **Consume:** `findings.json` (Tarea 13), `inventory.json` (Tarea 4), `render(findings, template)` (Tarea 14).
+- **Produce, en `verify_remediation.py`:**
+  - `verify(findings: dict, inventory: list, rules: list, *, claims: list | None = None, runner=subprocess.run, which=shutil.which, check_cli: bool = False) -> dict`;
+  - CLI: `verify_remediation.py --run-dir DIR [--claims FILE] [--check-cli]`. Lee `DIR/findings.json` e
+    `DIR/inventory.json` y escribe `DIR/verification.json`.
+- **Esquema de `verification.json`:**
+  ```
+  {"per_finding": {"F-0001": {"status": "OK|REVISAR|CONFLICTO",
+                               "issues": [{"kind", "message", "source": "script|claude", "rule_id"|null}]}},
+   "conflicts": [{"rule_id", "findings": [ids], "message", "status"}],
+   "gaps": [{"kind": "sin_arreglo|no_verificado|recurso_sin_chequeo|sin_verify_after", "message", "ref"}],
+   "apply_order": ["F-0003", …],
+   "completar_pendientes": int,
+   "cli_checked": bool,
+   "summary": {"OK": int, "REVISAR": int, "CONFLICTO": int}}
+  ```
+- **Valores de `kind` en `issues`:** `syntax`, `cli_invalida`, `placeholder_sin_resolver`,
+  `requiere_completar`, `higiene`, `destructivo_sin_aviso`, `conflicto_regla`, `impacto_dependencias`,
+  `claude`.
+- **Formato de `conflict-rules.json`:**
+  ```
+  [{"id": "CR-001", "when": {"all_fail": ["NET-003", "TLS-002"]} | {"any_fail": [...]} | {"fail": "NET-001", "same_resource_fail": "CMP-006"},
+    "scope": "same_resource|same_account",
+    "status": "CONFLICTO|REVISAR",
+    "message": str,
+    "order": [["CMP-006", "NET-001"]] | []}]       // pares (antes, después)
+  ```
+  En CR-001, `same_resource` se resuelve por el SG asociado al ALB. `TLS-002` en `PASS` (redirect ya
+  configurado) también cuenta, así que la condición es `{"fail": "NET-003", "related_check_any": "TLS-002"}`.
+  La regla exacta queda a criterio del implementador, siempre que pase `test_cr001_port80_vs_redirect`.
+
+**Reglas de `verify`:**
+1. **Sintaxis:** `bash -n` se corre con `runner(["bash","-n"], input=<comandos unidos>, text=True,
+   capture_output=True, shell=False)`. Nunca se ejecuta un comando de remediación.
+2. **CLI:** solo con `check_cli=True` y `which("aws")`. Por cada línea que empieza con `aws `: corre
+   `["aws", servicio, operación, "help"]` con env `PAGER=cat`, `AWS_PAGER=""`, y verifica que cada `--flag`
+   de la línea aparezca en la ayuda. Sin CLI: `cli_checked: false`, más un gap informativo.
+3. **Higiene y placeholders:** como en spec §9bis.1.
+4. **Destructivo sin aviso:** como en spec §9bis.1.
+5. **Conflictos:** según `conflict-rules.json`.
+6. **Impacto en dependencias:** si un `FAIL` tiene `depends_on_me` no vacío → `REVISAR`, con los tests
+   nombrados.
+7. **Gaps:** como en spec §9bis.1.
+8. **Orden de aplicación:** spec §9bis.1. Si los pares `order` forman un ciclo, se ignoran y se agrega un
+   gap.
+9. **Claims de Claude:** se combinan quedándose con el estado más severo. Un claim no puede bajar un
+   `CONFLICTO`.
+
+**Render:** `render_report.py` acepta `--verification FILE` (opcional) y `render(findings, template,
+verification=None)`. La plantilla muestra el sello y los motivos en cada tarjeta, y la sección
+"Verificación" después del resumen. Sin `verification`, el HTML se ve igual que en la Tarea 14.
+
+- [ ] **Paso 1: escribir las pruebas que fallan** en `tests/test_verify.py`:
+  - `test_syntax_error_is_conflict`: comando `aws s3api put-x --bucket "a` sin cerrar;
+  - `test_bash_n_never_executes`: el `runner` falso registra argv; solo se ve `["bash","-n"]`, y el
+    comando va por stdin;
+  - `test_unresolved_placeholder_is_conflict`;
+  - `test_completar_counted_and_review`;
+  - `test_heredoc_or_set_e_is_conflict`;
+  - `test_destructive_without_warning_is_review`;
+  - `test_cr001_port80_vs_redirect`;
+  - `test_cr003_ssh_without_ssm_orders_ssm_first`: `apply_order` pone CMP-006 antes que NET-001;
+  - `test_dependency_impact_names_tests`;
+  - `test_gaps_listed`: los 4 tipos de gap;
+  - `test_apply_order_by_group_and_severity`;
+  - `test_order_cycle_ignored_with_gap`;
+  - `test_claude_claim_cannot_downgrade_conflict`;
+  - `test_check_cli_flags`: el `runner` falso devuelve una ayuda sin `--foo`, y el comando con `--foo` da
+    `cli_invalida`;
+  - `test_no_cli_available_gap`;
+  - `test_conflict_rules_reference_existing_checks`: vía `catalog.validate`;
+  - `test_render_with_verification_shows_badges_and_section`;
+  - `test_low_risk_copy_excludes_conflicts`;
+  - `test_render_without_verification_unchanged`.
+- [ ] **Paso 2:** correr `python3 -m unittest tests.test_verify -v`. Esperado: FAIL.
+- [ ] **Paso 3:** implementar.
+- [ ] **Paso 4:** correr la suite completa. Esperado: OK.
+- [ ] **Paso 5:** hacer commit con `feat: remediation verification stage`.
+
+---
+
+### Tarea 16: SKILL.md y referencias, con TDD de skill
 
 **Archivos:**
 - Crear: `auditing-infra-compliance/SKILL.md`
@@ -1031,7 +1128,7 @@ el paso de suscribir y confirmar el email.
 - Crear: `tests/skill-scenarios.md` (escenarios y resultados de la línea base y del post)
 
 **Interfaces:**
-- **Consume:** todas las CLIs de las tareas 2, 4, 12, 13 y 14 (nombres y argumentos exactos de sus
+- **Consume:** todas las CLIs de las tareas 2, 4, 12, 13, 14 y 15 (nombres y argumentos exactos de sus
   bloques Interfaces).
 
 **Contenido obligatorio de `SKILL.md`:**
@@ -1065,7 +1162,12 @@ el paso de suscribir y confirmar el email.
      - escribir `vault-claims.json`, incluidas las recomendaciones del vault que romperían tests.
   7. **Armar:** `assemble_findings.py`.
   8. **Renderizar:** `render_report.py`.
-  9. **Responder en el chat:** ruta absoluta del HTML, conteos, los 3–5 hallazgos más graves y lo no
+  9. **Verificar:**
+     - `verify_remediation.py --run-dir … [--check-cli]`;
+     - Claude revisa `REVISAR`/`CONFLICTO` y los arreglos de riesgo medio o alto contra el vault, y escribe
+       `verification-claims.json`;
+     - se vuelve a correr `verify_remediation.py --claims …` y `render_report.py --verification …`.
+  10. **Responder en el chat:** incluye conflictos y faltantes de la verificación, además de ruta absoluta del HTML, conteos, los 3–5 hallazgos más graves y lo no
      verificado.
 - **Tabla "cuándo cargar qué referencia".**
 - **Tabla de racionalizaciones** que salgan de la línea base.
@@ -1102,7 +1204,7 @@ el paso de suscribir y confirmar el email.
 
 ---
 
-### Tarea 16: prueba end-to-end con AWS falso, README y checklist en vivo
+### Tarea 17: prueba end-to-end con AWS falso, README y checklist en vivo
 
 **Archivos:**
 - Crear: `tests/test_e2e.py`, `tests/fixtures/aws/e2e/` (respuestas para un `FakeRunner` completo de "Acme
@@ -1111,8 +1213,8 @@ el paso de suscribir y confirmar el email.
 - Crear: `docs/live-test-checklist.md`
 
 **Interfaces:**
-- **Consume:** `collect.main`, `assemble_findings.assemble`, `render_report.render` y
-  `vault_index.build_index`.
+- **Consume:** `collect.main`, `assemble_findings.assemble`, `render_report.render`,
+  `verify_remediation.verify` y `vault_index.build_index`.
 
 - [ ] **Paso 1: escribir la prueba que falla `test_full_pipeline_typed_vault`.** Usar el vault tipado y el
   `FakeRunner` e2e, con:
@@ -1122,7 +1224,8 @@ el paso de suscribir y confirmar el email.
   - una alarma con suscripción pendiente;
   - un `AccessDenied` en `inspector2`.
 
-  Correr `collect` → claims fijos (un `DRIFT` de CMK y un `UNDOCUMENTED`) → `assemble` → `render`.
+  Correr `collect` → claims fijos (un `DRIFT` de CMK y un `UNDOCUMENTED`) → `assemble` → `render` →
+  `verify` → `render` con verificación.
   Aserciones:
   - IAM-001 es `FAIL` `critical`;
   - NET-001 es `FAIL` con el ID del SG;
@@ -1130,6 +1233,8 @@ el paso de suscribir y confirmar el email.
   - MON-001 tiene un `FAIL` con `detail.missing_part == "confirmed_subscription"`;
   - DET-006 es `NO_VERIFICADO` con `missing` que incluye `inspector2:BatchGetAccountStatus`;
   - el HTML existe y contiene `F-0001`;
+  - `verification.json` existe, el arreglo de NET-001 tiene estado distinto de `OK` (el SG del fixture
+    está en una instancia sin SSM: CR-003), y el HTML contiene la sección "Verificación";
   - ningún argv registrado por el `FakeRunner` tiene operación fuera de la allowlist.
 - [ ] **Paso 2: escribir `test_pipeline_without_aws`.** Solo la copia temporal del vault libre más
   `make_secret_note`:

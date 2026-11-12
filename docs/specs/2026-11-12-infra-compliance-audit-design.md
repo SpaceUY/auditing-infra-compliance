@@ -148,7 +148,10 @@ Hace falta al menos una de las dos fuentes, vault o credenciales.
    `DRIFT` si difieren.
 7. **Construir `findings.json`** con el esquema de la sección 8.
 8. **Renderizar el HTML** con el script del skill: plantilla fija, determinística y autocontenida.
-9. **Responder en el chat:**
+9. **Verificar los arreglos** (sección 9bis): chequeo automático de los comandos, revisión de Claude con el
+   vault y nuevo render del HTML con la sección "Verificación", el sello por tarjeta y el orden sugerido de
+   aplicación. Pedido del usuario del 2026-11-12.
+10. **Responder en el chat:**
    - la ruta absoluta del HTML;
    - conteos por severidad;
    - los 3–5 hallazgos más graves en una línea cada uno;
@@ -481,6 +484,81 @@ Framework vía API/MCP, 2026-11-12):
   con un textarea oculto).
 - **Determinismo:** el HTML lo genera `scripts/render_report.py` a partir de `findings.json`, con Python
   stdlib, para que todos los reportes sean iguales en forma. Claude no escribe HTML a mano.
+
+## 9bis. Etapa de verificación de los arreglos
+
+Corre después del primer render y antes de entregar el reporte. Su objetivo es detectar si los comandos de
+remediación **rompen algo** o si **falta algo**. **Nada se ejecuta en AWS** en esta etapa.
+
+### 9bis.1 Verificación automática (`scripts/verify_remediation.py`, determinística)
+
+Lee `findings.json` (más `inventory.json`) y escribe `verification.json`.
+
+| Chequeo | Qué hace | Resultado |
+|---|---|---|
+| Sintaxis | `bash -n` sobre cada bloque de comandos (lee sin ejecutar) | `CONFLICTO` si falla |
+| Validez de la CLI (opcional, `--check-cli`) | `aws <servicio> <operación> help` local con `PAGER=cat`, sin llamar a AWS; cada `--flag` del comando debe aparecer en la ayuda | `CONFLICTO` si la operación o un flag no existen; si no hay CLI, aviso |
+| Placeholders | quedan `{resource_id}`, `{region}`, `{account_id}` o `{resource_name}` sin resolver | `CONFLICTO` |
+| Datos a completar | cuenta los `__COMPLETAR_*__` | `REVISAR` |
+| Higiene | `<<` o `set -e` | `CONFLICTO` |
+| Destructivo sin aviso | `delete-`, `revoke-`, `terminate-`, `remove-`, `deregister-`, `detach-`, `disable-`, `stop-`, `--force`, o comandos que **reemplazan** una política (`put-bucket-policy`, `put-key-policy`, `update-account-password-policy`) en un arreglo que no es `planned_change` ni `cli_with_decision` con `notes` | `REVISAR` |
+| Conflictos entre arreglos | reglas en `references/conflict-rules.json` (ver 9bis.2) | `CONFLICTO` o `REVISAR` |
+| Impacto en lo que hoy pasa | el arreglo modifica un recurso con tests en verde en `dependencies` | `REVISAR`, nombrando los tests |
+| Lo que falta (`gaps`) | `FAIL` sin comandos y que no es `console_only`; `NO_VERIFICADO` con su permiso faltante; recursos del inventario que ningún chequeo evaluó; arreglos sin `verify_after` | lista de faltantes |
+
+**Orden sugerido de aplicación** (`apply_order`):
+1. identidad;
+2. logging y detección, para tener visibilidad antes de tocar nada;
+3. claves KMS;
+4. cifrado;
+5. red;
+6. datos y backups;
+7. monitoreo;
+8. tags e integración.
+
+Dentro de cada grupo se ordena por severidad, y los `planned_change` van al final. Si una regla de conflicto
+dice "aplicar B antes que A", esa regla gana.
+
+### 9bis.2 Reglas de conflicto iniciales (`references/conflict-rules.json`)
+
+| ID | Situación | Mensaje | Resultado |
+|---|---|---|---|
+| CR-001 | NET-003 (cerrar el puerto 80) sobre el SG de un ALB que tiene listener HTTP con redirect (TLS-002) | Cerrar 80 rompe la redirección HTTP→HTTPS; alternativa: solo 443, o excluir en Drata con justificación | `CONFLICTO` |
+| CR-002 | LOG-003 (CloudTrail con CMK) | La key policy debe permitir `cloudtrail.amazonaws.com` antes de aplicar; si no, el trail deja de loguear | `REVISAR`, con orden: la clave antes que el trail |
+| CR-003 | NET-001 o NET-002 (revocar SSH/RDP) sobre una instancia con CMP-006 en `FAIL` (no gestionada por SSM) | Te quedás sin acceso; primero habilitar SSM | `CONFLICTO`, con orden: CMP-006 antes |
+| CR-004 | CMP-001 o CMP-002 (IMDSv2) | SDKs o agentes viejos que solo usan IMDSv1 dejan de obtener credenciales | `REVISAR` |
+| CR-005 | IAM-008, IAM-009 o IAM-010 (rotar o desactivar keys) | La app o el pipeline que usa esa key se rompe; rotar primero, desactivar después | `REVISAR` |
+| CR-006 | TLS-001 (S3 deny sin TLS) | Clientes que acceden por HTTP al bucket fallan | `REVISAR` |
+| CR-007 | ENC-003, ENC-002 o ENC-004 (cifrar un recurso existente) | Requiere migración con downtime | `REVISAR` |
+| CR-008 | INV-003 (quitar `VantaNonProd` de un recurso prod) | El recurso entra al alcance de Vanta y puede abrir tests nuevos | `REVISAR` |
+| CR-009 | INT-004 (key policy) o cualquier `put-key-policy` | Reemplazar la key policy puede dejar la clave inaccesible; conservar el statement de la cuenta root | `REVISAR` |
+| CR-010 | DAT-002 (Multi-AZ) | Costo y failover breve durante el cambio | `REVISAR` |
+
+El catálogo de reglas se valida con `validate_catalog.py`: los IDs de chequeo citados deben existir.
+
+### 9bis.3 Revisión de Claude con el vault
+
+Para cada arreglo con `REVISAR` o `CONFLICTO`, y para todo arreglo con riesgo `medium` o `high`, Claude
+cruza con el vault y el inventario qué depende del recurso. Por ejemplo: "la key `…MNOP` la usa la Lambda
+de envío de email según `systems/Mailer Lambda.md`".
+
+Lo escribe en `verification-claims.json`:
+
+```
+[{"finding_id", "status": "OK|REVISAR|CONFLICTO", "message", "vault_note"}]
+```
+
+El script combina las dos fuentes; gana el estado más severo. Claude nunca baja un `CONFLICTO` del script.
+
+### 9bis.4 En el HTML
+
+- Sello por tarjeta: **OK**, **REVISAR** o **CONFLICTO**, con los motivos.
+- Sección "Verificación", con:
+  - conflictos entre arreglos;
+  - lo que falta;
+  - el orden sugerido de aplicación;
+  - la cantidad de `__COMPLETAR__` pendientes.
+- El botón "Copiar arreglos de bajo riesgo" **excluye** los arreglos con `CONFLICTO`.
 
 ## 10. Reglas de seguridad del skill
 
