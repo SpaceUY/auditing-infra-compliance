@@ -486,23 +486,69 @@ class EngineTests(CollectCase):
 
         self.addCleanup(evaluators.EVALUATORS.pop, "test_inventory_reader")
 
-    def test_checks_depending_on_a_broken_inventory_type_are_not_verified(self):
-        denied = err("An error occurred (AccessDenied) when calling the ListBuckets operation: not authorized")
+    BUCKETS_DENIED = "An error occurred (AccessDenied) when calling the ListBuckets operation: not authorized"
+
+    def test_checks_declaring_a_broken_inventory_type_in_params_are_not_verified(self):
         self.register_inventory_reader()
-        for key in ("context", "params"):
-            with self.subTest(key=key):
-                self.seen_errors = None
-                responses = base_responses()
-                responses[("s3api", "list-buckets", "us-east-1")] = denied
-                self.run_collect(responses, checks_dir=self.inventory_reader(key))
-                (row,) = self.rows("DET-904")
-                self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["inventory:s3_bucket"]))
-                self.assertIsNone(self.seen_errors, "the evaluator must not run on an incomplete inventory")
+        self.seen_errors = None
+        responses = base_responses()
+        responses[("s3api", "list-buckets", "us-east-1")] = err(self.BUCKETS_DENIED)
+        self.run_collect(responses, checks_dir=self.inventory_reader("params"))
+        (row,) = self.rows("DET-904")
+        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["inventory:s3_bucket"]))
+        self.assertIsNone(self.seen_errors, "the evaluator must not run on an incomplete inventory")
+
+    def test_account_context_for_never_blocks_evaluation(self):
+        self.register_inventory_reader()
+        responses = base_responses()
+        responses[("s3api", "list-buckets", "us-east-1")] = err(self.BUCKETS_DENIED)
+        self.run_collect(responses, checks_dir=self.inventory_reader("context"))
+        self.assertEqual([r["status"] for r in self.rows("DET-904")], ["PASS"])
+        self.assertEqual(self.seen_errors, {"s3_bucket"})
+
+    def test_unverified_resource_gets_no_pass_and_the_other_outcomes_are_kept(self):
+        @evaluators.register("test_mixed_outcomes")
+        def mixed(responses, params):
+            entry = lambda bucket, **flags: {"resource_id": bucket, "region": "us-east-1", "detail": {"why": bucket}, **flags}
+            return [entry("acme-notes-data"), entry("acme-notes-logs", not_applicable=True),
+                    entry("acme-notes-archive", unverified=True), entry("acme-notes-extra", not_applicable=True)]
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_mixed_outcomes")
+        buckets = {"Buckets": [{"Name": n} for n in ("acme-notes-data", "acme-notes-logs", "acme-notes-archive", "acme-notes-clean")]}
+
+        def python_check(check):
+            check["id"] = "DAT-906"
+            check["scope"] = "resource"
+            check["resource_types"] = ["s3_bucket"]
+            check["verify"]["evaluator"] = "python:test_mixed_outcomes"
+
+        responses = base_responses()
+        responses[("s3api", "list-buckets", "us-east-1")] = ok(buckets)
+        self.run_collect(responses, checks_dir=self.catalog_with(python_check))
+        self.assertEqual([(r["status"], r["resource_id"]) for r in self.rows("DAT-906")],
+                         [("NO_VERIFICADO", "acme-notes-archive"), ("PASS", "acme-notes-clean"), ("FAIL", "acme-notes-data")])
+
+    def test_unverified_entry_with_account_id_survives_the_scope_filter(self):
+        @evaluators.register("test_unverified_account")
+        def unverified(responses, params):
+            return [{"resource_id": "account", "region": "us-east-1", "detail": {"reason": "no se pudo leer"}, "unverified": True}]
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_unverified_account")
+
+        def python_check(check):
+            check["id"] = "DAT-907"
+            check["scope"] = "resource"
+            check["resource_types"] = ["s3_bucket"]
+            check["verify"]["evaluator"] = "python:test_unverified_account"
+
+        scope = self.scope_file("scope-resource.json")
+        self.run_collect(checks_dir=self.catalog_with(python_check), scope=scope)
+        statuses = {(r["status"], r["resource_id"]) for r in self.rows("DAT-907")}
+        self.assertIn(("NO_VERIFICADO", "account"), statuses)
 
     def test_inventory_errors_are_exposed_to_evaluators_when_the_check_does_not_depend_on_them(self):
         responses = base_responses()
-        responses[("s3api", "list-buckets", "us-east-1")] = err(
-            "An error occurred (AccessDenied) when calling the ListBuckets operation: not authorized")
+        responses[("s3api", "list-buckets", "us-east-1")] = err(self.BUCKETS_DENIED)
 
         def python_check(check):
             check["id"] = "DET-905"

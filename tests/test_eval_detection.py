@@ -581,6 +581,14 @@ class DetectionInventoryErrorTests(unittest.TestCase):
         self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["inventory:ec2_instance"]))
         self.assertEqual([r for r in results if r["check_id"] == "DET-001" and r["status"] == "FAIL"], [])
 
+    def test_account_context_for_does_not_block_checks_that_only_select_by_it(self):
+        denied = err(self.DENIED.format(op="DescribeInstances", perm="ec2:DescribeInstances"))
+        results = self.collect(("ec2", "describe-instances", None, "", denied))
+        for check_id in ("DET-006", "DET-007"):
+            self.assertIn("ec2_instance", catalog_check(check_id)["account_context_for"])
+            self.assertNotIn("inventory_types", params_of(check_id))
+            self.assertEqual({r["status"] for r in self.rows(results, check_id)}, {"FAIL"}, check_id)
+
     def test_checks_that_do_not_read_the_inventory_are_still_evaluated(self):
         denied = err(self.DENIED.format(op="ListBuckets", perm="s3:ListAllMyBuckets"))
         results = self.collect(("s3api", "list-buckets", None, "", denied))

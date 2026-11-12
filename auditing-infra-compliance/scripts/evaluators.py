@@ -15,7 +15,7 @@ An entry {"resource_id", "region", "detail", "unverified": True} (helper `_unver
 not decide for that region: the engine emits a NO_VERIFICADO row for it (missing = the check's permissions when
 detail["error_code"] is ACCESS_DENIED), never a FAIL or a PASS.
 responses["__inventory_errors__"] is the set of inventory types whose listing failed (the engine already returns
-NO_VERIFICADO for checks that declare those types in account_context_for / params.inventory_types).
+NO_VERIFICADO for checks that declare those types in params.inventory_types).
 A call declared with "ok_errors" whose error was one of those codes shows up as {"__error__": "<code>"}.
 Evaluators that depend on the clock read an optional params["now"] (ISO 8601) so tests can pin it.
 

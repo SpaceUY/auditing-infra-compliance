@@ -10,8 +10,8 @@ value is used). A call's for_each is {"from": <earlier call name> | "__inventory
 feature/resource mode). A call may list "ok_errors" (error codes): if its stderr contains one, a
 python evaluator receives {"__error__": <code>} as that call's data instead of the check becoming
 NO_VERIFICADO (never for ACCESS_DENIED / NO_CREDENTIALS, never for jmespath).
-A check that declares `account_context_for` or `params.inventory_types` depends on those inventory types: if
-the listing of any of them failed, the check is NO_VERIFICADO (missing "inventory:<type>") instead of being evaluated
+A check that declares `params.inventory_types` depends on those inventory types (`account_context_for` is only a
+feature-mode selection key and never blocks evaluation): if the listing of any of them failed, the check is NO_VERIFICADO (missing "inventory:<type>") instead of being evaluated
 on an incomplete inventory. Python evaluators also see `responses["__inventory_errors__"]` (set of broken types).
 An evaluator entry {"resource_id", "region", "detail", "unverified": True} becomes a NO_VERIFICADO row for that region.
 The "dns" evaluator is run by the engine: params {rrtype, name_template with {domain}, must_match regex,
@@ -266,7 +266,7 @@ def _vacuous_row(ctx, check, types):
 
 def _inventory_dependencies(check):
     params = check["verify"].get("params") or {}
-    return [*(check.get("account_context_for") or []), *(params.get("inventory_types") or [])]
+    return list(params.get("inventory_types") or [])
 
 
 def _broken_dependencies(ctx, check):
@@ -315,9 +315,10 @@ def _check_rows(ctx, check):
         return rows + [_unverified(check, [], detail)]
     if is_resource and ctx.scope_entries is not None:
         allowed = _identifiers(items)
-        offenders = [o for o in offenders if o["resource_id"] in allowed]
-    skipped = {o["resource_id"] for o in offenders if o.get("not_applicable")}  # R20: no FAIL and no PASS row
+        offenders = [o for o in offenders if o.get("unverified") or o["resource_id"] in allowed]  # never drop unverified
     unverified = [o for o in offenders if o.get("unverified")]
+    # R20: not applicable resources get no FAIL and no PASS row; unverified ones get no PASS either
+    skipped = {o["resource_id"] for o in offenders if o.get("not_applicable") or o.get("unverified")}
     offenders = [o for o in offenders if not o.get("not_applicable") and not o.get("unverified")]
     rows += [_row(check, "NO_VERIFICADO", o["resource_id"], o["region"], o["detail"],
                   missing=list(check["verify"]["needs"]) if o["detail"].get("error_code") == "ACCESS_DENIED" else [])
