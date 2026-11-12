@@ -3,7 +3,8 @@
 Writes <out>/checks-result.json, <out>/inventory.json and <out>/raw/<check_id>/<call>-<region>[-<n>].json
 and prints a bounded summary. Global calls run in us-east-1 and report that region.
 Everything written or printed goes through redact (keys, secrets, emails); evaluation uses the unmasked data in
-memory. Only the values of the VantaOwner tag stay unmasked in inventory.json (owner emails, needed by INV-001).
+memory. Resource identifiers (row resource_id; inventory id/arn/name) only lose keys/secrets, never emails: they
+end up in remediation commands. The values of the VantaOwner tag stay unmasked in inventory.json (owner emails, INV-001).
 
 Check conventions (catalog): a jmespath check's `offenders` expression is passed as --query and must
 project {resource_id, detail}; resource_id may be omitted when the call has for_each (the for_each
@@ -413,13 +414,19 @@ def _write_json(path, data):
     _dump(path, redact.mask_obj(data))
 
 
+def _masked_rows(rows):
+    return [{**redact.mask_obj(row), "resource_id": redact.mask_secrets(row["resource_id"])} for row in rows]
+
+
 def _masked_inventory(items):
-    """Masked copy of the inventory; the VantaOwner tag value is kept when it is an email."""
-    masked = redact.mask_obj(items)
-    for original, copy in zip(items, masked):
-        owner = (original.get("tags") or {}).get(OWNER_TAG)
+    """Masked copy of the inventory: id/arn/name keep emails, the VantaOwner tag value is kept when it is an email."""
+    masked = []
+    for item in items:
+        copy = {k: redact.mask_secrets(v) if k in ("id", "arn", "name") else redact.mask_obj(v) for k, v in item.items()}
+        owner = (item.get("tags") or {}).get(OWNER_TAG)
         if owner is not None:
             copy["tags"][OWNER_TAG] = redact.mask(owner, keep_emails=frozenset({owner}))
+        masked.append(copy)
     return masked
 
 
@@ -478,7 +485,8 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
         warnings.append(admin)
     aws = {"account_id": account_id, "identity_arn": identity_arn, "regions": ctx.regions,
            "enabled_regions": enabled}
-    _write_json(out / "checks-result.json", {"aws": aws, "results": rows, "warnings": warnings})
+    _dump(out / "checks-result.json", {"aws": redact.mask_obj(aws), "results": _masked_rows(rows),
+                                       "warnings": redact.mask_obj(warnings)})
     _dump(out / "inventory.json", _masked_inventory(ctx.inventory))
     print(redact.mask(_summary(rows, {c["id"]: c["severity"] for c in selected}, warnings, aws, out)))
     return 0

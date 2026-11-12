@@ -164,6 +164,91 @@ class IndexTests(VaultCase):
         self.assertIn("## Conectado a", rds["headings"])
         self.assertTrue(all(n["inferred_type"] is None for n in vault_index.build_index(TYPED)["notes"]))
 
+    def write_vault(self, **notes):
+        vault = self.tmp / "custom"
+        vault.mkdir(exist_ok=True)
+        for name, text in notes.items():
+            (vault / f"{name}.md").write_text(text, encoding="utf-8")
+        return vault
+
+    def test_arn_glued_to_key_and_minified_json_do_not_leak(self):
+        key = "AKIA" + "TESTKEYABCDEMNOP"
+        secret = "wJalrXUtnFEM" + "IK7MDENGbPxRfiCYEXAMPLEKEY"
+        arn = "arn:aws:iam::111122223333:user/ci"
+        vault = self.write_vault(
+            blob=f'# Blob\n\n{{"Arn":"{arn}","AccessKeyId":"{key}","SecretAccessKey":"{secret}"}}\n',
+            glued=f"# Glued\n\n{arn}{key} y {arn},{key}\n",
+            meta=f"---\ntype: {key}\nstatus: {key}\n---\n# Meta\n")
+        index = vault_index.build_index(vault)
+        dumped = json.dumps(index, ensure_ascii=False)
+        self.assertNotIn(key, dumped)
+        self.assertNotIn(secret, dumped)
+        self.assertIn({"kind": "arn", "value": arn}, self.note(index, "blob")["aws_ids"])
+        self.assertIn({"kind": "arn", "value": arn}, self.note(index, "glued")["aws_ids"])
+        self.assertEqual(self.note(index, "meta")["type"], "AKIA…MNOP")
+        self.assertEqual(self.note(index, "meta")["status"], "AKIA…MNOP")
+
+    def test_emails_inside_identifiers_are_not_masked(self):
+        arn = "arn:aws:ses:us-east-1:111122223333:identity/noreply@acme-notes.example"
+        index = vault_index.build_index(self.write_vault(ses=f"# SES\n\n{arn}\n"))
+        self.assertEqual(self.note(index, "ses")["aws_ids"], [{"kind": "arn", "value": arn}])
+
+    def test_secret_assignment_variants_are_detected_and_masked(self):
+        secret = "wJalrXUtnFEM" + "IK7MDENGbPxRfiCYEXAMPLEKEY"
+        lines = {
+            "bold": f"**aws_secret_access_key**: {secret}",
+            "tick": f"`aws_secret_access_key` = {secret}",
+            "prefix": f"prod_secret_access_key={secret}",
+            "suffix": f"AWS_SECRET_ACCESS_KEY_PROD={secret}",
+            "human": f"| Secret Access Key | {secret} |",
+            "camel": f'{{"SecretAccessKey": "{secret}"}}',
+        }
+        vault = self.write_vault(**{name: f"# {name}\n\n{line}\n" for name, line in lines.items()},
+                                 session=f"# s\n\naws_session_token = {secret}\n")
+        index = vault_index.build_index(vault)
+        dumped = json.dumps(index, ensure_ascii=False)
+        self.assertNotIn(secret, dumped)
+        for name in lines:
+            self.assertIn({"path": f"{name}.md", "pattern": "aws_secret_access_key"}, index["secrets_detected"], name)
+        self.assertIn({"path": "session.md", "pattern": "aws_session_token"}, index["secrets_detected"])
+        self.assertEqual(self.note(index, "human")["kv"], {"Secret Access Key": "[REDACTED]"})
+
+    def test_access_key_glued_to_text_is_detected_and_masked(self):
+        key = "AKIA" + "TESTKEYABCDEMNOP"
+        variants = {"before": f"x{key}", "after": f"{key}x", "digit": f"{key}1"}
+        vault = self.write_vault(**{n: f"# {n}\n\n{v}\n" for n, v in variants.items()})
+        index = vault_index.build_index(vault)
+        self.assertNotIn(key, json.dumps(index))
+        for name in variants:
+            self.assertIn({"path": f"{name}.md", "pattern": "aws_access_key_id"}, index["secrets_detected"], name)
+
+    def test_bom_is_stripped_from_frontmatter(self):
+        vault = self.tmp / "bom"
+        vault.mkdir()
+        (vault / "a.md").write_bytes(b"\xef\xbb\xbf---\ntype: system\n---\n# A\n")
+        self.assertEqual(vault_index.build_index(vault)["notes"][0]["type"], "system")
+
+    def test_missing_vault_raises(self):
+        with self.assertRaises(ValueError):
+            vault_index.build_index(self.tmp / "nope")
+        (self.tmp / "file.md").write_text("# x\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            vault_index.build_index(self.tmp / "file.md")
+
+    def test_meta_edges_alone_marks_typed(self):
+        vault = self.tmp / "edges-only"
+        (vault / "_meta").mkdir(parents=True)
+        (vault / "_meta" / "edges.md").write_text("# Edge index\n", encoding="utf-8")
+        (vault / "a.md").write_text("# A\n", encoding="utf-8")
+        self.assertEqual(vault_index.build_index(vault)["kind"], "typed")
+
+    def test_breadcrumbs_are_parents_not_links(self):
+        index = vault_index.build_index(FREE)
+        s3 = self.note(index, "S3 - uploads")
+        self.assertEqual((s3["links"], s3["parents"]), ([], ["Acme Notes"]))
+        self.assertEqual(vault_index.build_index(FREE)["broken_links"],
+                         [{"from": "Runbook de guardia.md", "target": "Checklist de rotación de claves"}])
+
     def test_inferred_types_exist_in_inventory(self):
         specs = json.loads((helpers.SKILL_DIR / "references" / "inventory.json").read_text(encoding="utf-8"))
         self.assertLessEqual(set(vault_index.INFERRED_TYPES.values()), set(specs))
@@ -258,6 +343,51 @@ class FeatureTests(VaultCase):
         self.assertFalse(vault_index.resolve_feature(index, "VPC")["pii"])
 
 
+    def test_feature_free_does_not_follow_breadcrumbs(self):
+        index = vault_index.build_index(FREE)
+        result = vault_index.resolve_feature(index, "S3 - uploads")
+        self.assertEqual(result["chosen"], "S3 - uploads.md")
+        self.assertEqual(result["components"], [])
+
+    def test_feature_matches_partial_title_without_h1(self):
+        vault = self.tmp / "noh1"
+        vault.mkdir()
+        (vault / "Pasarela de pagos.md").write_text("Texto sin encabezado.\n", encoding="utf-8")
+        index = vault_index.build_index(vault)
+        result = vault_index.resolve_feature(index, "pasarela")
+        self.assertEqual(result["chosen"], "Pasarela de pagos.md")
+
+    def test_feature_typed_normalizes_qualified_links(self):
+        vault = self.tmp / "q"
+        (vault / "systems").mkdir(parents=True)
+        (vault / "systems" / "F.md").write_text(
+            "---\ntype: system\n---\n# F\n\n## Structural\n- depends on → [[systems/G]]\n"
+            "- depends on → [[H|alias]]\n- requires → [[I#sec]]\n- enables → [[J.md]]\n", encoding="utf-8")
+        for name in "GHIJ":
+            (vault / "systems" / f"{name}.md").write_text(f"---\ntype: system\n---\n# {name}\n", encoding="utf-8")
+        index = vault_index.build_index(vault)
+        self.assertEqual(index["broken_links"], [])
+        result = vault_index.resolve_feature(index, "F")
+        self.assertEqual(titles(result["components"]), {"G", "H", "I", "J"})
+
+    def test_body_ignores_symlinks_dirs_and_dot_paths(self):
+        vault = self.tmp / "b"
+        vault.mkdir()
+        (vault / "a.md").write_text("# A\n\ncontenido\n", encoding="utf-8")
+        index = vault_index.build_index(vault)
+        outside = self.tmp / "outside.md"
+        outside.write_text("zzzunico\n", encoding="utf-8")
+        (vault / "a.md").unlink()
+        (vault / "a.md").symlink_to(outside)
+        (vault / ".git").mkdir()
+        (vault / ".git" / "n.md").write_text("zzzunico\n", encoding="utf-8")
+        (vault / "dir.md").mkdir()
+        base = {"title": "x", "type": None, "status": None, "source": [], "edges": [], "links": [],
+                "aws_ids": [], "kv": {}, "headings": [], "inferred_type": None}
+        index["notes"] += [{**base, "path": ".git/n.md"}, {**base, "path": "dir.md"}]
+        self.assertEqual(vault_index.resolve_feature(index, "zzzunico")["candidates"], [])
+
+
 class CliTests(VaultCase):
     def run_cli(self, *argv):
         out = io.StringIO()
@@ -281,6 +411,11 @@ class CliTests(VaultCase):
         self.assertEqual(code, 2)
         self.assertFalse((vault / "vault-index.json").exists())
 
+    def test_missing_vault_exits_2(self):
+        code, _ = self.run_cli("index", str(self.tmp / "nope"), "-o", str(self.tmp / "out.json"))
+        self.assertEqual(code, 2)
+        self.assertFalse((self.tmp / "out.json").exists())
+
 
 class RedactTests(unittest.TestCase):
     def test_mask_basics_and_idempotence(self):
@@ -299,6 +434,29 @@ class RedactTests(unittest.TestCase):
         self.assertEqual(redact.mask_obj(obj, keep_emails=keep),
                          {"a": ["owner@acme-notes.example", "o***@acme-notes.example"],
                           "SecretAccessKey": "[REDACTED]", "n": 3})
+
+    def test_secret_label_variants(self):
+        import redact
+        secret = "wJalrXUtnFEM" + "IK7MDENGbPxRfiCYEXAMPLEKEY"
+        for line in (f"**aws_secret_access_key**: {secret}", f"`aws_secret_access_key` = {secret}",
+                     f"prod_secret_access_key={secret}", f"AWS_SECRET_ACCESS_KEY_PROD={secret}",
+                     f"| Secret Access Key | {secret} |", f"aws_session_token: {secret}",
+                     f"AWS_SESSION_TOKEN={secret}", f'{{"SecretAccessKey":"{secret}","x":1}}'):
+            masked = redact.mask(line)
+            self.assertNotIn(secret, masked, line)
+            self.assertIn("[REDACTED]", masked, line)
+            self.assertEqual(redact.mask(masked), masked, line)
+
+    def test_access_key_without_word_boundaries(self):
+        import redact
+        key = "AKIA" + "TESTKEYABCDEMNOP"
+        self.assertEqual(redact.mask(f"x{key}"), "xAKIA…MNOP")
+        self.assertEqual(redact.mask(f"{key}x"), "AKIA…MNOPx")
+        self.assertEqual(redact.mask(f"{key}1"), "AKIA…MNOP1")
+
+    def test_mask_secrets_leaves_emails(self):
+        import redact
+        self.assertEqual(redact.mask_secrets("ana@acme-notes.example"), "ana@acme-notes.example")
 
 
 if __name__ == "__main__":

@@ -27,7 +27,6 @@ REFS = SKILL_DIR / "references"
 REGION = "us-east-1"
 OTHER = "eu-west-1"
 DOMAIN, SUBDOMAIN, ADDRESS = "acme-notes.example", "mail.acme-notes.example", "noreply@acme-notes.example"
-MASKED_ADDRESS = "n***@acme-notes.example"  # checks-result.json is written through redact
 TRANSACTIONAL, QUIET, OPTIONAL = "acme-notes-transactional", "acme-notes-quiet", "acme-notes-optional"
 
 
@@ -359,11 +358,11 @@ class EmailCollectTests(unittest.TestCase):
         self.assertEqual([r for r in self.result["results"] if r["status"] == "NO_VERIFICADO"], [])
 
     def test_identity_and_dkim_outcomes(self):
-        self.assertEqual(self.rows("EML-001"), [("PASS", DOMAIN), ("FAIL", SUBDOMAIN), ("PASS", MASKED_ADDRESS)])
+        self.assertEqual(self.rows("EML-001"), [("PASS", DOMAIN), ("FAIL", SUBDOMAIN), ("PASS", ADDRESS)])
 
     def test_default_configuration_set_outcomes(self):
         for check_id in ("EML-002", "EML-003"):
-            self.assertEqual(self.rows(check_id), [("PASS", DOMAIN), ("FAIL", SUBDOMAIN), ("FAIL", MASKED_ADDRESS)], check_id)
+            self.assertEqual(self.rows(check_id), [("PASS", DOMAIN), ("FAIL", SUBDOMAIN), ("FAIL", ADDRESS)], check_id)
 
     def test_dns_outcomes_cover_domains_and_skip_email_addresses(self):
         self.assertEqual(self.rows("EML-004"), [("PASS", DOMAIN), ("FAIL", SUBDOMAIN)])
@@ -377,7 +376,7 @@ class EmailCollectTests(unittest.TestCase):
         self.assertEqual(catalog_check("EML-005")["severity"], "high")
 
     def test_account_outcome_is_per_identity(self):
-        self.assertEqual(self.rows("EML-006"), [("PASS", DOMAIN), ("PASS", SUBDOMAIN), ("PASS", MASKED_ADDRESS)])
+        self.assertEqual(self.rows("EML-006"), [("PASS", DOMAIN), ("PASS", SUBDOMAIN), ("PASS", ADDRESS)])
 
     def test_each_identity_is_read_once_per_check(self):
         reads = [c[c.index("--email-identity") + 1] for c in self.runner.calls if c[2] == "get-email-identity"]

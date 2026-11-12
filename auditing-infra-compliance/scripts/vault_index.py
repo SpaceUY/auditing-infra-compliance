@@ -27,7 +27,7 @@ SECTION = re.compile(r"^#{1,6}\s+(Structural|Associative)\s*$", re.I)
 KEY_VALUE = re.compile(r"^([A-Za-z_][\w-]*):[ \t]*(.*)$")
 SEPARATOR_ROW = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
 NON_NOTE_LINK = re.compile(r"\.(png|jpe?g|gif|svg|webp|pdf|mp[34])$", re.I)
-ARN = re.compile(r"arn:aws[a-z-]*:[^\s)\]|]+")
+ARN = re.compile(r"arn:aws[a-z-]*:[^\s)\]|\"',`<>}]+")
 RESOURCE_ID = re.compile(r"\b(i|sg|vpc|subnet|vol|acl|rtb|igw|nat|eni|lt)-[0-9a-f]{8,17}\b")
 RDS_ID = re.compile(r"\bdb-[A-Z0-9]{26}\b")
 PII_WORDS = re.compile(r"\b(pii|datos personales|user data|personal data|emails?)\b")
@@ -39,12 +39,13 @@ INFERRED_TYPES = {"RDS": "rds_instance", "S3": "s3_bucket", "VPC": "vpc", "ALB":
                   "SES": "ses_identity", "LAMBDA": "lambda_function", "SQS": "sqs_queue", "IAM": "iam_role",
                   "KMS": "kms_key"}
 FREE_DEPTH = 2
+BREADCRUMB = "←"  # "← [[Hub]]" lines point to the parent; they are not dependencies, so they are not in `links`
 
 
 # ---------------------------------------------------------------- reading
 
 def _read(path):
-    with open(path, encoding="utf-8", errors="replace") as handle:
+    with open(path, encoding="utf-8-sig", errors="replace") as handle:
         return handle.read()
 
 
@@ -135,7 +136,7 @@ def _kv(body):
 
 
 def _aws_ids(text):
-    found = [{"kind": "arn", "value": m.group(0).rstrip(".,;:'\"`")} for m in ARN.finditer(text)]
+    found = [{"kind": "arn", "value": redact.mask_secrets(m.group(0).rstrip(".,;:'\"`"))} for m in ARN.finditer(text)]
     found += [{"kind": m.group(1), "value": m.group(0)} for m in RESOURCE_ID.finditer(text)]
     found += [{"kind": "db", "value": m.group(0)} for m in RDS_ID.finditer(text)]
     return [dict(t) for t in dict.fromkeys(tuple(i.items()) for i in found)]
@@ -145,14 +146,20 @@ def _secrets(text):
     patterns = []
     if redact.ACCESS_KEY.search(text):
         patterns.append("aws_access_key_id")
-    if redact.SECRET_ASSIGNMENT.search(text):
-        patterns.append("aws_secret_access_key")
+    for match in redact.SECRET_ASSIGNMENT.finditer(text):
+        pattern = "aws_session_token" if "session" in match.group(1).lower() else "aws_secret_access_key"
+        if pattern not in patterns:
+            patterns.append(pattern)
     return patterns
 
 
 def _inferred_type(stem):
     prefix = stem.split(" - ", 1)[0].split()[0] if stem.strip() else ""
     return INFERRED_TYPES.get(prefix.upper())
+
+
+def _links(lines):
+    return list(dict.fromkeys(m.group(1).strip() for line in lines for m in WIKILINK.finditer(line)))
 
 
 def _link_name(target):
@@ -165,25 +172,30 @@ def _parse_note(vault, path):
     rel = path.relative_to(vault).as_posix()
     fields, body = _split_frontmatter(text)
     mask = redact.mask
-    links = list(dict.fromkeys(m.group(1).strip() for m in WIKILINK.finditer(body)))
+    lines = body.splitlines()
+    parents = _links([line for line in lines if line.lstrip().startswith(BREADCRUMB)])
+    links = _links([line for line in lines if not line.lstrip().startswith(BREADCRUMB)])
     note = {
         "path": rel, "title": mask(path.stem),
-        "type": fields.get("type") if isinstance(fields.get("type"), str) else None,
-        "status": fields.get("status") if isinstance(fields.get("status"), str) else None,
+        "type": mask(fields["type"]) if isinstance(fields.get("type"), str) else None,
+        "status": mask(fields["status"]) if isinstance(fields.get("status"), str) else None,
         "source": [mask(s) for s in _as_list(fields.get("source"))],
         "aliases": [mask(a) for a in _as_list(fields.get("aliases"))],
         "edges": [{**e, "target": mask(e["target"])} for e in _edges(body)],
         "links": [mask(link) for link in links],
+        "parents": [mask(link) for link in parents],
         "aws_ids": _aws_ids(text),
         "kv": {mask(k): mask(v) for k, v in _kv(body).items()},
         "headings": [mask(f"{m.group(1)} {m.group(2)}") for m in HEADING.finditer(body)],
         "inferred_type": None,
     }
-    return note, links, _secrets(text)
+    return note, links + parents, _secrets(text)
 
 
 def build_index(vault: Path) -> dict:
     vault = Path(vault).resolve()
+    if not vault.is_dir():
+        raise ValueError(f"el vault no existe o no es un directorio: {vault}")
     files = _note_files(vault)
     notes, raw_links, secrets = [], {}, []
     for path in files:
@@ -191,7 +203,8 @@ def build_index(vault: Path) -> dict:
         notes.append(note)
         raw_links[note["path"]] = links
         secrets += [{"path": note["path"], "pattern": p} for p in patterns]
-    typed = (vault / "_meta" / "relations.md").is_file() or (
+    meta = vault / "_meta"
+    typed = (meta / "relations.md").is_file() or (meta / "edges.md").is_file() or (
         bool(notes) and 2 * sum(1 for n in notes if n["type"]) >= len(notes))
     if not typed:
         for note, path in zip(notes, files):
@@ -212,12 +225,15 @@ def _norm(text):
 
 def _body(index, note):
     root = Path(index["root"])
-    path = (root / note["path"]).resolve()
-    if root.resolve() not in path.parents or path.suffix != ".md" or path.name.startswith(".") or path.is_symlink():
+    path = root / note["path"]
+    if path.is_symlink() or not path.is_file():
         return ""
     try:
+        parts = path.resolve().relative_to(root.resolve()).parts
+        if path.suffix != ".md" or any(part.startswith(".") for part in parts):
+            return ""
         return _split_frontmatter(_read(path))[1]
-    except OSError:
+    except (OSError, ValueError):
         return ""
 
 
@@ -228,7 +244,7 @@ def _candidates(index, query):
     notes = index["notes"]
     levels = (
         lambda n: q in {_norm(n["title"]), *(_norm(a) for a in n.get("aliases", []))},
-        lambda n: any(h.startswith("# ") and q in _norm(h[2:]) for h in n["headings"]),
+        lambda n: q in _norm(n["title"]) or any(h.startswith("# ") and q in _norm(h[2:]) for h in n["headings"]),
         lambda n: q in _norm(_body(index, n)),
     )
     for matches in levels:
@@ -244,20 +260,20 @@ def _component(note, depth, via):
 
 
 def _typed_walk(index, root, max_depth):
-    by_title = {_norm(n["title"]): n for n in index["notes"]}
+    by_title = {_link_name(n["title"]): n for n in index["notes"]}
     inbound = {}
     for note in index["notes"]:
         for edge in note["edges"]:
             if edge["layer"] == "structural" and edge["relation"] in INBOUND_RELATIONS:
-                inbound.setdefault(_norm(edge["target"]), []).append(note)
+                inbound.setdefault(_link_name(edge["target"]), []).append(note)
 
     def neighbours(note):
         for edge in note["edges"]:
             if edge["layer"] == "structural" and edge["relation"] in OUTBOUND_RELATIONS:
-                target = by_title.get(_norm(edge["target"]))
+                target = by_title.get(_link_name(edge["target"]))
                 if target:
                     yield target, edge["relation"]
-        for source in inbound.get(_norm(note["title"]), []):
+        for source in inbound.get(_link_name(note["title"]), []):
             yield source, "is part of"
 
     components, constraints = {}, []
@@ -354,7 +370,11 @@ def main(argv=None) -> int:
         if _inside(output, vault):
             print("el índice no se escribe dentro del vault; usar otra ruta con -o", file=sys.stderr)
             return 2
-        index = build_index(vault)
+        try:
+            index = build_index(vault)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
         output.write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"Vault {index['kind']}: {len(index['notes'])} notas, {len(index['broken_links'])} links rotos, "
               f"{len(index['secrets_detected'])} secretos detectados (enmascarados). Índice en: {output}")

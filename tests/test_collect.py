@@ -314,15 +314,17 @@ class EngineTests(CollectCase):
         self.assertIn("NO_VERIFICADO: 0", self.stdout)
         self.assertEqual(sum(1 for line in lines if line.startswith("  critical")), 10)
 
-    def test_outputs_are_masked_but_vanta_owner_stays(self):
+    def test_outputs_are_masked_but_vanta_owner_and_identifiers_stay(self):
         key = "AKIA" + "TESTKEYABCDEMNOP"
         email = "dev@acme-notes.example"
         owner = "owner@acme-notes.example"
+        identity = "noreply@acme-notes.example"  # an SES email identity: its id must stay intact
         responses = base_responses()
-        responses[("iam", "get-account-summary", "us-east-1")] = ok(
-            [{"resource_id": f"{email} {key}", "detail": {"note": f"key {key} of {email}"}}])
+        responses[("iam", "get-account-summary", "us-east-1")] = ok([
+            {"resource_id": identity, "detail": {"note": f"key {key} of {email}"}},
+            {"resource_id": f"user-{key}", "detail": {}}])
         responses[("ec2", "describe-instances", "us-east-1")] = ok({"Reservations": [{"Instances": [
-            {"InstanceId": "i-0abc123def4567890",
+            {"InstanceId": identity,
              "Tags": [{"Key": "VantaOwner", "Value": owner}, {"Key": "Contact", "Value": email},
                       {"Key": "Note", "Value": f"aws_secret_access_key={key}"}]}]}]})
         self.run_collect(responses)
@@ -335,11 +337,18 @@ class EngineTests(CollectCase):
             self.assertNotIn(email, text, name)
         self.assertIn("AKIA…MNOP", sources["checks-result.json"])
         self.assertIn("d***@acme-notes.example", sources["raw/IAM-901/summary-us-east-1.json"])
-        self.assertIn("d***@acme-notes.example", self.stdout)
-        tags = json.loads(sources["inventory.json"])[0]["tags"]
-        self.assertEqual(tags["VantaOwner"], owner)
-        self.assertEqual(tags["Contact"], "d***@acme-notes.example")
-        self.assertEqual(tags["Note"], "aws_secret_access_key=[REDACTED]")
+        self.assertNotIn(identity, sources["raw/IAM-901/summary-us-east-1.json"])
+        # row resource_id keeps the email identity, the email inside detail is masked
+        rows = {r["resource_id"]: r for r in json.loads(sources["checks-result.json"])["results"]
+                if r["check_id"] == "IAM-901"}
+        self.assertEqual(rows[identity]["detail"], {"note": "key AKIA…MNOP of d***@acme-notes.example"})
+        self.assertIn("user-AKIA…MNOP", rows)
+        self.assertNotIn(identity, self.stdout)  # stdout text is masked
+        (item,) = [i for i in json.loads(sources["inventory.json"]) if i["type"] == "ec2_instance"]
+        self.assertEqual((item["id"], item["name"]), (identity, identity))
+        self.assertEqual(item["tags"]["VantaOwner"], owner)
+        self.assertEqual(item["tags"]["Contact"], "d***@acme-notes.example")
+        self.assertEqual(item["tags"]["Note"], "aws_secret_access_key=[REDACTED]")
         self.assertNotIn(owner, sources["checks-result.json"])
 
     def test_admin_identity_warning(self):
