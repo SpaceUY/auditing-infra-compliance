@@ -71,6 +71,25 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("@media print", TEMPLATE)
         self.assertIn('name="viewport"', TEMPLATE)
 
+    def test_wraps_long_unbreakable_tokens(self):
+        # 375 px: p/li built from notes, steps and vault claims must not widen the page.
+        body_rule = re.search(r"\nbody\s*\{([^}]*)\}", TEMPLATE).group(1)
+        self.assertIn("overflow-wrap: anywhere", body_rule)
+
+    def test_bulk_copy_skips_unresolved_placeholders(self):
+        logic = re.search(r"function bulkCandidates\(.*?\n\}", TEMPLATE, re.S).group(0)
+        self.assertIn("'__COMPLETAR_'", logic)
+        self.assertIn("rem.risk === 'low'", logic)
+        self.assertIn("rem.kind === 'cli'", logic)
+        self.assertEqual(TEMPLATE.count("bulkCandidates("), 3)  # definition + bundle + count
+
+    def test_copy_buttons_have_aria_labels_and_restore_focus(self):
+        self.assertIn("'aria-label'", TEMPLATE)
+        self.assertIn("copyCmdAria", TEMPLATE)
+        legacy = re.search(r"function legacyCopy\(.*?\n\}", TEMPLATE, re.S).group(0)
+        self.assertIn("document.activeElement", legacy)
+        self.assertIn("previous.focus()", legacy)
+
     def test_filters_persist_inside_try_catch(self):
         self.assertRegex(TEMPLATE, r"try\s*\{[^}]*localStorage")
 
@@ -93,6 +112,24 @@ class RenderTests(unittest.TestCase):
         match = re.search(r'<script id="data" type="application/json">(.*?)</script>', rendered, re.S)
         self.assertNotRegex(match.group(1), r"[<>&]")
         self.assertEqual(json.loads(match.group(1))["findings"][0]["title"], "a & <b>")
+
+    def test_line_separators_escaped(self):
+        rendered = render_report.render({"findings": [{"title": "a\u2028b\u2029c"}]}, TEMPLATE)
+        match = re.search(r'<script id="data" type="application/json">(.*?)</script>', rendered, re.S)
+        self.assertNotIn("\u2028", match.group(1))
+        self.assertNotIn("\u2029", match.group(1))
+        self.assertEqual(json.loads(match.group(1))["findings"][0]["title"], "a\u2028b\u2029c")
+
+    def test_fixture_has_long_tokens_and_placeholder_cli_fix(self):
+        findings = SAMPLE["findings"]
+        long_token = [f for f in findings if f["vault_claim"] and max(map(len, f["vault_claim"].split())) >= 300]
+        self.assertTrue(long_token)
+        longest = lambda t: max(map(len, t.split()))
+        self.assertGreaterEqual(longest(long_token[0]["remediation"]["notes"]), 300)
+        self.assertGreaterEqual(max(longest(s) for s in long_token[0]["remediation"]["steps"]), 300)
+        placeholder = [f for f in findings if f["status"] == "FAIL" and f["remediation"] and f["remediation"]["kind"] == "cli"
+                       and f["remediation"]["risk"] == "low" and any("__COMPLETAR_" in c for c in f["remediation"]["commands"])]
+        self.assertTrue(placeholder)
 
     def test_hostile_names_escaped(self):
         hostile = [f for f in SAMPLE["findings"] if f["resource"]["name"] == HOSTILE_NAME]

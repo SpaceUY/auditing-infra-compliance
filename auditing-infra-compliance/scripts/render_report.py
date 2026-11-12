@@ -1,7 +1,7 @@
 """Renders findings.json into the single-file HTML report (assets/report-template.html).
 
 The template holds exactly one marker, /*__FINDINGS__*/, inside <script id="data" type="application/json">.
-render() replaces it with the findings JSON, escaping <, > and & as \\u003c, \\u003e and \\u0026 so no value
+render() replaces it with the findings JSON, escaping <, >, & and the U+2028/U+2029 line separators as \\u003c, \\u003e, \\u0026, \\u2028 and \\u2029 so no value
 (a resource named "</script><script>…") can close the data block or open a tag. The template's JS builds the DOM only
 through textContent/createElement, never innerHTML with data.
 
@@ -16,7 +16,7 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TEMPLATE_PATH = SKILL_DIR / "assets" / "report-template.html"
 MARKER = "/*__FINDINGS__*/"
-_ESCAPES = {"<": "\\u003c", ">": "\\u003e", "&": "\\u0026"}
+_ESCAPES = {"<": "\\u003c", ">": "\\u003e", "&": "\\u0026", "\u2028": "\\u2028", "\u2029": "\\u2029"}
 
 
 def _embeddable_json(findings: dict) -> str:

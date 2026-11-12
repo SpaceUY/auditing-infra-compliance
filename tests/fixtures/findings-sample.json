@@ -20,7 +20,7 @@
   },
   "summary": {
     "by_status": {
-      "FAIL": 9,
+      "FAIL": 11,
       "DRIFT": 2,
       "UNDOCUMENTED": 1,
       "DOCUMENTED_GAP": 1,
@@ -31,8 +31,8 @@
     },
     "by_severity_fail": {
       "critical": 2,
-      "high": 4,
-      "medium": 2,
+      "high": 5,
+      "medium": 3,
       "low": 1
     },
     "drata_tests_failing": [
@@ -431,6 +431,69 @@
       "severity": "high",
       "resource": {
         "type": "s3_bucket",
+        "id": "acme-notes-reports",
+        "region": "us-east-1",
+        "name": "acme-notes-reports"
+      },
+      "evidence": {
+        "missing_tag": "VantaOwner"
+      },
+      "vault_claim": "Argumento:'[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'",
+      "vault_note": "decisions/NotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNotaNota.md",
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "Inventory items have active owners",
+            "source": "https://help.vanta.com/en/articles/11345538-resolve-inventory-items-have-active-owners-test"
+          }
+        ],
+        "tsc": [
+          {
+            "id": "CC6.1",
+            "sourced": false
+          }
+        ],
+        "iso27001_2022": [
+          {
+            "id": "A.5.9",
+            "sourced": false
+          }
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Usar el argumento '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'",
+          "Decidir quién es el dueño de acme-notes-assets: una persona activa en Vanta (no una casilla compartida ni un usuario dado de baja).",
+          "Poner el tag VantaOwner con el email de esa persona.",
+          "Verificar que el tag aparece y esperar a la próxima sincronización de Vanta (aproximadamente cada hora)."
+        ],
+        "commands": [
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nRESOURCE_ARN=\"__COMPLETAR_RESOURCE_ARN__\"\nOWNER_EMAIL=\"__COMPLETAR_OWNER_EMAIL__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"VantaOwner=$OWNER_EMAIL\" --region \"$REGION\""
+        ],
+        "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"__COMPLETAR_RESOURCE_ARN__\" --region \"us-east-1\" --query 'ResourceTagMappingList[].Tags[?Key==`VantaOwner`]'",
+        "notes": "Excepción:com.amazonaws.services.s3.model.AmazonS3Exception'[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'"
+      },
+      "evaluated_by": "script",
+      "vacuous": false,
+      "breaks_tests": [],
+      "missing": [],
+      "depends_on_me": []
+    },
+    {
+      "id": "F-0007",
+      "check_id": "INV-001",
+      "title": "Los recursos de inventario tienen el tag VantaOwner con el email de un dueño",
+      "domain": "inventory",
+      "status": "FAIL",
+      "severity": "high",
+      "resource": {
+        "type": "s3_bucket",
         "id": "acme-notes-uploads",
         "region": "us-east-1",
         "name": "acme-notes-uploads"
@@ -485,7 +548,7 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0007",
+      "id": "F-0008",
       "check_id": "NET-001",
       "title": "Ningún security group de una región con interfaces de red activas abre SSH (puerto 22) a 0.0.0.0/0 ni a ::/0",
       "domain": "network",
@@ -578,7 +641,7 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0008",
+      "id": "F-0009",
       "check_id": "NET-001",
       "title": "Ningún security group abre SSH (puerto 22) a 0.0.0.0/0 ni a ::/0",
       "domain": "network",
@@ -675,7 +738,7 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0009",
+      "id": "F-0010",
       "check_id": "NET-001",
       "title": "Ningún security group de una región con interfaces de red activas abre SSH (puerto 22) a 0.0.0.0/0 ni a ::/0",
       "domain": "network",
@@ -781,7 +844,7 @@
       ]
     },
     {
-      "id": "F-0010",
+      "id": "F-0011",
       "check_id": "LOG-001",
       "title": "Existe un trail de CloudTrail multi-región y está registrando (IsLogging=true)",
       "domain": "logging",
@@ -847,7 +910,7 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0011",
+      "id": "F-0012",
       "check_id": "DAT-001",
       "title": "Las instancias RDS tienen backups automáticos con retención mayor a 0 días (recomendado: al menos 7)",
       "domain": "data",
@@ -921,7 +984,7 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0012",
+      "id": "F-0013",
       "check_id": "DET-001",
       "title": "GuardDuty está activo en cada región con recursos (las regiones sin recursos y sin detector se reportan con severidad baja)",
       "domain": "detection",
@@ -1001,7 +1064,7 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0013",
+      "id": "F-0014",
       "check_id": "NET-001",
       "title": "Ningún security group de una región con interfaces de red activas abre SSH (puerto 22) a 0.0.0.0/0 ni a ::/0",
       "domain": "network",
@@ -1102,7 +1165,7 @@
       ]
     },
     {
-      "id": "F-0014",
+      "id": "F-0015",
       "check_id": "NET-004",
       "title": "Ningún security group de una región con interfaces de red activas tiene una regla de entrada 'todo el tráfico' desde un CIDR",
       "domain": "network",
@@ -1200,7 +1263,7 @@
       ]
     },
     {
-      "id": "F-0015",
+      "id": "F-0016",
       "check_id": "LOG-002",
       "title": "Los trails tienen la validación de integridad de archivos de log habilitada",
       "domain": "logging",
@@ -1278,7 +1341,90 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0016",
+      "id": "F-0017",
+      "check_id": "DAT-007",
+      "title": "Los buckets de S3 tienen Block Public Access activo en sus 4 ajustes",
+      "domain": "data",
+      "status": "FAIL",
+      "severity": "medium",
+      "resource": {
+        "type": "s3_bucket",
+        "id": "acme-notes-archive",
+        "region": "us-east-1",
+        "name": "acme-notes-archive"
+      },
+      "evidence": {
+        "BlockPublicAcls": false,
+        "IgnorePublicAcls": false,
+        "BlockPublicPolicy": true,
+        "RestrictPublicBuckets": true
+      },
+      "vault_claim": null,
+      "vault_note": null,
+      "mappings": {
+        "drata": [
+          {
+            "test": 104,
+            "name": "Cloud Storage Public Access Disabled",
+            "source": "https://help.drata.com/en/articles/4777046"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Buckets use Block Public Access settings",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc": [
+          {
+            "id": "CC6.1",
+            "sourced": "drata-dcf-2026-11-12"
+          },
+          {
+            "id": "CC6.6",
+            "sourced": "drata-dcf-2026-11-12"
+          }
+        ],
+        "iso27001_2022": [
+          {
+            "id": "A.8.20",
+            "sourced": "drata-dcf-2026-11-12"
+          },
+          {
+            "id": "A.8.21",
+            "sourced": "drata-dcf-2026-11-12"
+          }
+        ],
+        "security_hub": [
+          "S3.8"
+        ],
+        "cis_aws": [
+          "2.1.4"
+        ]
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Revisar si el bucket acme-notes-archive sirve contenido público a propósito (sitio web estático o ACL pública) y, si es así, ponerlo detrás de CloudFront con acceso privado antes de bloquear.",
+          "Activar los 4 ajustes de Block Public Access en el bucket.",
+          "Verificar con get-public-access-block que los 4 ajustes son true."
+        ],
+        "commands": [
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nBUCKET_ARN=\"__COMPLETAR_RESOURCE_ARN__\"\naws s3api get-bucket-location --bucket \"$BUCKET_ARN\" --region \"$REGION\""
+        ],
+        "verify_after": "aws s3api get-public-access-block --bucket \"acme-notes-archive\" --region \"us-east-1\"",
+        "notes": "Sin downtime, pero si el bucket sirve contenido público a propósito (sitio web estático con acceso anónimo, ACL públicas), deja de ser accesible: pasarlo antes a CloudFront con Origin Access Control. get-bucket-policy-status responde NoSuchBucketPolicy si el bucket no tiene policy: no es un error. Reversible con put-public-access-block en false. El Block Public Access de la cuenta (aws s3control put-public-access-block) se recomienda también, pero Drata no lo evalúa."
+      },
+      "evaluated_by": "script",
+      "vacuous": false,
+      "breaks_tests": [],
+      "missing": [],
+      "depends_on_me": []
+    },
+    {
+      "id": "F-0018",
       "check_id": "DAT-007",
       "title": "Los buckets de S3 tienen Block Public Access activo en sus 4 ajustes",
       "domain": "data",
@@ -1362,7 +1508,7 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0017",
+      "id": "F-0019",
       "check_id": "IAM-013",
       "title": "Las políticas propias no usan comodines amplios sin justificación (revisión)",
       "domain": "iam",
@@ -1433,7 +1579,7 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0018",
+      "id": "F-0020",
       "check_id": "DAT-007",
       "title": "Los buckets de S3 tienen Block Public Access activo en sus 4 ajustes",
       "domain": "data",
@@ -1515,7 +1661,7 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0019",
+      "id": "F-0021",
       "check_id": null,
       "title": "Recurso o configuración sin documentar en el vault",
       "domain": "vault",
@@ -1548,7 +1694,7 @@
       "depends_on_me": []
     },
     {
-      "id": "F-0020",
+      "id": "F-0022",
       "check_id": null,
       "title": "Documentado en el vault, sin recurso verificable en AWS",
       "domain": "vault",

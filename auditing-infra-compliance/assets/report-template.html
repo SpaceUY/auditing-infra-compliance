@@ -31,6 +31,7 @@ html { color-scheme: light dark; }
 body {
   margin: 0; padding: 0 0 7rem; background: var(--bg); color: var(--text);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow-wrap: anywhere;
 }
 main, header.top { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
 header.top { padding-top: 20px; }
@@ -176,7 +177,7 @@ const I18N = {
   filters: { title: 'Filtros', severity: 'Severidad', status: 'Estado', domain: 'Dominio', tool: 'Herramienta', norm: 'Norma', search: 'Buscar',
              searchPlaceholder: 'ID, recurso, texto…', all: 'Todos', allF: 'Todas', clear: 'Limpiar filtros', expand: 'Expandir todo', collapse: 'Contraer todo',
              showing: 'Mostrando', of: 'de', normSoc2: 'SOC 2', normIso: 'ISO 27001' },
-  bulk: { title: 'Copiar arreglos de bajo riesgo', hint: 'Por severidad: junta los comandos de los hallazgos FAIL de tipo CLI con riesgo bajo, separados por comentarios con el ID. Revisar antes de pegar en CloudShell.',
+  bulk: { title: 'Copiar arreglos de bajo riesgo', hint: 'Por severidad: junta los comandos de los hallazgos FAIL de tipo CLI con riesgo bajo, separados por comentarios con el ID. Se omiten los que tienen valores por completar. Revisar antes de pegar en CloudShell.',
           button: 'Copiar arreglos de bajo riesgo', empty: 'sin comandos', header: 'Hallazgos' },
   findings: { title: 'Hallazgos', empty: 'Ningún hallazgo coincide con los filtros.', noResource: 'Sin recurso asociado', account: 'Cuenta AWS',
               region: 'región', mappings: 'Mapeos', inferred: 'inferido', inferredHint: 'Mapeo inferido por el catálogo, sin fuente oficial.',
@@ -184,7 +185,7 @@ const I18N = {
               dependsOnMe: 'Tests que dependen de este recurso', missing: 'Permisos que faltan', byClaude: 'evaluado por Claude',
               vacuous: 'pasa por vacío: no hay recursos de este tipo en el alcance', checkId: 'Chequeo' },
   rem: { title: 'Remediación', steps: 'Pasos', commands: 'Comandos para CloudShell', verify: 'Verificar después', notes: 'Notas',
-         copy: 'Copiar', copyAll: 'Copiar todo', copied: 'Copiado', copyFail: 'No se pudo copiar: seleccionar y copiar a mano',
+         copy: 'Copiar', copyAll: 'Copiar todo', copied: 'Copiado', copyCmdAria: 'Copiar comando', copyAllAria: 'Copiar todos los comandos', copyVerifyAria: 'Copiar comando de verificación', of: 'de', ofN: 'de', copyFail: 'No se pudo copiar: seleccionar y copiar a mano',
          placeholders: 'Completar los valores resaltados (__COMPLETAR_…__) antes de pegar.',
          planned: 'Cambio planificado: no ejecutar sin revisión del equipo y una ventana acordada. Los comandos de abajo solo leen o preparan la decisión.',
          consoleOnly: 'Solo se puede hacer desde la consola de AWS.',
@@ -257,6 +258,7 @@ function statusBadge(st) { return badge(I18N.status[st] || st, 'st-' + statusKey
 // ---------------------------------------------------------------- copy
 
 function legacyCopy(text) {
+  const previous = document.activeElement;
   const ta = document.createElement('textarea');
   ta.value = text;
   ta.setAttribute('readonly', '');
@@ -267,6 +269,7 @@ function legacyCopy(text) {
   let ok = false;
   try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
   document.body.removeChild(ta);
+  if (previous && typeof previous.focus === 'function') previous.focus();
   return ok;
 }
 function copyText(text) {
@@ -275,12 +278,13 @@ function copyText(text) {
   }
   return Promise.resolve(legacyCopy(text));
 }
-function copyButton(label, getText, cls) {
-  const btn = el('button', { cls: 'btn ' + (cls || ''), text: label, attrs: { type: 'button' } });
+function copyButton(label, getText, cls, ariaLabel) {
+  const btn = el('button', { cls: 'btn ' + (cls || ''), text: label, attrs: { type: 'button', 'aria-label': ariaLabel || label } });
   btn.addEventListener('click', function () {
     copyText(getText()).then(function (ok) {
       btn.textContent = ok ? I18N.rem.copied : I18N.rem.copyFail;
       document.getElementById('live').textContent = btn.textContent;
+      btn.focus();
       setTimeout(function () { btn.textContent = label; }, 1800);
     });
   });
@@ -469,11 +473,16 @@ function resourceLabel(f) {
   const name = r.name && r.name !== r.id ? r.name + ' (' + r.id + ')' : r.id;
   return (r.type ? r.type + ' ' : '') + name + (r.region ? ' · ' + r.region : '');
 }
-function lowRiskBundle(sev) {
+// Findings with unresolved __COMPLETAR_ placeholders are left out: pasting them would run literal placeholders.
+function bulkCandidates(sev) {
   return FINDINGS.filter(function (f) {
     const rem = f.remediation;
-    return f.status === 'FAIL' && f.severity === sev && rem && rem.kind === 'cli' && rem.risk === 'low' && arr(rem.commands).length;
-  }).map(function (f) {
+    return f.status === 'FAIL' && f.severity === sev && rem && rem.kind === 'cli' && rem.risk === 'low' && arr(rem.commands).length &&
+      !arr(rem.commands).some(function (c) { return c.indexOf('__COMPLETAR_') !== -1; });
+  });
+}
+function lowRiskBundle(sev) {
+  return bulkCandidates(sev).map(function (f) {
     // One line only: a newline inside a hostile title would escape the comment and become a command.
     const head = '# ' + f.id + ' ' + oneLine(f.title) + ' | ' + oneLine(resourceLabel(f));
     return [head].concat(arr(f.remediation.commands)).join('\n');
@@ -485,10 +494,7 @@ function renderBulk() {
   body.appendChild(el('p', { cls: 'muted', text: I18N.bulk.hint }));
   const row = el('div', { cls: 'row' });
   SEVERITIES.forEach(function (sev) {
-    const n = FINDINGS.filter(function (f) {
-      const rem = f.remediation;
-      return f.status === 'FAIL' && f.severity === sev && rem && rem.kind === 'cli' && rem.risk === 'low' && arr(rem.commands).length;
-    }).length;
+    const n = bulkCandidates(sev).length;
     const label = I18N.bulk.button + ': ' + I18N.severity[sev] + ' (' + n + ')';
     const btn = copyButton(label, function () { return lowRiskBundle(sev); });
     if (!n) { btn.disabled = true; btn.title = I18N.bulk.empty; }
@@ -533,8 +539,8 @@ function codeBlock(text) {
 function section(title, node) {
   return el('div', null, [el('h3', { text: title }), node]);
 }
-function commandBlock(text) {
-  return el('div', { cls: 'cmd' }, [el('div', { cls: 'cmd-bar no-print' }, [copyButton(I18N.rem.copy, function () { return text; })]), codeBlock(text)]);
+function commandBlock(text, ariaLabel) {
+  return el('div', { cls: 'cmd' }, [el('div', { cls: 'cmd-bar no-print' }, [copyButton(I18N.rem.copy, function () { return text; }, '', ariaLabel)]), codeBlock(text)]);
 }
 function renderRemediation(f) {
   const rem = f.remediation;
@@ -558,11 +564,13 @@ function renderRemediation(f) {
     const wrap = el('div');
     const all = cmds.join('\n\n');
     if (/__COMPLETAR_/.test(all)) wrap.appendChild(el('p', { cls: 'muted', text: I18N.rem.placeholders }));
-    if (cmds.length > 1) wrap.appendChild(el('div', { cls: 'cmd-bar no-print' }, [copyButton(I18N.rem.copyAll, function () { return all; })]));
-    cmds.forEach(function (c) { wrap.appendChild(commandBlock(c)); });
+    if (cmds.length > 1) wrap.appendChild(el('div', { cls: 'cmd-bar no-print' }, [copyButton(I18N.rem.copyAll, function () { return all; }, '', I18N.rem.copyAllAria + ' ' + I18N.rem.of + ' ' + f.id)]));
+    cmds.forEach(function (c, i) {
+      wrap.appendChild(commandBlock(c, I18N.rem.copyCmdAria + ' ' + (i + 1) + ' ' + I18N.rem.ofN + ' ' + cmds.length + ' ' + I18N.rem.of + ' ' + f.id));
+    });
     box.appendChild(section(I18N.rem.commands, wrap));
   }
-  if (rem.verify_after) box.appendChild(section(I18N.rem.verify, commandBlock(rem.verify_after)));
+  if (rem.verify_after) box.appendChild(section(I18N.rem.verify, commandBlock(rem.verify_after, I18N.rem.copyVerifyAria + ' ' + I18N.rem.of + ' ' + f.id)));
   if (rem.notes) { const p = el('p'); appendMarked(p, rem.notes); box.appendChild(section(I18N.rem.notes, p)); }
   return box;
 }
