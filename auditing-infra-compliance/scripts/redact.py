@@ -12,12 +12,16 @@ import re
 
 REDACTED = "[REDACTED]"
 ACCESS_KEY = re.compile(r"(?:AKIA|ASIA)[0-9A-Z]{16}")  # no lookarounds: glued or trailing text is still masked
-# Label (optionally decorated with markdown, prefixed/suffixed with word chars, spaces allowed between words)
-# followed by : = or | and a value. Covers aws_secret_access_key, AWS_SECRET_ACCESS_KEY_PROD, SecretAccessKey,
-# "Secret Access Key", secret_key, session_token, ...
+# The match starts at the keyword (no unbounded prefix: that made matching quadratic); prefixes such as "prod_" stay
+# in the text, only the value is replaced. Suffix and separators are bounded or only scanned once per keyword.
+# Label may be decorated with markdown / escaped JSON quotes and have spaces between words ("Secret Access Key");
+# separators are : = or |. Covers aws_secret_access_key, AWS_SECRET_ACCESS_KEY_PROD, SecretAccessKey, secret_key, session_token...
+_LABEL = r"(?:secret[_ -]?(?:access[_ -]?)?key|session[_ -]?token)"
 SECRET_ASSIGNMENT = re.compile(
-    r"(?i)(\w*(?:secret[_ -]?(?:access[_ -]?)?key|session[_ -]?token)\w*)"
-    r"""([*`'" \t]*[:=|][*`'" \t]*)[^\s"',;|`*]+""")
+    rf"(?i)({_LABEL}\w{{0,40}})"
+    r"""([*`'"\\ \t]*[:=|][*`'"\\ \t]*)[^\s"',;|`*\\]+""")
+# CLI form: --secret-access-key <value> (the "=" form is covered above)
+CLI_FLAG = re.compile(rf"(?i)(--{_LABEL}[ \t]+)(?!-)[^\s\"',;|`*\\]+")
 EMAIL = re.compile(r"(?<![\w.+%-])([A-Za-z0-9._%+-]+)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})")
 SECRET_KEYS = frozenset({"secretaccesskey", "aws_secret_access_key", "secret_access_key", "sessiontoken",
                          "session_token", "aws_session_token"})
@@ -26,7 +30,8 @@ SECRET_KEYS = frozenset({"secretaccesskey", "aws_secret_access_key", "secret_acc
 def mask_secrets(text: str) -> str:
     """Access keys and secret/session-token assignments only (for identifiers that may legitimately hold emails)."""
     text = ACCESS_KEY.sub(lambda m: m.group(0)[:4] + "…" + m.group(0)[-4:], text)
-    return SECRET_ASSIGNMENT.sub(lambda m: m.group(1) + m.group(2) + REDACTED, text)
+    text = SECRET_ASSIGNMENT.sub(lambda m: m.group(1) + m.group(2) + REDACTED, text)
+    return CLI_FLAG.sub(lambda m: m.group(1) + REDACTED, text)
 
 
 def mask(text: str, *, keep_emails: frozenset[str] = frozenset()) -> str:

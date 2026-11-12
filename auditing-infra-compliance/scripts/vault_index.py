@@ -146,7 +146,7 @@ def _secrets(text):
     patterns = []
     if redact.ACCESS_KEY.search(text):
         patterns.append("aws_access_key_id")
-    for match in redact.SECRET_ASSIGNMENT.finditer(text):
+    for match in (*redact.SECRET_ASSIGNMENT.finditer(text), *redact.CLI_FLAG.finditer(text)):
         pattern = "aws_session_token" if "session" in match.group(1).lower() else "aws_secret_access_key"
         if pattern not in patterns:
             patterns.append(pattern)
@@ -209,9 +209,9 @@ def build_index(vault: Path) -> dict:
     if not typed:
         for note, path in zip(notes, files):
             note["inferred_type"] = _inferred_type(path.stem)
-    names = {path.stem.lower() for path in files}
+    names = {_key(path.stem) for path in files}
     broken = [{"from": rel, "target": redact.mask(target)} for rel, links in raw_links.items() for target in links
-              if not NON_NOTE_LINK.search(target) and _link_name(target) not in names]
+              if not NON_NOTE_LINK.search(target) and _key(target) not in names]
     return {"kind": "typed" if typed else "free", "root": str(vault), "notes": notes, "broken_links": broken,
             "secrets_detected": secrets, "obsidian_plugins": _plugins(vault)}
 
@@ -221,6 +221,11 @@ def build_index(vault: Path) -> dict:
 def _norm(text):
     stripped = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
     return " ".join(stripped.casefold().split())
+
+
+def _key(text):
+    """Note-name key for wikilink targets and titles: path/.md/alias-free, case, accent (NFC/NFD) and whitespace insensitive."""
+    return _norm(_link_name(text))
 
 
 def _body(index, note):
@@ -260,20 +265,20 @@ def _component(note, depth, via):
 
 
 def _typed_walk(index, root, max_depth):
-    by_title = {_link_name(n["title"]): n for n in index["notes"]}
+    by_title = {_key(n["title"]): n for n in index["notes"]}
     inbound = {}
     for note in index["notes"]:
         for edge in note["edges"]:
             if edge["layer"] == "structural" and edge["relation"] in INBOUND_RELATIONS:
-                inbound.setdefault(_link_name(edge["target"]), []).append(note)
+                inbound.setdefault(_key(edge["target"]), []).append(note)
 
     def neighbours(note):
         for edge in note["edges"]:
             if edge["layer"] == "structural" and edge["relation"] in OUTBOUND_RELATIONS:
-                target = by_title.get(_link_name(edge["target"]))
+                target = by_title.get(_key(edge["target"]))
                 if target:
                     yield target, edge["relation"]
-        for source in inbound.get(_link_name(note["title"]), []):
+        for source in inbound.get(_key(note["title"]), []):
             yield source, "is part of"
 
     components, constraints = {}, []
@@ -299,13 +304,13 @@ def _typed_walk(index, root, max_depth):
 
 
 def _free_walk(index, root):
-    by_name = {_link_name(n["title"]): n for n in index["notes"]}
+    by_name = {_key(n["title"]): n for n in index["notes"]}
     components, frontier, seen = [], [root], {root["path"]}
     for depth in range(1, FREE_DEPTH + 1):
         nxt = []
         for node in frontier:
             for link in node["links"]:
-                target = by_name.get(_link_name(link))
+                target = by_name.get(_key(link))
                 if target and target["path"] not in seen:
                     seen.add(target["path"])
                     nxt.append(target)

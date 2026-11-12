@@ -4,6 +4,8 @@ import io
 import json
 import shutil
 import tempfile
+import time
+import unicodedata
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -249,6 +251,15 @@ class IndexTests(VaultCase):
         self.assertEqual(vault_index.build_index(FREE)["broken_links"],
                          [{"from": "Runbook de guardia.md", "target": "Checklist de rotación de claves"}])
 
+    def test_cli_form_is_detected_in_the_index(self):
+        secret = "wJalrXUtnFEM" + "IK7MDENGbPxRfiCYEXAMPLEKEY"
+        vault = self.tmp / "cli"
+        vault.mkdir()
+        (vault / "n.md").write_text(f"# N\n\naws iam create --secret-access-key {secret}\n", encoding="utf-8")
+        index = vault_index.build_index(vault)
+        self.assertNotIn(secret, json.dumps(index))
+        self.assertEqual(index["secrets_detected"], [{"path": "n.md", "pattern": "aws_secret_access_key"}])
+
     def test_inferred_types_exist_in_inventory(self):
         specs = json.loads((helpers.SKILL_DIR / "references" / "inventory.json").read_text(encoding="utf-8"))
         self.assertLessEqual(set(vault_index.INFERRED_TYPES.values()), set(specs))
@@ -370,6 +381,21 @@ class FeatureTests(VaultCase):
         result = vault_index.resolve_feature(index, "F")
         self.assertEqual(titles(result["components"]), {"G", "H", "I", "J"})
 
+    def test_feature_typed_matches_nfd_links_and_extra_spaces(self):
+        vault = self.tmp / "nfd"
+        (vault / "systems").mkdir(parents=True)
+        nfc = unicodedata.normalize("NFC", "Facturación")
+        nfd = unicodedata.normalize("NFD", "Facturación")
+        (vault / "systems" / "F.md").write_text(
+            f"---\ntype: system\n---\n# F\n\n## Structural\n- depends on → [[{nfd}]]\n"
+            "- depends on → [[Mail   Queue]]\n", encoding="utf-8")
+        for name in (nfc, "Mail Queue"):
+            (vault / "systems" / f"{name}.md").write_text(f"---\ntype: system\n---\n# {name}\n", encoding="utf-8")
+        index = vault_index.build_index(vault)
+        self.assertEqual(index["broken_links"], [])
+        result = vault_index.resolve_feature(index, "F")
+        self.assertEqual(titles(result["components"]), {nfc, "Mail Queue"})
+
     def test_body_ignores_symlinks_dirs_and_dot_paths(self):
         vault = self.tmp / "b"
         vault.mkdir()
@@ -457,6 +483,30 @@ class RedactTests(unittest.TestCase):
     def test_mask_secrets_leaves_emails(self):
         import redact
         self.assertEqual(redact.mask_secrets("ana@acme-notes.example"), "ana@acme-notes.example")
+
+    def test_cli_and_escaped_json_forms(self):
+        import redact
+        secret = "wJalrXUtnFEM" + "IK7MDENGbPxRfiCYEXAMPLEKEY"
+        cases = (f"aws iam x --secret-access-key {secret} --other", f"--secret-access-key={secret}",
+                 f"--session-token {secret}", f'{{\\"SecretAccessKey\\":\\"{secret}\\"}}',
+                 f"--SECRET-ACCESS-KEY\t{secret}")
+        for text in cases:
+            masked = redact.mask(text)
+            self.assertNotIn(secret, masked, text)
+            self.assertIn("[REDACTED]", masked, text)
+            self.assertEqual(redact.mask(masked), masked, text)
+        self.assertEqual(redact.mask(f"aws x --secret-access-key {secret} --other"),
+                         "aws x --secret-access-key [REDACTED] --other")
+        self.assertEqual(redact.mask(f'{{\\"SecretAccessKey\\":\\"{secret}\\"}}'),
+                         '{\\"SecretAccessKey\\":\\"[REDACTED]\\"}')
+
+    def test_masking_is_linear_on_long_runs(self):
+        import redact
+        for text in ("a" * 200000, "ab_" * 50000, "0123456789abcdef" * 8000, "secretkey" * 10000,
+                     "secret " + " " * 100000, "x@" * 50000):
+            start = time.perf_counter()
+            redact.mask(text)
+            self.assertLess(time.perf_counter() - start, 0.5, text[:12])
 
 
 if __name__ == "__main__":
