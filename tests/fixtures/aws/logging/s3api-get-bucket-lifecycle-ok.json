@@ -1,0 +1,27 @@
+{
+  "Rules": [
+    {
+      "ID": "retain-400",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Expiration": {
+        "Days": 400
+      }
+    },
+    {
+      "ID": "tiering",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Transitions": [
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "LoggingConfiguration": {
+    "ResourceArn": "arn:aws:wafv2:us-east-1:111122223333:regional/webacl/acme-notes-web-acl/a1b2c3d4-5678-90ab-cdef-111122223333",
+    "LogDestinationConfigs": []
+  }
+}

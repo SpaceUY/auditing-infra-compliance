@@ -18,6 +18,7 @@ import base64
 import csv
 import io
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 from urllib.parse import unquote
@@ -276,3 +277,301 @@ def alternate_contact_present(responses: dict, params: dict) -> list[dict]:
     if "__error__" in data or not (data.get("AlternateContact") or {}).get("EmailAddress"):
         return [_offender("account", region, reason="sin contacto alternativo SECURITY")]
     return []
+
+
+# ---------------------------------------------------------------- Logging: shared helpers
+
+def _trail_list(responses: dict) -> list[tuple[str, dict]]:
+    """[(region, trail)] of every describe-trails response; a trail seen from several regions counts once."""
+    seen, found = set(), []
+    for region, data in responses.get("trails", []):
+        for trail in (data or {}).get("trailList", []):
+            if trail["TrailARN"] not in seen:
+                seen.add(trail["TrailARN"])
+                found.append((region, trail))
+    return found
+
+
+def _for_each_pairs(responses: dict, call: str) -> list[tuple[str, str, object]]:
+    """[(for_each value, region, data)] of a call that has for_each."""
+    values = responses.get("__for_each__", {}).get(call, [])
+    return [(value, region, data) for value, (region, data) in zip(values, responses.get(call, []))]
+
+
+def _by_value(responses: dict, call: str) -> dict[str, tuple[str, object]]:
+    """{for_each value: (region, data)}, first answer wins (two trails may share one bucket)."""
+    found: dict[str, tuple[str, object]] = {}
+    for value, region, data in _for_each_pairs(responses, call):
+        found.setdefault(value, (region, data))
+    return found
+
+
+def _no_trails(responses: dict) -> dict:
+    return _offender("account", _first(responses, "trails")[0], reason="sin trails de CloudTrail")
+
+
+def _multi_region_trails(responses: dict) -> list[tuple[str, dict]]:
+    return [(region, trail) for region, trail in _trail_list(responses) if trail.get("IsMultiRegionTrail")]
+
+
+def _trail_names_by_bucket(responses: dict) -> dict[str, list[str]]:
+    owners: dict[str, list[str]] = {}
+    for _, trail in _trail_list(responses):
+        owners.setdefault(trail["S3BucketName"], []).append(trail["Name"])
+    return owners
+
+
+def _inventory_by_arn(responses: dict, type_: str) -> dict[str, dict]:
+    return {i["arn"]: i for i in responses.get("__inventory__", []) if i["type"] == type_ and i["arn"]}
+
+
+# ---------------------------------------------------------------- Logging: CloudTrail
+
+@register("cloudtrail_active")
+def cloudtrail_active(responses: dict, params: dict) -> list[dict]:
+    """At least one multi-region trail with IsLogging=true (a trail that exists but is stopped logs nothing)."""
+    trails = _trail_list(responses)
+    if not trails:
+        return [_no_trails(responses)]
+    logging = {arn: (data or {}).get("IsLogging") is True for arn, _, data in _for_each_pairs(responses, "status")}
+    multi = _multi_region_trails(responses)
+    if any(logging.get(trail["TrailARN"]) for _, trail in multi):
+        return []
+    if not multi:
+        return [_offender("account", trails[0][0], reason="ningún trail es multi-región",
+                          trails=[t["Name"] for _, t in trails])]
+    return [_offender(t["Name"], r, reason="trail multi-región sin logging (IsLogging=false)") for r, t in multi]
+
+
+ALL_S3_PREFIXES = ("arn:aws:s3", "arn:aws:s3:::")
+READ_WRITE_COVERAGE = {"All": {"read", "write"}, "ReadOnly": {"read"}, "WriteOnly": {"write"}}
+ADVANCED_FIELDS = {"eventCategory", "resources.type", "readOnly", "resources.ARN"}
+
+
+def _classic_s3_coverage(selectors: list[dict]) -> set[str]:
+    covered: set[str] = set()
+    for selector in selectors:
+        all_buckets = any(r.get("Type") == "AWS::S3::Object" and any(v in ALL_S3_PREFIXES for v in r.get("Values", []))
+                          for r in selector.get("DataResources", []))
+        if all_buckets:
+            covered |= READ_WRITE_COVERAGE.get(selector.get("ReadWriteType", "All"), set())
+    return covered
+
+
+def _covers_all_s3_objects(fields: dict[str, dict]) -> bool:
+    """Data events of every S3 object: only eventCategory, resources.type, readOnly and a catch-all resources.ARN."""
+    if set(fields) - ADVANCED_FIELDS:
+        return False
+    if "Data" not in fields.get("eventCategory", {}).get("Equals", []):
+        return False
+    if "AWS::S3::Object" not in fields.get("resources.type", {}).get("Equals", []):
+        return False
+    arn = fields.get("resources.ARN")
+    return arn is None or (set(arn) <= {"Field", "StartsWith"} and any(v in ALL_S3_PREFIXES for v in arn.get("StartsWith", [])))
+
+
+def _advanced_s3_coverage(selectors: list[dict]) -> set[str]:
+    covered: set[str] = set()
+    for selector in selectors:
+        fields = {f["Field"]: f for f in selector.get("FieldSelectors", [])}
+        if not _covers_all_s3_objects(fields):
+            continue
+        read_only = fields.get("readOnly", {}).get("Equals")
+        covered |= {"read", "write"} if read_only is None else {d for d, v in (("read", "true"), ("write", "false")) if v in read_only}
+    return covered
+
+
+@register("trail_s3_data_events")
+def trail_s3_data_events(responses: dict, params: dict) -> list[dict]:
+    """Drata 226 / Vanta #17-#18: S3 data events, read AND write, on a multi-region trail (union across trails)."""
+    trails = _trail_list(responses)
+    if not trails:
+        return [_no_trails(responses)]
+    multi = _multi_region_trails(responses)
+    if not multi:
+        return [_offender("account", trails[0][0], reason="ningún trail multi-región", trails=[t["Name"] for _, t in trails])]
+    multi_arns = {trail["TrailARN"] for _, trail in multi}
+    covered: set[str] = set()
+    for arn, _, data in _for_each_pairs(responses, "selectors"):
+        if arn in multi_arns:
+            covered |= _classic_s3_coverage((data or {}).get("EventSelectors") or [])
+            covered |= _advanced_s3_coverage((data or {}).get("AdvancedEventSelectors") or [])
+    missing = [d for d in ("read", "write") if d not in covered]
+    if not missing:
+        return []
+    return [_offender("account", multi[0][0], reason="faltan data events de S3 en todos los buckets", missing=missing,
+                      trails=[t["Name"] for _, t in multi])]
+
+
+# ---------------------------------------------------------------- Logging: CloudTrail bucket
+
+@register("trail_bucket_logging")
+def trail_bucket_logging(responses: dict, params: dict) -> list[dict]:
+    """Server access logging on the S3 bucket of every trail (Drata 221 / Vanta #19)."""
+    owners = _trail_names_by_bucket(responses)
+    offenders = []
+    for bucket, (region, data) in _by_value(responses, "bucket_logging").items():
+        if "__error__" in data:
+            reason = "el bucket no existe"
+        elif not data.get("LoggingEnabled"):
+            reason = "access logging deshabilitado"
+        else:
+            continue
+        offenders.append(_offender(bucket, region, reason=reason, trails=owners.get(bucket, [])))
+    return offenders
+
+
+def _is_cloudtrail_principal(principal: object) -> bool:
+    service = principal.get("Service", []) if isinstance(principal, dict) else []
+    return "cloudtrail.amazonaws.com" in ([service] if isinstance(service, str) else service)
+
+
+def _restricts_source_arn(statement: dict) -> bool:
+    conditions = statement.get("Condition") or {}
+    return any(key.lower() == "aws:sourcearn" for operator in conditions.values() for key in operator)
+
+
+def _policy_limits_cloudtrail_by_arn(policy: dict) -> bool:
+    """Every Allow statement for the CloudTrail service principal carries an aws:SourceArn condition (confused deputy)."""
+    statements = policy.get("Statement", [])
+    statements = [statements] if isinstance(statements, dict) else statements
+    mine = [s for s in statements if s.get("Effect") == "Allow" and _is_cloudtrail_principal(s.get("Principal"))]
+    return bool(mine) and all(_restricts_source_arn(s) for s in mine)
+
+
+def _bucket_problems(versioning: dict, policy: dict) -> list[str]:
+    if "NoSuchBucket" in (versioning.get("__error__"), policy.get("__error__")):
+        return ["el bucket no existe"]
+    problems = []
+    if versioning.get("Status") != "Enabled":
+        problems.append("versionado no habilitado")
+    if "__error__" in policy:
+        problems.append("el bucket no tiene bucket policy")
+    elif not _policy_limits_cloudtrail_by_arn(json.loads(policy["Policy"])):
+        problems.append("la bucket policy de CloudTrail no restringe aws:SourceArn")
+    return problems
+
+
+@register("trail_bucket_hardening")
+def trail_bucket_hardening(responses: dict, params: dict) -> list[dict]:
+    """Trail bucket: versioning Enabled and a bucket policy whose CloudTrail statements use aws:SourceArn."""
+    policies = _by_value(responses, "policy")
+    offenders = []
+    for bucket, (region, versioning) in _by_value(responses, "versioning").items():
+        problems = _bucket_problems(versioning, policies.get(bucket, (region, {}))[1])
+        if problems:
+            offenders.append(_offender(bucket, region, problems=problems))
+    return offenders
+
+
+# ---------------------------------------------------------------- Logging: CloudWatch Logs, flow logs, lifecycle
+
+LOG_GROUP_ARN = re.compile(r"^arn:[^:]+:logs:([^:]+):[^:]+:log-group:(.+?)(?::\*)?$")
+
+
+@register("trail_cw_metric_filters")
+def trail_cw_metric_filters(responses: dict, params: dict) -> list[dict]:
+    """A multi-region trail delivers to CloudWatch Logs and its log group has a metric filter per CIS category.
+
+    params.categories: {category: [text every filter pattern of that category must contain]}.
+    """
+    trails = [(t, LOG_GROUP_ARN.match(t.get("CloudWatchLogsLogGroupArn", ""))) for _, t in _multi_region_trails(responses)]
+    trails = [(trail, match) for trail, match in trails if match]
+    if not trails:
+        return [_offender("account", _first(responses, "trails")[0],
+                          reason="ningún trail multi-región envía sus logs a CloudWatch Logs")]
+    patterns: dict[tuple[str, str], list[str]] = {}
+    for region, data in responses.get("filters", []):
+        for metric_filter in (data or {}).get("metricFilters", []):
+            patterns.setdefault((region, metric_filter.get("logGroupName")), []).append(metric_filter.get("filterPattern", ""))
+    offenders = []
+    for trail, match in trails:
+        region, group = match.groups()
+        found = patterns.get((region, group), [])
+        missing = [name for name, tokens in params["categories"].items()
+                   if not any(all(token in pattern for token in tokens) for pattern in found)]
+        if not missing:
+            return []
+        offenders.append(_offender(trail["Name"], region, log_group=group, missing=missing))
+    return offenders
+
+
+@register("vpc_flow_logs")
+def vpc_flow_logs(responses: dict, params: dict) -> list[dict]:
+    """Every VPC has an ACTIVE flow log on the VPC itself (a flow log on a subnet or ENI does not count)."""
+    statuses: dict[tuple[str, str], list[str]] = {}
+    for region, data in responses.get("flow_logs", []):
+        for flow_log in (data or {}).get("FlowLogs", []):
+            statuses.setdefault((region, flow_log["ResourceId"]), []).append(flow_log.get("FlowLogStatus", ""))
+    offenders = []
+    for vpc in (i for i in responses.get("__inventory__", []) if i["type"] == "vpc"):
+        found = statuses.get((vpc["region"], vpc["id"]), [])
+        if "ACTIVE" in found:
+            continue
+        if found:
+            offenders.append(_offender(vpc["id"], vpc["region"], reason="flow log no activo", flow_log_status=found[0]))
+        else:
+            offenders.append(_offender(vpc["id"], vpc["region"], reason="sin flow logs"))
+    return offenders
+
+
+def _short_expiration(rule: dict, now: datetime, minimum: timedelta) -> dict | None:
+    """The enabled rule's current-version expiration when it is shorter than `minimum` (exact, not floored days)."""
+    if rule.get("Status") != "Enabled":
+        return None
+    expiration = rule.get("Expiration") or {}
+    if "Days" in expiration and timedelta(days=expiration["Days"]) < minimum:
+        return {"rule": rule.get("ID", ""), "expires_after_days": expiration["Days"]}
+    date = _parse_time(expiration.get("Date"))
+    if date is not None and date - now < minimum:
+        return {"rule": rule.get("ID", ""), "expires_on": expiration["Date"]}
+    return None
+
+
+@register("log_bucket_lifecycle")
+def log_bucket_lifecycle(responses: dict, params: dict) -> list[dict]:
+    """Log buckets (trail destinations, or named like params.name_regex) must not expire objects before min_days.
+
+    A bucket without a lifecycle configuration keeps everything and passes. Rules about noncurrent versions and
+    incomplete uploads do not shorten log retention and are ignored.
+    """
+    now, minimum, pattern = _now(params), timedelta(days=params["min_days"]), re.compile(params["name_regex"])
+    log_buckets = {t.get("S3BucketName") for _, t in _trail_list(responses)}
+    log_buckets |= {i["id"] for i in responses.get("__inventory__", []) if i["type"] == "s3_bucket" and pattern.search(i["id"].lower())}
+    offenders = []
+    for bucket, (region, data) in _by_value(responses, "lifecycle").items():
+        if bucket not in log_buckets or "__error__" in data:
+            continue
+        short = [found for rule in data.get("Rules", []) if (found := _short_expiration(rule, now, minimum))]
+        if short:
+            offenders.append(_offender(bucket, region, rules=short, min_days=params["min_days"]))
+    return offenders
+
+
+# ---------------------------------------------------------------- Logging: ALB and WAF
+
+@register("alb_access_logs")
+def alb_access_logs(responses: dict, params: dict) -> list[dict]:
+    """Application Load Balancers with access_logs.s3.enabled != true (network and gateway load balancers are skipped)."""
+    load_balancers = _inventory_by_arn(responses, "elbv2")
+    offenders = []
+    for arn, region, data in _for_each_pairs(responses, "attrs"):
+        if ":loadbalancer/app/" not in arn:
+            continue
+        attributes = {a["Key"]: a["Value"] for a in (data or {}).get("Attributes", [])}
+        if attributes.get("access_logs.s3.enabled") != "true":
+            name = load_balancers.get(arn, {}).get("id", arn)
+            offenders.append(_offender(name, region, arn=arn, reason="access logs deshabilitados"))
+    return offenders
+
+
+@register("waf_logging")
+def waf_logging(responses: dict, params: dict) -> list[dict]:
+    """Web ACLs without a logging configuration (WAFNonexistentItemException) or without log destinations."""
+    web_acls = _inventory_by_arn(responses, "wafv2_web_acl")
+    offenders = []
+    for arn, region, data in _for_each_pairs(responses, "logging"):
+        destinations = ((data or {}).get("LoggingConfiguration") or {}).get("LogDestinationConfigs") or []
+        if "__error__" in data or not destinations:
+            offenders.append(_offender(web_acls.get(arn, {}).get("id", arn), region, arn=arn, reason="logging del WAF deshabilitado"))
+    return offenders

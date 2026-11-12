@@ -1,0 +1,40 @@
+{
+  "metricFilters": [
+    {
+      "filterName": "unauthorized-api-calls",
+      "filterPattern": "{ ($.errorCode = \"*UnauthorizedOperation\") || ($.errorCode = \"AccessDenied*\") }",
+      "logGroupName": "acme-notes-cloudtrail",
+      "metricTransformations": [
+        {
+          "metricName": "unauthorized-api-calls",
+          "metricNamespace": "CISBenchmark",
+          "metricValue": "1"
+        }
+      ]
+    },
+    {
+      "filterName": "root-account-usage",
+      "filterPattern": "{ $.userIdentity.type = \"Root\" && $.userIdentity.invokedBy NOT EXISTS && $.eventType != \"AwsServiceEvent\" }",
+      "logGroupName": "acme-notes-cloudtrail",
+      "metricTransformations": [
+        {
+          "metricName": "root-account-usage",
+          "metricNamespace": "CISBenchmark",
+          "metricValue": "1"
+        }
+      ]
+    },
+    {
+      "filterName": "iam-policy-changes",
+      "filterPattern": "{($.eventName=DeleteGroupPolicy)||($.eventName=DeleteRolePolicy)||($.eventName=DeleteUserPolicy)||($.eventName=PutGroupPolicy)||($.eventName=PutRolePolicy)||($.eventName=PutUserPolicy)||($.eventName=CreatePolicy)||($.eventName=DeletePolicy)||($.eventName=CreatePolicyVersion)||($.eventName=DeletePolicyVersion)||($.eventName=AttachRolePolicy)||($.eventName=DetachRolePolicy)||($.eventName=AttachUserPolicy)||($.eventName=DetachUserPolicy)||($.eventName=AttachGroupPolicy)||($.eventName=DetachGroupPolicy)}",
+      "logGroupName": "acme-notes-cloudtrail",
+      "metricTransformations": [
+        {
+          "metricName": "iam-policy-changes",
+          "metricNamespace": "CISBenchmark",
+          "metricValue": "1"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "detail": {
+      "logging": [
+        {
+          "types": [
+            "api",
+            "audit",
+            "authenticator",
+            "controllerManager",
+            "scheduler"
+          ],
+          "enabled": false
+        }
+      ]
+    }
+  }
+]

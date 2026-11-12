@@ -1,0 +1,14 @@
+[
+  {
+    "resource_id": "/aws/lambda/acme-notes-api",
+    "detail": {
+      "retentionInDays": 30
+    }
+  },
+  {
+    "resource_id": "/aws/ecs/acme-notes-worker",
+    "detail": {
+      "retentionInDays": 364
+    }
+  }
+]

@@ -1,0 +1,27 @@
+{
+  "logGroups": [
+    {
+      "logGroupName": "/aws/lambda/acme-notes-api",
+      "retentionInDays": 30,
+      "storedBytes": 1024,
+      "arn": "arn:aws:logs:us-east-1:111122223333:log-group:/aws/lambda/acme-notes-api:*"
+    },
+    {
+      "logGroupName": "acme-notes-cloudtrail",
+      "storedBytes": 2048,
+      "arn": "arn:aws:logs:us-east-1:111122223333:log-group:acme-notes-cloudtrail:*"
+    },
+    {
+      "logGroupName": "/aws/ecs/acme-notes-web",
+      "retentionInDays": 365,
+      "storedBytes": 512,
+      "arn": "arn:aws:logs:us-east-1:111122223333:log-group:/aws/ecs/acme-notes-web:*"
+    },
+    {
+      "logGroupName": "/aws/ecs/acme-notes-worker",
+      "retentionInDays": 364,
+      "storedBytes": 512,
+      "arn": "arn:aws:logs:us-east-1:111122223333:log-group:/aws/ecs/acme-notes-worker:*"
+    }
+  ]
+}

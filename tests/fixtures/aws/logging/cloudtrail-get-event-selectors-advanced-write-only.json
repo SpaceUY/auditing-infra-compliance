@@ -1,0 +1,39 @@
+{
+  "TrailARN": "arn:aws:cloudtrail:us-east-1:111122223333:trail/acme-notes-trail",
+  "AdvancedEventSelectors": [
+    {
+      "Name": "Management events",
+      "FieldSelectors": [
+        {
+          "Field": "eventCategory",
+          "Equals": [
+            "Management"
+          ]
+        }
+      ]
+    },
+    {
+      "Name": "S3 writes",
+      "FieldSelectors": [
+        {
+          "Field": "eventCategory",
+          "Equals": [
+            "Data"
+          ]
+        },
+        {
+          "Field": "resources.type",
+          "Equals": [
+            "AWS::S3::Object"
+          ]
+        },
+        {
+          "Field": "readOnly",
+          "Equals": [
+            "false"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "cluster": {
+    "name": "acme-notes-eks",
+    "arn": "arn:aws:eks:us-east-1:111122223333:cluster/acme-notes-eks",
+    "status": "ACTIVE",
+    "logging": {
+      "clusterLogging": [
+        {
+          "types": [
+            "api",
+            "audit",
+            "authenticator",
+            "controllerManager",
+            "scheduler"
+          ],
+          "enabled": false
+        }
+      ]
+    }
+  }
+}
