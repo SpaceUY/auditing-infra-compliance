@@ -1,0 +1,16 @@
+{
+  "BackupPlanId": "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+  "BackupPlan": {
+    "BackupPlanName": "acme-notes-daily",
+    "Rules": [
+      {
+        "RuleName": "daily",
+        "TargetBackupVaultName": "acme-notes-vault",
+        "ScheduleExpression": "cron(0 5 ? * * *)",
+        "Lifecycle": {
+          "DeleteAfterDays": 35
+        }
+      }
+    ]
+  }
+}

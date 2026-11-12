@@ -1,0 +1,16 @@
+[
+  {
+    "resource_id": "acme-notes-legacy",
+    "detail": {
+      "engine": "mysql",
+      "engine_version": "15.4"
+    }
+  },
+  {
+    "resource_id": "acme-notes-untagged",
+    "detail": {
+      "engine": "postgres",
+      "engine_version": "15.4"
+    }
+  }
+]

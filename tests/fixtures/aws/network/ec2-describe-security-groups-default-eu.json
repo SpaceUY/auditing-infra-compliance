@@ -1,0 +1,26 @@
+{
+  "SecurityGroups": [
+    {
+      "GroupId": "sg-0c3d4e5f6a0003c4d",
+      "GroupName": "default",
+      "VpcId": "vpc-0c3d4e5f60718293a",
+      "Description": "default",
+      "IpPermissions": [
+        {
+          "IpProtocol": "-1",
+          "IpRanges": [],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": [
+            {
+              "GroupId": "sg-0a1b2c3d4e5f6a001",
+              "UserId": "111122223333"
+            }
+          ]
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    }
+  ]
+}

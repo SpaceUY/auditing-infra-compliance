@@ -1,0 +1,342 @@
+{
+  "SecurityGroups": [
+    {
+      "GroupId": "sg-0a1b2c3d4e5f60718",
+      "GroupName": "acme-notes-bastion",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Description": "acme-notes-bastion",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [
+            {
+              "CidrIp": "0.0.0.0/0"
+            }
+          ],
+          "Ipv6Ranges": [
+            {
+              "CidrIpv6": "::/0"
+            }
+          ],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 443,
+          "ToPort": 443,
+          "IpRanges": [
+            {
+              "CidrIp": "10.0.0.0/16"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    },
+    {
+      "GroupId": "sg-0b2c3d4e5f6071829",
+      "GroupName": "acme-notes-web",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Description": "acme-notes-web",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 443,
+          "ToPort": 443,
+          "IpRanges": [
+            {
+              "CidrIp": "0.0.0.0/0"
+            }
+          ],
+          "Ipv6Ranges": [
+            {
+              "CidrIpv6": "::/0"
+            }
+          ],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 80,
+          "ToPort": 80,
+          "IpRanges": [
+            {
+              "CidrIp": "0.0.0.0/0"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": [
+            {
+              "GroupId": "sg-0a1b2c3d4e5f60718",
+              "UserId": "111122223333"
+            }
+          ]
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    },
+    {
+      "GroupId": "sg-0c3d4e5f60718293a",
+      "GroupName": "acme-notes-db",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Description": "acme-notes-db",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 5432,
+          "ToPort": 5432,
+          "IpRanges": [],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": [
+            {
+              "GroupId": "sg-0b2c3d4e5f6071829",
+              "UserId": "111122223333"
+            }
+          ]
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [
+            {
+              "CidrIp": "203.0.113.10/32"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    },
+    {
+      "GroupId": "sg-0d4e5f60718293a4b",
+      "GroupName": "acme-notes-rdp",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Description": "acme-notes-rdp",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 3389,
+          "ToPort": 3389,
+          "IpRanges": [
+            {
+              "CidrIp": "0.0.0.0/0"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    },
+    {
+      "GroupId": "sg-0e5f60718293a4b5c",
+      "GroupName": "acme-notes-wide",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Description": "acme-notes-wide",
+      "IpPermissions": [
+        {
+          "IpProtocol": "-1",
+          "IpRanges": [
+            {
+              "CidrIp": "0.0.0.0/0"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    },
+    {
+      "GroupId": "sg-0f60718293a4b5c6d",
+      "GroupName": "acme-notes-spare",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Description": "acme-notes-spare",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [
+            {
+              "CidrIp": "0.0.0.0/0"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 3389,
+          "ToPort": 3389,
+          "IpRanges": [],
+          "Ipv6Ranges": [
+            {
+              "CidrIpv6": "::/0"
+            }
+          ],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 80,
+          "ToPort": 80,
+          "IpRanges": [
+            {
+              "CidrIp": "0.0.0.0/0"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        },
+        {
+          "IpProtocol": "-1",
+          "IpRanges": [
+            {
+              "CidrIp": "0.0.0.0/0"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    },
+    {
+      "GroupId": "sg-0a1b2c3d4e5f607a1",
+      "GroupName": "acme-notes-range",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Description": "acme-notes-range",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 0,
+          "ToPort": 65535,
+          "IpRanges": [],
+          "Ipv6Ranges": [
+            {
+              "CidrIpv6": "::/0"
+            }
+          ],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    },
+    {
+      "GroupId": "sg-0b2c3d4e5f607182b",
+      "GroupName": "acme-notes-office",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Description": "acme-notes-office",
+      "IpPermissions": [
+        {
+          "IpProtocol": "-1",
+          "IpRanges": [
+            {
+              "CidrIp": "198.51.100.0/24"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [
+            {
+              "CidrIp": "198.51.100.0/24"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    },
+    {
+      "GroupId": "sg-0c3d4e5f60718293c",
+      "GroupName": "acme-notes-udp",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Description": "acme-notes-udp",
+      "IpPermissions": [
+        {
+          "IpProtocol": "udp",
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [
+            {
+              "CidrIp": "0.0.0.0/0"
+            }
+          ],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [],
+          "UserIdGroupPairs": []
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    },
+    {
+      "GroupId": "sg-0d4e5f60718293a4d",
+      "GroupName": "acme-notes-prefix",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Description": "acme-notes-prefix",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [],
+          "Ipv6Ranges": [],
+          "PrefixListIds": [
+            {
+              "PrefixListId": "pl-0a1b2c3d4e5f60718"
+            }
+          ],
+          "UserIdGroupPairs": []
+        }
+      ],
+      "IpPermissionsEgress": [],
+      "OwnerId": "111122223333"
+    }
+  ]
+}

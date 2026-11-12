@@ -1,0 +1,23 @@
+[
+  {
+    "resource_id": "acme-notes-legacy",
+    "detail": {
+      "engine": "mysql",
+      "cluster": null
+    }
+  },
+  {
+    "resource_id": "acme-notes-staging",
+    "detail": {
+      "engine": "postgres",
+      "cluster": null
+    }
+  },
+  {
+    "resource_id": "acme-notes-aurora-1",
+    "detail": {
+      "engine": "aurora-postgresql",
+      "cluster": "acme-notes-aurora"
+    }
+  }
+]

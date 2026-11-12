@@ -1,0 +1,23 @@
+{
+  "ReplicationGroups": [
+    {
+      "ReplicationGroupId": "acme-notes-cache",
+      "Status": "available",
+      "MultiAZ": "enabled",
+      "AutomaticFailover": "enabled",
+      "ARN": "arn:aws:elasticache:us-east-1:111122223333:replicationgroup:acme-notes-cache"
+    },
+    {
+      "ReplicationGroupId": "acme-notes-sessions",
+      "Status": "available",
+      "MultiAZ": "disabled",
+      "AutomaticFailover": "disabled",
+      "ARN": "arn:aws:elasticache:us-east-1:111122223333:replicationgroup:acme-notes-sessions"
+    },
+    {
+      "ReplicationGroupId": "acme-notes-queue",
+      "Status": "available",
+      "ARN": "arn:aws:elasticache:us-east-1:111122223333:replicationgroup:acme-notes-queue"
+    }
+  ]
+}

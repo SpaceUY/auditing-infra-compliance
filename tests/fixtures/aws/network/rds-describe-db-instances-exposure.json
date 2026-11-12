@@ -1,0 +1,101 @@
+{
+  "DBInstances": [
+    {
+      "DBInstanceIdentifier": "acme-notes-db",
+      "Engine": "postgres",
+      "DBInstanceStatus": "available",
+      "PubliclyAccessible": false,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-db",
+      "DBSubnetGroup": {
+        "DBSubnetGroupName": "acme-notes-db-subnets",
+        "VpcId": "vpc-0a1b2c3d4e5f60718",
+        "Subnets": [
+          {
+            "SubnetIdentifier": "subnet-0b2c3d4e5f6071829",
+            "SubnetStatus": "Active"
+          },
+          {
+            "SubnetIdentifier": "subnet-0c3d4e5f60718293a",
+            "SubnetStatus": "Active"
+          }
+        ]
+      }
+    },
+    {
+      "DBInstanceIdentifier": "acme-notes-flagged",
+      "Engine": "postgres",
+      "DBInstanceStatus": "available",
+      "PubliclyAccessible": true,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-flagged",
+      "DBSubnetGroup": {
+        "DBSubnetGroupName": "acme-notes-flagged-subnets",
+        "VpcId": "vpc-0a1b2c3d4e5f60718",
+        "Subnets": [
+          {
+            "SubnetIdentifier": "subnet-0b2c3d4e5f6071829",
+            "SubnetStatus": "Active"
+          },
+          {
+            "SubnetIdentifier": "subnet-0c3d4e5f60718293a",
+            "SubnetStatus": "Active"
+          }
+        ]
+      }
+    },
+    {
+      "DBInstanceIdentifier": "acme-notes-public-subnet",
+      "Engine": "postgres",
+      "DBInstanceStatus": "available",
+      "PubliclyAccessible": false,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-public-subnet",
+      "DBSubnetGroup": {
+        "DBSubnetGroupName": "acme-notes-public-subnet-subnets",
+        "VpcId": "vpc-0a1b2c3d4e5f60718",
+        "Subnets": [
+          {
+            "SubnetIdentifier": "subnet-0a1b2c3d4e5f60718",
+            "SubnetStatus": "Active"
+          },
+          {
+            "SubnetIdentifier": "subnet-0c3d4e5f60718293a",
+            "SubnetStatus": "Active"
+          }
+        ]
+      }
+    },
+    {
+      "DBInstanceIdentifier": "acme-notes-both",
+      "Engine": "postgres",
+      "DBInstanceStatus": "available",
+      "PubliclyAccessible": true,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-both",
+      "DBSubnetGroup": {
+        "DBSubnetGroupName": "acme-notes-both-subnets",
+        "VpcId": "vpc-0a1b2c3d4e5f60718",
+        "Subnets": [
+          {
+            "SubnetIdentifier": "subnet-0a1b2c3d4e5f60718",
+            "SubnetStatus": "Active"
+          }
+        ]
+      }
+    },
+    {
+      "DBInstanceIdentifier": "acme-notes-main-igw",
+      "Engine": "postgres",
+      "DBInstanceStatus": "available",
+      "PubliclyAccessible": false,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-main-igw",
+      "DBSubnetGroup": {
+        "DBSubnetGroupName": "acme-notes-main-igw-subnets",
+        "VpcId": "vpc-0b2c3d4e5f6071829",
+        "Subnets": [
+          {
+            "SubnetIdentifier": "subnet-0d4e5f60718293a4b",
+            "SubnetStatus": "Active"
+          }
+        ]
+      }
+    }
+  ]
+}

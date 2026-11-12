@@ -1,0 +1,28 @@
+{
+  "LoadBalancers": [
+    {
+      "LoadBalancerName": "acme-notes-alb",
+      "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/acme-notes-alb/50dc6c495c0c9188",
+      "Scheme": "internet-facing",
+      "Type": "application"
+    },
+    {
+      "LoadBalancerName": "acme-notes-open",
+      "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/acme-notes-open/6d0ecf831eec9f09",
+      "Scheme": "internet-facing",
+      "Type": "application"
+    },
+    {
+      "LoadBalancerName": "acme-notes-internal",
+      "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/acme-notes-internal/7e1fd0942ffd0a1a",
+      "Scheme": "internal",
+      "Type": "application"
+    },
+    {
+      "LoadBalancerName": "acme-notes-nlb",
+      "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/net/acme-notes-nlb/8f2ae1a53a0e1b2b",
+      "Scheme": "internet-facing",
+      "Type": "network"
+    }
+  ]
+}

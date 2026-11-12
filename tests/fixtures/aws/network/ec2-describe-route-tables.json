@@ -1,0 +1,102 @@
+{
+  "RouteTables": [
+    {
+      "RouteTableId": "rtb-0a1b2c3d4e5f60718",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Associations": [
+        {
+          "Main": true,
+          "RouteTableAssociationId": "rtbassoc-0a1b2c3d4e5f60718",
+          "RouteTableId": "rtb-0a1b2c3d4e5f60718"
+        }
+      ],
+      "Routes": [
+        {
+          "DestinationCidrBlock": "10.0.0.0/16",
+          "GatewayId": "local",
+          "State": "active"
+        },
+        {
+          "DestinationCidrBlock": "0.0.0.0/0",
+          "NatGatewayId": "nat-0a1b2c3d4e5f60718",
+          "State": "active"
+        }
+      ],
+      "OwnerId": "111122223333"
+    },
+    {
+      "RouteTableId": "rtb-0b2c3d4e5f6071829",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Associations": [
+        {
+          "Main": false,
+          "SubnetId": "subnet-0a1b2c3d4e5f60718",
+          "RouteTableAssociationId": "rtbassoc-0b2c3d4e5f6071829",
+          "RouteTableId": "rtb-0b2c3d4e5f6071829"
+        }
+      ],
+      "Routes": [
+        {
+          "DestinationCidrBlock": "10.0.0.0/16",
+          "GatewayId": "local",
+          "State": "active"
+        },
+        {
+          "DestinationCidrBlock": "0.0.0.0/0",
+          "GatewayId": "igw-0a1b2c3d4e5f60718",
+          "State": "active"
+        }
+      ],
+      "OwnerId": "111122223333"
+    },
+    {
+      "RouteTableId": "rtb-0c3d4e5f60718293a",
+      "VpcId": "vpc-0a1b2c3d4e5f60718",
+      "Associations": [
+        {
+          "Main": false,
+          "SubnetId": "subnet-0c3d4e5f60718293a",
+          "RouteTableAssociationId": "rtbassoc-0c3d4e5f60718293a",
+          "RouteTableId": "rtb-0c3d4e5f60718293a"
+        }
+      ],
+      "Routes": [
+        {
+          "DestinationCidrBlock": "10.0.0.0/16",
+          "GatewayId": "local",
+          "State": "active"
+        },
+        {
+          "DestinationCidrBlock": "0.0.0.0/0",
+          "NatGatewayId": "nat-0a1b2c3d4e5f60718",
+          "State": "active"
+        }
+      ],
+      "OwnerId": "111122223333"
+    },
+    {
+      "RouteTableId": "rtb-0d4e5f60718293a4b",
+      "VpcId": "vpc-0b2c3d4e5f6071829",
+      "Associations": [
+        {
+          "Main": true,
+          "RouteTableAssociationId": "rtbassoc-0d4e5f60718293a4b",
+          "RouteTableId": "rtb-0d4e5f60718293a4b"
+        }
+      ],
+      "Routes": [
+        {
+          "DestinationCidrBlock": "10.0.0.0/16",
+          "GatewayId": "local",
+          "State": "active"
+        },
+        {
+          "DestinationIpv6CidrBlock": "::/0",
+          "GatewayId": "igw-0b2c3d4e5f6071829",
+          "State": "active"
+        }
+      ],
+      "OwnerId": "111122223333"
+    }
+  ]
+}

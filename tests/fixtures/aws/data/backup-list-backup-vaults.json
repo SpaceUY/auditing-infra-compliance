@@ -1,0 +1,16 @@
+{
+  "BackupVaultList": [
+    {
+      "BackupVaultName": "acme-notes-vault",
+      "NumberOfRecoveryPoints": 12
+    },
+    {
+      "BackupVaultName": "acme-notes-quiet",
+      "NumberOfRecoveryPoints": 4
+    },
+    {
+      "BackupVaultName": "Default",
+      "NumberOfRecoveryPoints": 0
+    }
+  ]
+}
