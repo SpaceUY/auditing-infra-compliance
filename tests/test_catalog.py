@@ -177,7 +177,13 @@ class ValidateTests(CatalogTestCase):
     def test_rule_5_rejects_non_int_drata_test(self):
         checks = self.checks()
         checks[0]["mappings"]["drata"][0]["test"] = "214"
-        self.assert_errors_for(checks, "IAM-001")
+        # Give inferred mappings so rule 10 cannot be what produces the error.
+        checks[0]["mappings"]["tsc_inferred"] = ["CC6.1"]
+        checks[0]["mappings"]["iso_inferred"] = ["A.8.2"]
+        errors = self.run_validate(checks)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("IAM-001", errors[0])
+        self.assertIn("debe ser int", errors[0])
 
     def test_rule_6_rejects_jmespath_with_two_calls(self):
         checks = self.checks()
