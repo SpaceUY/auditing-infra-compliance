@@ -1,0 +1,8 @@
+{
+  "DBClusterParameterGroups": [
+    {
+      "DBClusterParameterGroupName": "default.aurora-postgresql15",
+      "DBParameterGroupFamily": "aurora-postgresql15"
+    }
+  ]
+}

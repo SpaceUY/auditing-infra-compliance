@@ -1,0 +1,13 @@
+{
+  "Certificate": {
+    "CertificateArn": "arn:aws:acm:us-east-1:111122223333:certificate/7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d",
+    "DomainName": "app.acme-notes.example",
+    "Status": "ISSUED",
+    "Type": "AMAZON_ISSUED",
+    "InUseBy": [
+      "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/acme-notes-alb/50dc6c495c0c9188"
+    ],
+    "NotBefore": "2026-01-01T00:00:00+00:00",
+    "NotAfter": "2099-06-01T00:00:00+00:00"
+  }
+}

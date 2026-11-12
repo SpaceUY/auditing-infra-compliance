@@ -1,0 +1,62 @@
+{
+  "Volumes": [
+    {
+      "VolumeId": "vol-0a1b2c3d4e5f60718",
+      "Size": 50,
+      "VolumeType": "gp3",
+      "State": "in-use",
+      "Encrypted": true,
+      "AvailabilityZone": "us-east-1a",
+      "Attachments": [
+        {
+          "InstanceId": "i-0a1b2c3d4e5f60718",
+          "State": "attached",
+          "Device": "/dev/xvda"
+        }
+      ],
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "acme-notes"
+        }
+      ],
+      "KmsKeyId": "arn:aws:kms:us-east-1:111122223333:key/1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d"
+    },
+    {
+      "VolumeId": "vol-0b2c3d4e5f6071829",
+      "Size": 50,
+      "VolumeType": "gp3",
+      "State": "in-use",
+      "Encrypted": false,
+      "AvailabilityZone": "us-east-1a",
+      "Attachments": [
+        {
+          "InstanceId": "i-0b2c3d4e5f6071829",
+          "State": "attached",
+          "Device": "/dev/xvda"
+        }
+      ],
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "acme-notes"
+        }
+      ]
+    },
+    {
+      "VolumeId": "vol-0c3d4e5f60718293a",
+      "Size": 50,
+      "VolumeType": "gp3",
+      "State": "available",
+      "Encrypted": false,
+      "AvailabilityZone": "us-east-1a",
+      "Attachments": [],
+      "Tags": [
+        {
+          "Key": "Name",
+          "Value": "acme-notes"
+        }
+      ]
+    }
+  ]
+}

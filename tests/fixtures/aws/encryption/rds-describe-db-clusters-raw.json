@@ -1,0 +1,11 @@
+{
+  "DBClusters": [
+    {
+      "DBClusterIdentifier": "acme-notes-aurora",
+      "Engine": "aurora-postgresql",
+      "StorageEncrypted": false,
+      "DBClusterArn": "arn:aws:rds:us-east-1:111122223333:cluster:acme-notes-aurora",
+      "DBClusterParameterGroup": "default.aurora-postgresql15"
+    }
+  ]
+}

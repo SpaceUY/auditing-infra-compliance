@@ -1,0 +1,45 @@
+{
+  "DBInstances": [
+    {
+      "DBInstanceIdentifier": "acme-notes-db",
+      "Engine": "postgres",
+      "DBInstanceStatus": "available",
+      "StorageEncrypted": true,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-db",
+      "DBParameterGroups": [
+        {
+          "DBParameterGroupName": "acme-notes-postgres-ssl",
+          "ParameterApplyStatus": "in-sync"
+        }
+      ],
+      "KmsKeyId": "arn:aws:kms:us-east-1:111122223333:key/1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d"
+    },
+    {
+      "DBInstanceIdentifier": "acme-notes-legacy",
+      "Engine": "mysql",
+      "DBInstanceStatus": "available",
+      "StorageEncrypted": false,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-legacy",
+      "DBParameterGroups": [
+        {
+          "DBParameterGroupName": "default.mysql8.0",
+          "ParameterApplyStatus": "in-sync"
+        }
+      ]
+    },
+    {
+      "DBInstanceIdentifier": "acme-notes-aurora-1",
+      "Engine": "aurora-postgresql",
+      "DBInstanceStatus": "available",
+      "StorageEncrypted": false,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-aurora-1",
+      "DBParameterGroups": [
+        {
+          "DBParameterGroupName": "default.aurora-postgresql15",
+          "ParameterApplyStatus": "in-sync"
+        }
+      ],
+      "DBClusterIdentifier": "acme-notes-aurora"
+    }
+  ]
+}

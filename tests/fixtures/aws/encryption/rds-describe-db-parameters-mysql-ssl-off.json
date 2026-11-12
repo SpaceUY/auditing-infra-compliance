@@ -1,0 +1,14 @@
+{
+  "Parameters": [
+    {
+      "ParameterName": "max_connections",
+      "ParameterValue": "100",
+      "Source": "system"
+    },
+    {
+      "ParameterName": "require_secure_transport",
+      "ParameterValue": "OFF",
+      "Source": "user"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "Parameters": [
+    {
+      "ParameterName": "max_connections",
+      "ParameterValue": "100",
+      "Source": "system"
+    },
+    {
+      "ParameterName": "rds.force_ssl",
+      "ParameterValue": "1",
+      "Source": "user"
+    }
+  ]
+}

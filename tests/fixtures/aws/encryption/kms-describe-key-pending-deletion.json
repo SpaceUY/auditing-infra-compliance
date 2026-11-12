@@ -1,0 +1,14 @@
+{
+  "KeyMetadata": {
+    "KeyId": "6f7a8b9c-0d1e-4f1a-9b2c-8d9e0f1a2b3c",
+    "Arn": "arn:aws:kms:us-east-1:111122223333:key/6f7a8b9c-0d1e-4f1a-9b2c-8d9e0f1a2b3c",
+    "KeyManager": "CUSTOMER",
+    "KeySpec": "SYMMETRIC_DEFAULT",
+    "KeyState": "PendingDeletion",
+    "Enabled": false,
+    "Origin": "AWS_KMS",
+    "KeyUsage": "ENCRYPT_DECRYPT",
+    "MultiRegion": false,
+    "DeletionDate": "2026-11-30T12:00:00+00:00"
+  }
+}

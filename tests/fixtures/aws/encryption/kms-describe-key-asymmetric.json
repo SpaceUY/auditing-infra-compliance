@@ -1,0 +1,13 @@
+{
+  "KeyMetadata": {
+    "KeyId": "3c4d5e6f-7a8b-4c1d-8e2f-5a6b7c8d9e0f",
+    "Arn": "arn:aws:kms:us-east-1:111122223333:key/3c4d5e6f-7a8b-4c1d-8e2f-5a6b7c8d9e0f",
+    "KeyManager": "CUSTOMER",
+    "KeySpec": "RSA_2048",
+    "KeyState": "Enabled",
+    "Enabled": true,
+    "Origin": "AWS_KMS",
+    "KeyUsage": "SIGN_VERIFY",
+    "MultiRegion": false
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "DBParameterGroups": [
+    {
+      "DBParameterGroupName": "acme-notes-postgres-ssl",
+      "DBParameterGroupFamily": "postgres16"
+    },
+    {
+      "DBParameterGroupName": "default.mysql8.0",
+      "DBParameterGroupFamily": "mysql8.0"
+    }
+  ]
+}
