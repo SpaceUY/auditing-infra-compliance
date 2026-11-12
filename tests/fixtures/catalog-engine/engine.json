@@ -1,0 +1,99 @@
+{
+  "domain": "test",
+  "checks": [
+    {
+      "id": "IAM-901",
+      "title": "La cuenta root tiene MFA habilitado",
+      "domain": "iam",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "critical",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {"name": "summary", "service": "iam", "operation": "get-account-summary", "args": [], "region": "global"}
+        ],
+        "evaluator": "jmespath",
+        "offenders": "SummaryMap.AccountMFAEnabled == `0` && [{resource_id: 'root', detail: {AccountMFAEnabled: SummaryMap.AccountMFAEnabled}}] || `[]`",
+        "pass_when_text": "AccountMFAEnabled es 1",
+        "needs": ["iam:GetAccountSummary"]
+      },
+      "vault_signals": ["mfa root"],
+      "mappings": {"drata": [], "vanta": [], "tsc_inferred": ["CC6.1"], "iso_inferred": ["A.8.5"], "security_hub": ["IAM.9"], "cis_aws": ["1.5"]},
+      "remediation": {"kind": "console_only", "risk": "low", "downtime": false, "steps": ["Activar MFA en root."], "commands": [], "verify_after": "", "notes": ""},
+      "sources": ["https://example.invalid/docs/root-mfa"]
+    },
+    {
+      "id": "DAT-901",
+      "title": "Los buckets S3 tienen versionado habilitado",
+      "domain": "data",
+      "scope": "resource",
+      "resource_types": ["s3_bucket"],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {"name": "versioning", "service": "s3api", "operation": "get-bucket-versioning", "args": [], "region": "global",
+           "for_each": {"from": "__inventory__", "path": "id", "arg": "--bucket"}}
+        ],
+        "evaluator": "jmespath",
+        "offenders": "Status != `Enabled` && [{detail: {Status: Status}}] || `[]`",
+        "pass_when_text": "Status es Enabled",
+        "needs": ["s3:GetBucketVersioning"]
+      },
+      "vault_signals": ["versionado s3"],
+      "mappings": {"drata": [], "vanta": [], "tsc_inferred": ["A1.2"], "iso_inferred": ["A.8.13"], "security_hub": [], "cis_aws": []},
+      "remediation": {"kind": "cli", "risk": "low", "downtime": false, "steps": ["Habilitar versionado."], "commands": ["BUCKET=\"__COMPLETAR_BUCKET__\"\naws s3api put-bucket-versioning --bucket \"$BUCKET\" --versioning-configuration Status=Enabled"], "verify_after": "aws s3api get-bucket-versioning --bucket __COMPLETAR_BUCKET__", "notes": ""},
+      "sources": ["https://example.invalid/docs/s3-versioning"]
+    },
+    {
+      "id": "LOG-901",
+      "title": "Los trails de CloudTrail se evaluan con un evaluador python",
+      "domain": "logging",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": ["s3_bucket"],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {"name": "trails", "service": "cloudtrail", "operation": "describe-trails", "args": [], "region": "global"}
+        ],
+        "evaluator": "python:always_empty",
+        "params": {},
+        "pass_when_text": "Siempre pasa (evaluador de ejemplo)",
+        "needs": ["cloudtrail:DescribeTrails"]
+      },
+      "vault_signals": ["cloudtrail"],
+      "mappings": {"drata": [], "vanta": [], "tsc_inferred": ["CC7.2"], "iso_inferred": ["A.8.15"], "security_hub": ["CloudTrail.1"], "cis_aws": ["3.1"]},
+      "remediation": {"kind": "console_only", "risk": "low", "downtime": false, "steps": ["Crear un trail."], "commands": [], "verify_after": "", "notes": ""},
+      "sources": ["https://example.invalid/docs/cloudtrail"]
+    },
+    {
+      "id": "DET-901",
+      "title": "Security Hub esta habilitado en todas las regiones",
+      "domain": "detection",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "fail",
+      "verify": {
+        "calls": [
+          {"name": "hub", "service": "securityhub", "operation": "describe-hub", "args": [], "region": "each"}
+        ],
+        "evaluator": "jmespath",
+        "offenders": "HubArn == null && [`account`] || `[]`",
+        "pass_when_text": "describe-hub devuelve un hub",
+        "needs": ["securityhub:DescribeHub"]
+      },
+      "vault_signals": ["security hub"],
+      "mappings": {"drata": [], "vanta": [], "tsc_inferred": ["CC7.1"], "iso_inferred": ["A.8.16"], "security_hub": ["SecurityHub.1"], "cis_aws": []},
+      "remediation": {"kind": "cli", "risk": "low", "downtime": false, "steps": ["Habilitar Security Hub."], "commands": ["REGION=\"us-east-1\"\naws securityhub enable-security-hub --region \"$REGION\""], "verify_after": "aws securityhub describe-hub", "notes": ""},
+      "sources": ["https://example.invalid/docs/securityhub"]
+    }
+  ]
+}
