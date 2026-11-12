@@ -314,6 +314,34 @@ class EngineTests(CollectCase):
         self.assertIn("NO_VERIFICADO: 0", self.stdout)
         self.assertEqual(sum(1 for line in lines if line.startswith("  critical")), 10)
 
+    def test_outputs_are_masked_but_vanta_owner_stays(self):
+        key = "AKIA" + "TESTKEYABCDEMNOP"
+        email = "dev@acme-notes.example"
+        owner = "owner@acme-notes.example"
+        responses = base_responses()
+        responses[("iam", "get-account-summary", "us-east-1")] = ok(
+            [{"resource_id": f"{email} {key}", "detail": {"note": f"key {key} of {email}"}}])
+        responses[("ec2", "describe-instances", "us-east-1")] = ok({"Reservations": [{"Instances": [
+            {"InstanceId": "i-0abc123def4567890",
+             "Tags": [{"Key": "VantaOwner", "Value": owner}, {"Key": "Contact", "Value": email},
+                      {"Key": "Note", "Value": f"aws_secret_access_key={key}"}]}]}]})
+        self.run_collect(responses)
+        sources = {"stdout": self.stdout}
+        for path in self.out.rglob("*.json"):
+            sources[str(path.relative_to(self.out))] = path.read_text(encoding="utf-8")
+        self.assertIn("raw/IAM-901/summary-us-east-1.json", sources)
+        for name, text in sources.items():
+            self.assertNotIn(key, text, name)
+            self.assertNotIn(email, text, name)
+        self.assertIn("AKIA…MNOP", sources["checks-result.json"])
+        self.assertIn("d***@acme-notes.example", sources["raw/IAM-901/summary-us-east-1.json"])
+        self.assertIn("d***@acme-notes.example", self.stdout)
+        tags = json.loads(sources["inventory.json"])[0]["tags"]
+        self.assertEqual(tags["VantaOwner"], owner)
+        self.assertEqual(tags["Contact"], "d***@acme-notes.example")
+        self.assertEqual(tags["Note"], "aws_secret_access_key=[REDACTED]")
+        self.assertNotIn(owner, sources["checks-result.json"])
+
     def test_admin_identity_warning(self):
         responses = base_responses()
         responses[("iam", "list-attached-user-policies", "us-east-1")] = ok(

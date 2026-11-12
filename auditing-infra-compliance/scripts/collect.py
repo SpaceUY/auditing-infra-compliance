@@ -2,6 +2,8 @@
 
 Writes <out>/checks-result.json, <out>/inventory.json and <out>/raw/<check_id>/<call>-<region>[-<n>].json
 and prints a bounded summary. Global calls run in us-east-1 and report that region.
+Everything written or printed goes through redact (keys, secrets, emails); evaluation uses the unmasked data in
+memory. Only the values of the VantaOwner tag stay unmasked in inventory.json (owner emails, needed by INV-001).
 
 Check conventions (catalog): a jmespath check's `offenders` expression is passed as --query and must
 project {resource_id, detail}; resource_id may be omitted when the call has for_each (the for_each
@@ -39,6 +41,7 @@ import catalog
 import evaluators
 import inventory
 import paths
+import redact
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_REGION = inventory.DEFAULT_REGION
@@ -46,6 +49,7 @@ INVENTORY_SOURCE = "__inventory__"
 WORKERS = inventory.WORKERS
 SEVERITY_ORDER = {s: i for i, s in enumerate(catalog.SEVERITIES)}
 ADMIN_POLICY = "AdministratorAccess"
+OWNER_TAG = "VantaOwner"
 ENABLED_REGIONS_FILTER = "Name=opt-in-status,Values=opt-in-not-required,opted-in"
 
 
@@ -151,7 +155,8 @@ def _write_raw(directory, call_name, region, index, res):
     else:
         payload.update(error_kind=res.error_kind, error_message=_oneline(res.error_message, 300))
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{safe}.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    (directory / f"{safe}.json").write_text(json.dumps(redact.mask_obj(payload), indent=2, ensure_ascii=False),
+                                            encoding="utf-8")
 
 
 def _ok_error(call, res, query):
@@ -400,8 +405,22 @@ def _summary(rows, severities, warnings, aws, out):
     return "\n".join(lines)
 
 
+def _dump(path, masked):
+    path.write_text(json.dumps(masked, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def _write_json(path, data):
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _dump(path, redact.mask_obj(data))
+
+
+def _masked_inventory(items):
+    """Masked copy of the inventory; the VantaOwner tag value is kept when it is an email."""
+    masked = redact.mask_obj(items)
+    for original, copy in zip(items, masked):
+        owner = (original.get("tags") or {}).get(OWNER_TAG)
+        if owner is not None:
+            copy["tags"][OWNER_TAG] = redact.mask(owner, keep_emails=frozenset({owner}))
+    return masked
 
 
 def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which) -> int:
@@ -424,7 +443,7 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     if not identity.ok:
         message = f"sin credenciales AWS válidas ({identity.error_kind})"
         _write_json(out / "checks-result.json", {"aws": None, "results": [], "warnings": [message]})
-        print(f"{message}. Configurar credenciales o --profile y reintentar.\nDetalle en: {out}")
+        print(redact.mask(f"{message}. Configurar credenciales o --profile y reintentar.\nDetalle en: {out}"))
         return 2
     account_id, identity_arn = (identity.data or {}).get("Account"), (identity.data or {}).get("Arn", "")
 
@@ -460,8 +479,8 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     aws = {"account_id": account_id, "identity_arn": identity_arn, "regions": ctx.regions,
            "enabled_regions": enabled}
     _write_json(out / "checks-result.json", {"aws": aws, "results": rows, "warnings": warnings})
-    _write_json(out / "inventory.json", ctx.inventory)
-    print(_summary(rows, {c["id"]: c["severity"] for c in selected}, warnings, aws, out))
+    _dump(out / "inventory.json", _masked_inventory(ctx.inventory))
+    print(redact.mask(_summary(rows, {c["id"]: c["severity"] for c in selected}, warnings, aws, out)))
     return 0
 
 
