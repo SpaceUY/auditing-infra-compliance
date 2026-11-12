@@ -150,7 +150,7 @@ class RemediationTests(AssembleCase):
     def test_fill_uses_name_and_never_formats(self):
         values = {"resource_id": "r-1", "region": "us-east-1", "account_id": "1", "resource_name": "Acme {x}",
                   "resource_arn": "a"}
-        text = assemble_findings._fill('echo {resource_name} \'{"k": 1}\' {unknown} {detail_json:k}', values, {"k": [1]})
+        text = assemble_findings._fill('echo {resource_name} \'{"k": 1}\' {unknown} {detail_json:k}', values, {"k": [1]}, set())
         self.assertEqual(text, 'echo Acme {x} \'{"k": 1}\' {unknown} \'[1]\'')
 
     def test_identifiers_are_not_email_masked_in_commands(self):
@@ -160,6 +160,134 @@ class RemediationTests(AssembleCase):
         self.edit_results(email_named)
         finding = self.one(self.assemble(), "DAT-007", "jane@acme-notes.example")
         self.assertIn('--bucket "jane@acme-notes.example"', finding["remediation"]["verify_after"])
+
+
+HOSTILE_IDS = ['x$(touch /tmp/PWNED)`id`"; echo hi #', 'a"b', "a'b", "a b", "a`id`b", "a\nb", "a\n", "$HOME", "a;b",
+               "a|b", "a\\b", "a" * 513]
+SAFE_IDS = ["arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+            "https://sqs.us-east-1.amazonaws.com/111122223333/q", "ses@acme-notes.example", "/aws/lambda/x",
+            "acme-notes-assets"]
+
+
+class InjectionTests(AssembleCase):
+    def add_row(self, resource_id, region="us-east-1", check="DAT-007", status="FAIL"):
+        def add(data):
+            data["results"].append({"check_id": check, "status": status, "resource_id": resource_id, "region": region,
+                                    "detail": {}, "missing": [], "vacuous": False})
+        self.edit_results(add)
+
+    def test_hostile_identifiers_become_markers_with_warning(self):
+        for hostile in HOSTILE_IDS:
+            with self.subTest(hostile=hostile[:30]):
+                self.setUp()
+                self.add_row(hostile)
+                out = self.assemble(claims=[])
+                finding = self.one(out, "DAT-007", hostile, "FAIL")
+                rem = finding["remediation"]
+                text = json.dumps([rem["steps"], rem["commands"], rem["verify_after"], rem["notes"]])
+                self.assertIn("__COMPLETAR_RESOURCE_ID__", rem["commands"][1])
+                self.assertIn("__COMPLETAR_RESOURCE_ID__", rem["verify_after"])
+                self.assertNotIn(json.dumps(hostile)[1:-1], text)
+                self.assertIn(f"{finding['id']}: identificador con caracteres no seguros, completar a mano",
+                              out["warnings"])
+
+    def test_probe_is_not_live_command_substitution(self):
+        probe = 'x$(touch /tmp/PWNED)`id`"; echo hi #'
+        self.add_row(probe)
+        rem = self.one(self.assemble(claims=[]), "DAT-007", probe)["remediation"]
+        for command in (*rem["commands"], rem["verify_after"]):
+            self.assertNotIn("$(", command)
+            self.assertNotIn("PWNED", command)
+
+    def test_safe_identifiers_pass_unchanged(self):
+        for safe in SAFE_IDS:
+            with self.subTest(safe=safe):
+                self.setUp()
+                self.add_row(safe)
+                out = self.assemble(claims=[])
+                rem = self.one(out, "DAT-007", safe, "FAIL")["remediation"]
+                self.assertIn(f'--bucket "{safe}"', rem["verify_after"])
+                self.assertNotIn("__COMPLETAR_RESOURCE_ID__", json.dumps(rem))
+                self.assertFalse([w for w in out["warnings"] if "no seguros" in w])
+
+    def test_unsafe_value_not_used_by_the_check_raises_no_warning(self):
+        self.edit_results(lambda data: data.update(results=[r for r in data["results"] if r["check_id"] == "IAM-001"]))
+        (self.run_dir / "inventory.json").write_text(json.dumps([
+            {"type": "s3_bucket", "id": "b", "arn": "", "name": "<b>x y</b>", "region": "us-east-1", "tags": {}}]),
+            encoding="utf-8")
+        self.assertFalse([w for w in self.assemble(claims=[])["warnings"] if "no seguros" in w])
+
+    def test_unsafe_region_and_account_id(self):
+        self.add_row("acme-notes-assets", region='us-east-1"; id #')
+        out = self.assemble(claims=[])
+        finding = self.one(out, "DAT-007", "acme-notes-assets", "FAIL")
+        self.assertIn('REGION="__COMPLETAR_REGION__"', finding["remediation"]["commands"][0])
+        self.assertIn(f"{finding['id']}: identificador con caracteres no seguros, completar a mano", out["warnings"])
+
+        self.setUp()
+        self.edit_results(lambda data: data["aws"].update(account_id="1111; rm -rf ~"))
+        out = self.assemble(claims=[])
+        command = self.one(out, "DAT-007", "acme-notes-uploads", "FAIL")["remediation"]["commands"][0]
+        self.assertIn('ACCOUNT_ID="__COMPLETAR_ACCOUNT_ID__"', command)
+        self.assertTrue([w for w in out["warnings"] if "no seguros" in w])
+
+    def test_safe_values_rules(self):
+        env = assemble_findings.Env({}, {}, [], "111122223333", frozenset(), {})
+        resource = {"type": "s3_bucket", "id": "my bucket", "region": "eu-west-1", "name": "ok-name"}
+        values, bad = assemble_findings._safe_values(env, None, resource, "arn:aws:s3:::my$bucket")
+        self.assertEqual(bad, {"resource_id", "resource_arn"})
+        self.assertEqual((values["region"], values["resource_name"], values["account_id"]),
+                         ("eu-west-1", "ok-name", "111122223333"))
+        self.assertEqual(values["resource_arn"], "__COMPLETAR_RESOURCE_ARN__")
+        resource["name"] = "two words"
+        self.assertEqual(assemble_findings._safe_values(env, None, resource, None)[0]["resource_name"],
+                         "__COMPLETAR_RESOURCE_NAME__")
+
+    def test_notes_are_filled_with_the_same_rules(self):
+        out = self.assemble(claims=[])
+        notes = self.one(out, "INV-001", "acme-notes-uploads")["remediation"]["notes"]
+        self.assertIn("arn:aws:s3:::acme-notes-uploads es el ARN del recurso acme-notes-uploads", notes)
+        self.assertNotIn("{resource_arn}", notes)
+        net = self.one(out, "NET-001", SG, "FAIL")["remediation"]["notes"]
+        self.assertIn('"IpProtocol":"tcp"', net)
+        self.assertNotIn("{detail_json", net)
+        self.add_row("x$(id)", check="INV-001")
+        hostile = self.one(self.assemble(claims=[]), "INV-001", "x$(id)")["remediation"]["notes"]
+        self.assertNotIn("$(id)", hostile)
+        self.assertIn("__COMPLETAR_RESOURCE_ID__", hostile)
+
+
+class Round1Tests(AssembleCase):
+    def test_eval_claim_honours_explicit_severity(self):
+        claims = [{"kind": "EVAL", "check_id": "IAM-013", "status": "FAIL", "severity": "critical", "detail": {}}]
+        self.assertEqual(self.one(self.assemble(claims), "IAM-013")["severity"], "critical")
+        claims[0]["detail"] = {"severity_override": "low"}
+        self.assertEqual(self.one(self.assemble(claims), "IAM-013")["severity"], "low")  # override still wins
+        claims[0].update(detail={}, severity=None)
+        self.assertEqual(self.one(self.assemble(claims), "IAM-013")["severity"], "medium")  # catalog
+
+    def test_identity_arn_is_masked(self):
+        self.edit_results(lambda data: data["aws"].update(
+            identity_arn="arn:aws:sts::111122223333:assumed-role/audit/jane@acme-notes.example"))
+        arn = self.assemble()["meta"]["aws"]["identity_arn"]
+        self.assertNotIn("jane@", arn)
+        self.assertIn("j***@acme-notes.example", arn)
+
+    def test_claim_for_regional_resource_without_region_gets_marker(self):
+        def claim(check, rtype, rid):
+            return {"kind": "DOCUMENTED_GAP", "check_id": check, "resource": {"type": rtype, "id": rid, "region": None}}
+        out = self.assemble([claim("NET-001", "security_group", "sg-0123456789abcdef0")])
+        finding = self.one(out, "NET-001", "sg-0123456789abcdef0")
+        self.assertIn('REGION="__COMPLETAR_REGION__"', finding["remediation"]["commands"][0])
+        self.assertFalse([w for w in out["warnings"] if "no seguros" in w])  # a missing value is not unsafe
+        # global types, account rows and account-level claims keep us-east-1
+        bucket = self.one(self.assemble([claim("DAT-007", "s3_bucket", "acme-notes-claimed")]), "DAT-007",
+                          "acme-notes-claimed")
+        self.assertIn('REGION="us-east-1"', bucket["remediation"]["commands"][0])
+        account = self.one(self.assemble(), "LOG-001")
+        self.assertIn('REGION="us-east-1"', account["remediation"]["commands"][0])
+        iam_root = self.one(self.assemble(), "DET-001")
+        self.assertIn('REGION="us-east-1"', iam_root["remediation"]["commands"][0])
 
 
 class DependencyTests(AssembleCase):
@@ -367,6 +495,46 @@ class CliTests(AssembleCase):
         self.assertIsNotNone(out["meta"]["vault"])
         self.assertRegex(out["meta"]["generated_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")
         self.assertLess(len(stdout.getvalue().splitlines()), 5)
+
+    def run_cli(self, *extra):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = assemble_findings.main(["--run-dir", str(self.run_dir), "--platform", "x", "--mode", "full", *extra])
+        return code, out.getvalue(), err.getvalue()
+
+    def write(self, name, content):
+        path = self.tmp / name
+        path.write_text(content if isinstance(content, str) else json.dumps(content), encoding="utf-8")
+        return str(path)
+
+    def assert_clean_error(self, result):
+        code, out, err = result
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertEqual(len(err.strip().splitlines()), 1, err)
+        self.assertTrue(err.startswith("error: "))
+        self.assertNotIn("Traceback", err)
+        self.assertFalse((self.run_dir / "findings.json").exists())
+
+    def test_cli_malformed_claims(self):
+        for name, content in (("bad.json", "{not json"), ("dict.json", {"kind": "DRIFT"}),
+                              ("strings.json", ["DRIFT"]), ("kind.json", [{"kind": 3}]),
+                              ("check.json", [{"kind": "DRIFT", "check_id": 5}]),
+                              ("res.json", [{"kind": "DRIFT", "resource": "x"}]),
+                              ("bt.json", [{"kind": "DRIFT", "breaks_tests": ["a"]}])):
+            with self.subTest(name=name):
+                self.assert_clean_error(self.run_cli("--vault-claims", self.write(name, content)))
+
+    def test_cli_malformed_vault_index(self):
+        for name, content in (("bad.json", "["), ("list.json", []), ("nokind.json", {"notes": []}),
+                              ("links.json", {"kind": "free", "broken_links": [{"from": "a"}]}),
+                              ("secrets.json", {"kind": "free", "secrets_detected": ["x"]})):
+            with self.subTest(name=name):
+                self.assert_clean_error(self.run_cli("--vault-index", self.write(name, content)))
+
+    def test_cli_malformed_run_files(self):
+        (self.run_dir / "checks-result.json").write_text("{oops", encoding="utf-8")
+        self.assert_clean_error(self.run_cli())
 
     def test_cli_rejects_missing_run_dir(self):
         with contextlib.redirect_stderr(io.StringIO()):

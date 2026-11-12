@@ -12,8 +12,11 @@ Rules worth knowing:
   check default to low). A claim with breaks_tests becomes a DRIFT of at least high severity.
 - Remediation placeholders are filled with plain regex substitution (commands contain literal JSON braces, never
   str.format): {resource_id} {region} {account_id} {resource_name} {resource_arn} {detail_json:<key>}. A value that is
-  unknown stays as a __COMPLETAR_*__ marker. Identifiers are substituted unmasked (only keys/secrets are masked);
-  evidence, vault_claim, warnings and notes go through redact.mask_obj with the VantaOwner emails kept.
+  unknown stays as a __COMPLETAR_*__ marker. Identifiers are substituted unmasked (only keys/secrets are masked) but
+  only when they pass an allow-list (R51: no quotes, spaces, $, backticks, newlines); a value that fails becomes its
+  __COMPLETAR_<NAME>__ marker and the finding adds a warning. Placeholders are filled in steps, commands, verify_after
+  and notes. A claim-sourced regional resource without region gets __COMPLETAR_REGION__ (account/global: us-east-1).
+  Evidence, vault_claim, warnings and notes go through redact.mask_obj with the VantaOwner emails kept.
 - Coverage never turns into a percentage: each ISO/TSC id is FAIL, NO_VERIFICADO, PASS or NOT_TOUCHED.
 """
 
@@ -38,6 +41,10 @@ STATUS_ORDER = ("FAIL", "DRIFT", "UNDOCUMENTED", "DOCUMENTED_GAP", "NO_VERIFICAD
 CLAIM_KINDS = ("DRIFT", "UNDOCUMENTED", "DOCUMENTED_ONLY", "DOCUMENTED_GAP")
 EVAL_STATUSES = ("PASS", "FAIL", "NO_VERIFICADO", "N/A")
 COVERAGE_RANK = {"PASS": 0, "NO_VERIFICADO": 1, "FAIL": 2}
+SAFE_VALUE = re.compile(r"[A-Za-z0-9_.:/@=+,#-]{1,512}")  # R51: nothing the shell would interpret
+SAFE_REGION = re.compile(r"[a-z]{2}(-[a-z]+)+-\d")
+SAFE_ACCOUNT = re.compile(r"\d{12}")
+UNSAFE_WARNING = "{id}: identificador con caracteres no seguros, completar a mano"
 PLACEHOLDER = re.compile(r"\{(resource_id|region|account_id|resource_name|resource_arn|detail_json:[A-Za-z0-9_]+)\}")
 EMPTY_MAPPINGS = {"drata": [], "vanta": [], "tsc": [], "iso27001_2022": [], "security_hub": [], "cis_aws": []}
 CLAIM_TITLES = {
@@ -63,11 +70,17 @@ class Env:
     inventory: list
     account_id: str | None
     keep: frozenset
+    specs: dict
 
 
 def _read_json(path, default):
     path = Path(path)
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else default
+    if not path.is_file():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:  # JSONDecodeError and UnicodeDecodeError
+        raise ValueError(f"{path}: JSON inválido ({' '.join(str(exc).split())})") from exc
 
 
 def _unmasked(text):
@@ -99,10 +112,11 @@ def _resource(env, check, resource_id, region, type_hint=None):
     return {"type": rtype, "id": resource_id, "region": region, "name": name}, arn
 
 
-def _fill(text, values, detail):
+def _fill(text, values, detail, used):
     def substitute(match):
         key = match.group(1)
         if not key.startswith("detail_json:"):
+            used.add(key)
             return values[key]
         name = key.split(":", 1)[1]
         if name not in detail:
@@ -113,21 +127,49 @@ def _fill(text, values, detail):
     return PLACEHOLDER.sub(substitute, text)
 
 
-def _remediation(env, check, resource, arn, detail):
-    if not check:
-        return None
-    values = {
-        "resource_id": resource["id"] or "__COMPLETAR_RESOURCE_ID__",
-        "region": resource["region"] or DEFAULT_REGION,
-        "account_id": env.account_id or "__COMPLETAR_ACCOUNT_ID__",
-        "resource_name": resource["name"] or resource["id"] or "__COMPLETAR_RESOURCE_NAME__",
-        "resource_arn": arn or "__COMPLETAR_RESOURCE_ARN__",
+def _is_global(env, check, resource):
+    """True when a missing region means us-east-1: account rows, global resource types, account checks."""
+    if resource["id"] == ACCOUNT:
+        return True
+    if resource["id"] is None:
+        return bool(check) and check["scope"] == "account"
+    return (env.specs.get(resource["type"]) or {}).get("region") == "global"
+
+
+def _safe_values(env, check, resource, arn):
+    """Plain values for the placeholders; (values, names that failed the allow-list). Unsafe -> __COMPLETAR_<NAME>__."""
+    region = resource["region"] or (DEFAULT_REGION if _is_global(env, check, resource) else None)
+    candidates = {
+        "resource_id": (resource["id"], SAFE_VALUE),
+        "region": (region, SAFE_REGION),
+        "account_id": (env.account_id, SAFE_ACCOUNT),
+        "resource_name": (resource["name"] or resource["id"], SAFE_VALUE),
+        "resource_arn": (arn, SAFE_VALUE),
     }
+    values, bad = {}, set()
+    for key, (value, pattern) in candidates.items():
+        if value is not None and pattern.fullmatch(value):
+            values[key] = value
+            continue
+        values[key] = f"__COMPLETAR_{key.upper()}__"
+        if value is not None:
+            bad.add(key)
+    return values, bad
+
+
+def _remediation(env, check, resource, arn, detail):
+    """(instantiated remediation | None, True when an unsafe value was replaced by a marker)."""
+    if not check:
+        return None, False
+    values, bad = _safe_values(env, check, resource, arn)
+    used = set()
     rem = check["remediation"]
-    return {**rem,
-            "steps": [_fill(s, values, detail) for s in rem["steps"]],
-            "commands": [_fill(c, values, detail) for c in rem["commands"]],
-            "verify_after": _fill(rem["verify_after"], values, detail)}
+    filled = {**rem,
+              "steps": [_fill(t, values, detail, used) for t in rem["steps"]],
+              "commands": [_fill(t, values, detail, used) for t in rem["commands"]],
+              "verify_after": _fill(rem["verify_after"], values, detail, used),
+              "notes": _fill(rem["notes"], values, detail, used)}
+    return filled, bool(used & bad)
 
 
 # ---------------------------------------------------------------- finding construction
@@ -149,6 +191,7 @@ def _finding(env, check, *, status, severity, resource, arn=None, detail=None, e
              vault_claim=None, vault_note=None, evaluated_by="script", vacuous=False, breaks_tests=(), missing=(),
              check_id=None):
     detail = detail or {}
+    remediation, unsafe = _remediation(env, check, resource, arn, detail)
     return {
         "id": None,
         "check_id": check["id"] if check else check_id,
@@ -161,7 +204,8 @@ def _finding(env, check, *, status, severity, resource, arn=None, detail=None, e
         "vault_claim": redact.mask(vault_claim, keep_emails=env.keep) if vault_claim else None,
         "vault_note": redact.mask(vault_note, keep_emails=env.keep) if vault_note else None,
         "mappings": _mappings(env, check),
-        "remediation": _remediation(env, check, resource, arn, detail),
+        "remediation": remediation,
+        "_unsafe": unsafe,
         "evaluated_by": evaluated_by,
         "vacuous": vacuous,
         "breaks_tests": [dict(b) for b in breaks_tests],
@@ -200,8 +244,8 @@ def _eval_finding(env, row, claim, warnings):
         resource, arn = _claim_resource(env, check, claim)
     else:
         resource, arn = _resource(env, check, row["resource_id"], row.get("region"))
-    return _finding(env, check, status=status, severity=_severity(check, detail), resource=resource, arn=arn,
-                    detail=detail, evidence=evidence, title=claim["check_id"], check_id=claim["check_id"],
+    return _finding(env, check, status=status, severity=_severity(check, detail, claim.get("severity")),
+                    resource=resource, arn=arn, detail=detail, evidence=evidence, title=claim["check_id"], check_id=claim["check_id"],
                     vault_claim=claim.get("vault_claim"), vault_note=claim.get("vault_note"),
                     evaluated_by="claude", vacuous=status == "N/A")
 
@@ -380,10 +424,11 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
     result = _read_json(run_dir / "checks-result.json", {})
     aws = result.get("aws")
     inventory = _read_json(run_dir / "inventory.json", []) if aws else []
+    specs = _read_json(skill_dir / "references" / "inventory.json", {})
     owners = frozenset(i["tags"][OWNER_TAG] for i in inventory if (i.get("tags") or {}).get(OWNER_TAG))
     env = Env({c["id"]: c for c in checks},
               catalog.load_drata_map(skill_dir / "references" / "mappings" / "drata-dcf.json"),
-              inventory, (aws or {}).get("account_id"), owners)
+              inventory, (aws or {}).get("account_id"), owners, specs)
     claims = claims or []
     warnings = list(result.get("warnings") or []) + _vault_warnings(vault_index)
 
@@ -395,6 +440,8 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
     tests_by_resource = {d["resource_id"]: d["tests"] for d in dependencies}
     for number, finding in enumerate(findings, start=1):
         finding["id"] = f"F-{number:04d}"
+        if finding.pop("_unsafe"):
+            warnings.append(UNSAFE_WARNING.format(id=finding["id"]))
         finding["depends_on_me"] = list(tests_by_resource.get(finding["resource"]["id"], []))
 
     return {
@@ -402,7 +449,8 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
                  "generated_at": meta.get("generated_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
                  "lang": meta.get("lang", "es"), "catalog_checks": len(checks),
                  "vault": {"path": vault_index.get("root"), "kind": vault_index.get("kind")} if vault_index else None,
-                 "aws": {k: aws.get(k) for k in ("account_id", "identity_arn", "regions")} if aws else None},
+                 "aws": redact.mask_obj({k: aws.get(k) for k in ("account_id", "identity_arn", "regions")},
+                                        keep_emails=env.keep) if aws else None},
         "summary": _summary(findings),
         "findings": findings,
         "dependencies": dependencies,
@@ -410,6 +458,39 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
         "warnings": redact.mask_obj(warnings, keep_emails=env.keep),
         "notes": redact.mask_obj(_notes(aws, vault_index), keep_emails=env.keep),
     }
+
+
+def _list_of_dicts(value, label):
+    if not isinstance(value, list) or not all(isinstance(v, dict) for v in value):
+        raise ValueError(f"{label}: se esperaba una lista de objetos")
+    return value
+
+
+def _load_claims(path):
+    claims = _list_of_dicts(_read_json(path, None), f"{path}")
+    for claim in claims:
+        problems = [
+            not isinstance(claim.get("kind"), str),
+            claim.get("check_id") is not None and not isinstance(claim["check_id"], str),
+            claim.get("resource") is not None and not isinstance(claim["resource"], dict),
+            claim.get("detail") is not None and not isinstance(claim["detail"], dict),
+            not isinstance(claim.get("breaks_tests") or [], list)
+            or not all(isinstance(b, dict) for b in claim.get("breaks_tests") or []),
+        ]
+        if any(problems):
+            raise ValueError(f"{path}: claim con forma inválida (kind, check_id, resource, detail o breaks_tests)")
+    return claims
+
+
+def _load_index(path):
+    index = _read_json(path, None)
+    if not isinstance(index, dict) or not isinstance(index.get("kind"), str):
+        raise ValueError(f"{path}: no es un vault-index.json (falta 'kind')")
+    for key, required in (("broken_links", ("from", "target")), ("secrets_detected", ("path", "pattern"))):
+        items = _list_of_dicts(index.get(key) or [], f"{path} {key}")
+        if any(field not in item for item in items for field in required):
+            raise ValueError(f"{path}: {key} con forma inválida (faltan {', '.join(required)})")
+    return index
 
 
 def main(argv=None) -> int:
@@ -427,11 +508,16 @@ def main(argv=None) -> int:
     if not run_dir.is_dir():
         print(f"el directorio de la corrida no existe: {run_dir}", file=sys.stderr)
         return 2
-    index = _read_json(args.vault_index, None) if args.vault_index else None
-    claims = _read_json(args.vault_claims, []) if args.vault_claims else []
     meta = {"platform": args.platform, "mode": args.mode, "target": args.target, "lang": args.lang}
-    findings = assemble(run_dir, index, claims, meta, SKILL_DIR)
-    (run_dir / "findings.json").write_text(json.dumps(findings, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    try:
+        index = _load_index(args.vault_index) if args.vault_index else None
+        claims = _load_claims(args.vault_claims) if args.vault_claims else []
+        findings = assemble(run_dir, index, claims, meta, SKILL_DIR)
+        (run_dir / "findings.json").write_text(json.dumps(findings, indent=2, ensure_ascii=False) + "\n",
+                                               encoding="utf-8")
+    except (ValueError, OSError) as exc:
+        print(f"error: {' '.join(str(exc).split())}", file=sys.stderr)
+        return 2
     counts = findings["summary"]["by_status"]
     print(f"{len(findings['findings'])} hallazgos ("
           + ", ".join(f"{s}: {n}" for s, n in counts.items() if n) + f"). Detalle en: {run_dir / 'findings.json'}")
