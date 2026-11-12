@@ -21,20 +21,6 @@ def _trail_list(responses: dict) -> list[tuple[str, dict]]:
     return found
 
 
-def _for_each_pairs(responses: dict, call: str) -> list[tuple[str, str, object]]:
-    """[(for_each value, region, data)] of a call that has for_each."""
-    values = responses.get("__for_each__", {}).get(call, [])
-    return [(value, region, data) for value, (region, data) in zip(values, responses.get(call, []))]
-
-
-def _by_value(responses: dict, call: str) -> dict[str, tuple[str, object]]:
-    """{for_each value: (region, data)}, first answer wins (two trails may share one bucket)."""
-    found: dict[str, tuple[str, object]] = {}
-    for value, region, data in _for_each_pairs(responses, call):
-        found.setdefault(value, (region, data))
-    return found
-
-
 def _no_trails(responses: dict) -> dict:
     return _offender("account", _first(responses, "trails")[0], reason="sin trails de CloudTrail")
 
@@ -48,10 +34,6 @@ def _trail_names_by_bucket(responses: dict) -> dict[str, list[str]]:
     for _, trail in _trail_list(responses):
         owners.setdefault(trail["S3BucketName"], []).append(trail["Name"])
     return owners
-
-
-def _inventory_by_arn(responses: dict, type_: str) -> dict[str, dict]:
-    return {i["arn"]: i for i in responses.get("__inventory__", []) if i["type"] == type_ and i["arn"]}
 
 
 # ---------------------------------------------------------------- Logging: CloudTrail

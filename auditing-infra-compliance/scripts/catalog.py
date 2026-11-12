@@ -205,8 +205,25 @@ def _check_call_options(check):
             isinstance(ok_errors, list) and all(isinstance(e, str) and e for e in ok_errors)
         ):
             errors.append(f"{cid}: call '{call.get('name')}' ok_errors debe ser lista de textos no vacios")
+    errors += _check_item_errors(check)
     if check["verify"]["evaluator"] == "dns":
         errors += _check_dns_params(cid, check["verify"].get("params") or {})
+    return errors
+
+
+def _check_item_errors(check):
+    cid = check["id"]
+    python = check["verify"]["evaluator"].startswith("python:")
+    errors = []
+    for call in check["verify"]["calls"]:
+        if "item_errors" not in call:
+            continue
+        if call["item_errors"] != "evaluator":
+            errors.append(f"{cid}: call '{call.get('name')}' item_errors solo admite 'evaluator'")
+        elif "for_each" not in call:
+            errors.append(f"{cid}: call '{call.get('name')}' item_errors requiere for_each")
+        elif not python:
+            errors.append(f"{cid}: call '{call.get('name')}' item_errors requiere un evaluador python")
     return errors
 
 

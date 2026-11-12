@@ -431,7 +431,8 @@
             },
             "ok_errors": [
               "NotFoundException"
-            ]
+            ],
+            "item_errors": "evaluator"
           },
           {
             "name": "rotation",
@@ -449,11 +450,12 @@
               "KMSInvalidStateException",
               "DisabledException",
               "NotFoundException"
-            ]
+            ],
+            "item_errors": "evaluator"
           }
         ],
         "evaluator": "python:kms_rotation",
-        "pass_when_text": "Toda clave habilitada, gestionada por el cliente, simétrica y con material de KMS tiene KeyRotationEnabled=true. Las claves administradas por AWS (alias aws/*), las asimétricas, las deshabilitadas, las que están por borrarse y las de material externo no aplican. Si la key policy de una clave bloquea al auditor (como pide Drata 223, la policy debe permitir kms:DescribeKey y kms:GetKeyRotationStatus), el chequeo queda NO_VERIFICADO con el permiso que falta.",
+        "pass_when_text": "Toda clave habilitada, gestionada por el cliente, simétrica y con material de KMS tiene KeyRotationEnabled=true. Las claves administradas por AWS (alias aws/*), las asimétricas, las deshabilitadas, las que están por borrarse y las de material externo no aplican. Si la key policy de una clave bloquea al auditor (como pide Drata 223, la policy debe permitir kms:DescribeKey y kms:GetKeyRotationStatus), esa clave queda NO_VERIFICADO con el permiso que falta y las demás se evalúan.",
         "needs": [
           "kms:ListKeys",
           "kms:DescribeKey",
@@ -534,12 +536,15 @@
               "from": "__inventory__",
               "path": "id",
               "arg": "--key-id"
-            }
+            },
+            "ok_errors": [
+              "NotFoundException"
+            ],
+            "item_errors": "evaluator"
           }
         ],
-        "evaluator": "jmespath",
-        "offenders": "(KeyMetadata.KeyState == 'PendingDeletion' || KeyMetadata.KeyState == 'PendingReplicaDeletion') && [{resource_id: KeyMetadata.KeyId, detail: {KeyState: KeyMetadata.KeyState, DeletionDate: KeyMetadata.DeletionDate}}] || `[]`",
-        "pass_when_text": "Ninguna clave está en estado PendingDeletion (ni PendingReplicaDeletion). Borrar una clave deja ilegibles para siempre los datos cifrados con ella.",
+        "evaluator": "python:kms_pending_deletion",
+        "pass_when_text": "Ninguna clave está en estado PendingDeletion (ni PendingReplicaDeletion). Borrar una clave deja ilegibles para siempre los datos cifrados con ella. Una clave borrada entre el listado y la consulta no aplica; una clave cuya key policy bloquea al auditor queda NO_VERIFICADO.",
         "needs": [
           "kms:ListKeys",
           "kms:DescribeKey"
@@ -734,12 +739,12 @@
           "Aplicar la policy con put-bucket-policy y verificar con get-bucket-policy."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# bucket con policy: la trae, agrega el Deny y muestra el resultado para revisarlo (no aplica nada)\naws s3api get-bucket-policy --bucket \"$BUCKET\" --query Policy --output text > policy.json && python3 -c 'import json,sys; b=sys.argv[1]; p=json.load(open(\"policy.json\")); s=p.get(\"Statement\",[]); s=[s] if isinstance(s,dict) else s; s.append({\"Sid\":\"DenyInsecureTransport\",\"Effect\":\"Deny\",\"Principal\":\"*\",\"Action\":\"s3:*\",\"Resource\":[\"arn:aws:s3:::\"+b,\"arn:aws:s3:::\"+b+\"/*\"],\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"false\"}}}); p[\"Statement\"]=s; json.dump(p,open(\"policy-new.json\",\"w\"),indent=2)' \"$BUCKET\" && cat policy-new.json",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# solo si el bucket no tiene policy: escribe la policy mínima para revisarla (no aplica nada)\necho '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"DenyInsecureTransport\",\"Effect\":\"Deny\",\"Principal\":\"*\",\"Action\":\"s3:*\",\"Resource\":[\"arn:aws:s3:::{resource_id}\",\"arn:aws:s3:::{resource_id}/*\"],\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"false\"}}}]}' > policy-new.json && cat policy-new.json",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# put-bucket-policy REEMPLAZA la policy completa: revisar policy-new.json antes de correrlo\naws s3api put-bucket-policy --bucket \"$BUCKET\" --policy file://policy-new.json"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# bucket con policy: la trae, agrega el Deny y muestra el resultado para revisarlo (no aplica nada)\naws s3api get-bucket-policy --bucket \"$BUCKET\" --query Policy --output text > \"policy-$BUCKET.json\" && python3 -c 'import json,sys; b=sys.argv[1]; p=json.load(open(\"policy-\"+b+\".json\")); s=p.get(\"Statement\",[]); s=[s] if isinstance(s,dict) else s; s.append({\"Sid\":\"DenyInsecureTransport\",\"Effect\":\"Deny\",\"Principal\":\"*\",\"Action\":\"s3:*\",\"Resource\":[\"arn:aws:s3:::\"+b,\"arn:aws:s3:::\"+b+\"/*\"],\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"false\"}}}) if not any(isinstance(x,dict) and x.get(\"Sid\")==\"DenyInsecureTransport\" for x in s) else None; p[\"Statement\"]=s; json.dump(p,open(\"policy-\"+b+\"-new.json\",\"w\"),indent=2)' \"$BUCKET\" && cat \"policy-$BUCKET-new.json\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# solo si el bucket no tiene policy: escribe la policy mínima para revisarla (no aplica nada)\necho '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"DenyInsecureTransport\",\"Effect\":\"Deny\",\"Principal\":\"*\",\"Action\":\"s3:*\",\"Resource\":[\"arn:aws:s3:::{resource_id}\",\"arn:aws:s3:::{resource_id}/*\"],\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"false\"}}}]}' > \"policy-$BUCKET-new.json\" && cat \"policy-$BUCKET-new.json\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# put-bucket-policy REEMPLAZA la policy completa: revisar policy-$BUCKET-new.json antes de correrlo\naws s3api put-bucket-policy --bucket \"$BUCKET\" --policy \"file://policy-$BUCKET-new.json\""
         ],
         "verify_after": "aws s3api get-bucket-policy --bucket \"{resource_id}\" --query Policy --output text",
-        "notes": "put-bucket-policy reemplaza toda la policy: aplicar solo el archivo revisado que conserva las statements existentes. Decisión: confirmar que ningún cliente legítimo usa HTTP. Un bucket con hosting de sitio web de S3 solo atiende HTTP: no aplicar el Deny ahí y poner CloudFront (HTTPS) delante. CloudFront y los servicios de AWS hablan con S3 por HTTPS, no se ven afectados. Los comandos usan python3, que CloudShell trae instalado."
+        "notes": "put-bucket-policy reemplaza toda la policy: aplicar solo el archivo revisado que conserva las statements existentes. Decisión: confirmar que ningún cliente legítimo usa HTTP. Un bucket con hosting de sitio web de S3 solo atiende HTTP: no aplicar el Deny ahí y poner CloudFront (HTTPS) delante. CloudFront y los servicios de AWS hablan con S3 por HTTPS, no se ven afectados. Los archivos temporales llevan el nombre del bucket (policy-<bucket>.json y policy-<bucket>-new.json) para no aplicar por error el de otro bucket; si la policy ya tiene una statement con Sid DenyInsecureTransport el comando no agrega otra, así que revisar que esa statement cumpla. Los comandos usan python3, que CloudShell trae instalado."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828783",
@@ -774,7 +779,7 @@
           }
         ],
         "evaluator": "python:alb_http_redirect",
-        "pass_when_text": "Todo listener HTTP del ALB tiene como acción por defecto una redirección a HTTPS, puerto 443, con 301 o 302 (Drata 299). Un ALB sin listeners HTTP pasa. Los balanceadores de red y de gateway no aplican.",
+        "pass_when_text": "Todo listener HTTP del ALB tiene como acción por defecto una redirección a HTTPS, puerto 443, con 301 o 302 (Drata 299). Un ALB sin listeners HTTP pasa. Solo se evalúa la acción por defecto del listener; las reglas del listener no. Los balanceadores de red y de gateway no aplican.",
         "needs": [
           "elasticloadbalancing:DescribeListeners",
           "elasticloadbalancing:DescribeLoadBalancers"
@@ -817,7 +822,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nLB_NAME=\"{resource_id}\"\nLB_ARN=$(aws elbv2 describe-load-balancers --names \"$LB_NAME\" --region \"$REGION\" --query 'LoadBalancers[0].LoadBalancerArn' --output text) && for LISTENER_ARN in $(aws elbv2 describe-listeners --load-balancer-arn \"$LB_ARN\" --region \"$REGION\" --query 'Listeners[?Protocol==`HTTP`].ListenerArn' --output text); do aws elbv2 modify-listener --listener-arn \"$LISTENER_ARN\" --default-actions 'Type=redirect,RedirectConfig={Protocol=HTTPS,Port=443,StatusCode=HTTP_301}' --region \"$REGION\"; done"
         ],
         "verify_after": "aws elbv2 describe-listeners --load-balancer-arn \"$(aws elbv2 describe-load-balancers --names \"{resource_id}\" --region \"{region}\" --query 'LoadBalancers[0].LoadBalancerArn' --output text)\" --region \"{region}\" --query 'Listeners[?Protocol==`HTTP`].DefaultActions[].RedirectConfig'",
-        "notes": "Sin downtime, pero si el balanceador no tiene un listener HTTPS:443 la redirección deja el sitio inaccesible: crearlo antes (certificado de ACM, ver TLS-005). El bucle cambia todos los listeners HTTP; si uno atiende tráfico interno que debe seguir en HTTP, aplicar modify-listener solo al ARN del listener elegido. Los clientes que usan HTTP reciben un 301 y deben seguirlo; los health checks de los target groups no se ven afectados. Las reglas del listener (no las acciones por defecto) no se tocan."
+        "notes": "Sin downtime, pero si el balanceador no tiene un listener HTTPS:443 la redirección deja el sitio inaccesible: crearlo antes (certificado de ACM, ver TLS-005). El bucle cambia todos los listeners HTTP; si uno atiende tráfico interno que debe seguir en HTTP, aplicar modify-listener solo al ARN del listener elegido. Los clientes que usan HTTP reciben un 301 y deben seguirlo; los health checks de los target groups no se ven afectados. Solo se evalúa y se cambia la acción por defecto del listener: las reglas del listener no se tocan ni se revisan."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828823",

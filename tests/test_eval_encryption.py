@@ -116,19 +116,6 @@ class JmespathChecksTests(unittest.TestCase):
         self.assertEqual(self.search("ENC-004", {"FileSystems": []}), [])
 
     @unittest.skipIf(jmespath is None, "jmespath not installed")
-    def test_enc_007_reports_keys_scheduled_for_deletion(self):
-        (offender,) = self.search("ENC-007", fx("kms-describe-key-pending-deletion"))
-        self.assertEqual(offender["resource_id"], K_PENDING)
-        self.assertEqual(offender["detail"]["DeletionDate"], "2026-11-30T12:00:00+00:00")
-        for name in ("customer", "aws-managed", "disabled"):
-            self.assertEqual(self.search("ENC-007", fx(f"kms-describe-key-{name}")), [], name)
-
-    @unittest.skipIf(jmespath is None, "jmespath not installed")
-    def test_enc_007_replica_keys_scheduled_for_deletion_are_reported_too(self):
-        document = {"KeyMetadata": {"KeyId": "k-1", "KeyState": "PendingReplicaDeletion"}}
-        self.assertEqual([o["resource_id"] for o in self.search("ENC-007", document)], ["k-1"])
-
-    @unittest.skipIf(jmespath is None, "jmespath not installed")
     def test_enc_008_reports_secrets_without_rotation(self):
         self.assertEqual(self.search("ENC-008", fx("secretsmanager-list-secrets-raw")), fx("secretsmanager-list-secrets-offenders"))
         self.assertEqual(self.search("ENC-008", {"SecretList": []}), [])
@@ -289,11 +276,23 @@ class KmsRotationTests(unittest.TestCase):
         self.assertEqual(flags(found), [(K_CUSTOMER, "not_applicable")])
 
     def test_key_policy_that_blocks_the_auditor_is_unverified_not_a_pass_or_a_fail(self):
-        denied = {"__error__": "AccessDeniedException"}
+        denied = {"__error__": "ACCESS_DENIED"}
         found = evaluate("kms_rotation", self.responses(
             self.key(K_CUSTOMER, "customer", "on"), (K_ASYM, denied, None), self.key(K_DISABLED, "customer", denied)))
         self.assertEqual(flags(found), [(K_ASYM, "unverified"), (K_DISABLED, "unverified")])
         self.assertTrue(all(o["detail"]["error_code"] == "ACCESS_DENIED" for o in found))
+
+    def test_a_blocked_key_does_not_stop_the_other_keys_from_being_evaluated(self):
+        found = evaluate("kms_rotation", self.responses((K_ASYM, {"__error__": "ACCESS_DENIED"}, None),
+                                                         self.key(K_CUSTOMER, "customer", "off")))
+        self.assertEqual(flags(found), [(K_ASYM, "unverified"), (K_CUSTOMER, "offender")])
+
+    def test_unexpected_call_errors_are_unverified_not_not_applicable(self):
+        for code in ("ERROR", "THROTTLED"):
+            found = evaluate("kms_rotation", self.responses((K_CUSTOMER, {"__error__": code}, None),
+                                                             self.key(K_DISABLED, "customer", {"__error__": code})))
+            self.assertEqual(flags(found), [(K_CUSTOMER, "unverified"), (K_DISABLED, "unverified")], code)
+            self.assertEqual(found[0]["detail"]["error_code"], code)
 
     def test_key_without_a_rotation_answer_is_unverified(self):
         found = evaluate("kms_rotation", self.responses((K_CUSTOMER, fx("kms-describe-key-customer"), None)))
@@ -302,6 +301,32 @@ class KmsRotationTests(unittest.TestCase):
     def test_key_manager_is_compared_ignoring_case(self):
         found = evaluate("kms_rotation", self.responses(self.key(K_CUSTOMER, "customer", "off", KeyManager="customer")))
         self.assertEqual(ids(found), [K_CUSTOMER])
+
+
+class KmsPendingDeletionTests(unittest.TestCase):
+    def responses(self, **keys):
+        return for_each("describe", [(k, d) for k, d in keys.items()])
+
+    def test_kms_pending_deletion_pass(self):
+        responses = self.responses(**{K_CUSTOMER: fx("kms-describe-key-customer"), K_AWS: fx("kms-describe-key-aws-managed"),
+                                      K_DISABLED: fx("kms-describe-key-disabled")})
+        self.assertEqual(evaluate("kms_pending_deletion", responses), [])
+
+    def test_kms_pending_deletion_fail_reports_offenders(self):
+        (offender,) = evaluate("kms_pending_deletion", self.responses(**{K_CUSTOMER: fx("kms-describe-key-customer"),
+                                                                        K_PENDING: fx("kms-describe-key-pending-deletion")}))
+        self.assertEqual((offender["resource_id"], offender["region"]), (K_PENDING, REGION))
+        self.assertEqual((offender["detail"]["key_state"], offender["detail"]["deletion_date"]), ("PendingDeletion", "2026-11-30T12:00:00+00:00"))
+
+    def test_replica_keys_scheduled_for_deletion_are_reported_too(self):
+        data = {"KeyMetadata": {"KeyId": "k-1", "KeyState": "PendingReplicaDeletion"}}
+        self.assertEqual(ids(evaluate("kms_pending_deletion", self.responses(**{"k-1": data}))), ["k-1"])
+
+    def test_key_deleted_meanwhile_is_not_applicable_and_a_blocked_key_is_unverified(self):
+        found = evaluate("kms_pending_deletion", self.responses(**{
+            K_CUSTOMER: {"__error__": "NotFoundException"}, K_AWS: {"__error__": "ACCESS_DENIED"}, K_PENDING: fx("kms-describe-key-pending-deletion")}))
+        self.assertEqual(flags(found), [(K_CUSTOMER, "not_applicable"), (K_AWS, "unverified"), (K_PENDING, "offender")])
+        self.assertEqual(found[1]["detail"]["error_code"], "ACCESS_DENIED")
 
 
 class S3TlsOnlyTests(unittest.TestCase):
@@ -690,7 +715,7 @@ class EncryptionCatalogTests(unittest.TestCase):
     def test_evaluator_kinds(self):
         expected = {"ENC-001": "python:ebs_default_encryption", "ENC-002": "jmespath", "ENC-003": "python:rds_encrypted",
                     "ENC-004": "jmespath", "ENC-005": "python:s3_default_encryption", "ENC-006": "python:kms_rotation",
-                    "ENC-007": "jmespath", "ENC-008": "jmespath", "TLS-001": "python:s3_tls_only",
+                    "ENC-007": "python:kms_pending_deletion", "ENC-008": "jmespath", "TLS-001": "python:s3_tls_only",
                     "TLS-002": "python:alb_http_redirect", "TLS-003": "python:alb_tls_policy", "TLS-004": "python:rds_force_ssl",
                     "TLS-005": "python:acm_expiry"}
         self.assertEqual({c["id"]: c["verify"]["evaluator"] for c in self.checks}, expected)
@@ -790,6 +815,12 @@ class EncryptionCatalogTests(unittest.TestCase):
         self.assertEqual(calls["rotation"]["operation"], "get-key-rotation-status")
         for call in calls.values():
             self.assertEqual(call["for_each"], {"from": "__inventory__", "path": "id", "arg": "--key-id"})
+            self.assertEqual(call["item_errors"], "evaluator")
+
+    def test_enc_007_reads_each_key_and_lets_the_evaluator_handle_failures(self):
+        (call,) = catalog_check("ENC-007")["verify"]["calls"]
+        self.assertEqual((call["operation"], call["ok_errors"], call["item_errors"]), ("describe-key", ["NotFoundException"], "evaluator"))
+        self.assertEqual(call["for_each"], {"from": "__inventory__", "path": "id", "arg": "--key-id"})
 
     def test_acm_threshold_is_a_param(self):
         self.assertEqual(catalog_check("TLS-005")["verify"]["params"], {"min_days": 30})
@@ -820,23 +851,55 @@ class EncryptionCatalogTests(unittest.TestCase):
         rem = catalog_check("TLS-001")["remediation"]
         self.assertEqual(rem["kind"], "cli_with_decision")
         prepare = next(c for c in rem["commands"] if "python3 -c" in c)
-        self.assertRegex(prepare, r"get-bucket-policy [^\n]*>\s*policy\.json\s*&&\s*python3 -c")
+        self.assertRegex(prepare, r'get-bucket-policy [^\n]*>\s*"policy-\$BUCKET\.json"\s*&&\s*python3 -c')
         self.assertIn("aws:SecureTransport", prepare)
         self.assertNotIn("put-bucket-policy", prepare)
         self.assertTrue(any("put-bucket-policy" in c and "python3" not in c for c in rem["commands"]))
 
-    def test_tls_001_prepared_policy_is_valid_and_keeps_the_existing_statements(self):
+    def test_tls_001_temp_files_are_per_bucket_so_a_stale_file_cannot_be_applied(self):
+        commands = catalog_check("TLS-001")["remediation"]["commands"]
+        for command in commands:
+            self.assertNotRegex(command, r"policy(-new)?\.json", command)
+        apply = next(c for c in commands if "put-bucket-policy" in c)
+        self.assertIn('--policy "file://policy-$BUCKET-new.json"', apply)
+        self.assertIn('BUCKET="{resource_id}"', apply)
+
+    def run_prepare_snippet(self, tmp, existing, bucket="acme-notes-assets"):
+        import subprocess
         prepare = next(c for c in catalog_check("TLS-001")["remediation"]["commands"] if "python3 -c" in c)
         snippet = prepare.split("python3 -c '", 1)[1].split("' ", 1)[0]
-        existing = {"Version": "2012-10-17", "Statement": [{"Sid": "Existing", "Effect": "Allow", "Principal": "*", "Action": "s3:GetObject",
-                                                              "Resource": "arn:aws:s3:::acme-notes-assets/*"}]}
+        Path(tmp, f"policy-{bucket}.json").write_text(json.dumps(existing), encoding="utf-8")
+        subprocess.run(["python3", "-c", snippet, bucket], cwd=tmp, check=True)
+        return json.loads(Path(tmp, f"policy-{bucket}-new.json").read_text(encoding="utf-8"))
+
+    EXISTING = {"Version": "2012-10-17", "Statement": [{"Sid": "Existing", "Effect": "Allow", "Principal": "*", "Action": "s3:GetObject",
+                                                         "Resource": "arn:aws:s3:::acme-notes-assets/*"}]}
+
+    def test_tls_001_prepared_policy_is_valid_and_keeps_the_existing_statements(self):
         with tempfile.TemporaryDirectory() as tmp:
-            Path(tmp, "policy.json").write_text(json.dumps(existing), encoding="utf-8")
-            import subprocess
-            subprocess.run(["python3", "-c", snippet, "acme-notes-assets"], cwd=tmp, check=True)
-            merged = json.loads(Path(tmp, "policy-new.json").read_text(encoding="utf-8"))
+            merged = self.run_prepare_snippet(tmp, self.EXISTING)
         self.assertEqual([s["Sid"] for s in merged["Statement"]], ["Existing", "DenyInsecureTransport"])
         self.assertEqual(self.evaluate_policy(merged, "acme-notes-assets"), [])
+
+    def test_tls_001_prepared_policy_does_not_repeat_an_existing_deny_statement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            once = self.run_prepare_snippet(tmp, self.EXISTING)
+            twice = self.run_prepare_snippet(tmp, once)
+        self.assertEqual(once, twice)
+        self.assertEqual([s["Sid"] for s in twice["Statement"]].count("DenyInsecureTransport"), 1)
+
+    def test_tls_001_a_single_statement_object_is_converted_to_a_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            merged = self.run_prepare_snippet(tmp, {"Version": "2012-10-17", "Statement": self.EXISTING["Statement"][0]})
+        self.assertEqual([s["Sid"] for s in merged["Statement"]], ["Existing", "DenyInsecureTransport"])
+
+    def test_tls_001_prepare_snippet_uses_the_files_of_its_own_bucket(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "policy-acme-notes-other.json").write_text(json.dumps({"Statement": []}), encoding="utf-8")
+            merged = self.run_prepare_snippet(tmp, self.EXISTING)
+            self.assertTrue(Path(tmp, "policy-acme-notes-assets-new.json").exists())
+            self.assertFalse(Path(tmp, "policy-acme-notes-other-new.json").exists())
+        self.assertEqual(len(merged["Statement"]), 2)
 
     @staticmethod
     def evaluate_policy(document, bucket):
@@ -848,6 +911,11 @@ class EncryptionCatalogTests(unittest.TestCase):
         self.assertRegex(command, r"describe-load-balancers [^\n]*&&[^\n]*for [^\n]*describe-listeners [^\n]*Protocol==`HTTP`")
         self.assertIn("Type=redirect,RedirectConfig={Protocol=HTTPS,Port=443,StatusCode=HTTP_301}", command)
         self.assertRegex(catalog_check("TLS-002")["remediation"]["notes"], r"(?i)listener HTTPS")
+
+    def test_tls_002_says_that_only_the_default_action_is_evaluated(self):
+        check = catalog_check("TLS-002")
+        self.assertRegex(check["verify"]["pass_when_text"], r"acción por defecto del listener; las reglas del listener no")
+        self.assertRegex(check["remediation"]["notes"], r"reglas del listener no se tocan ni se revisan")
 
     def test_tls_003_recommends_the_tls_1_3_policy_and_warns_about_old_clients(self):
         rem = catalog_check("TLS-003")["remediation"]
@@ -889,7 +957,8 @@ class EncryptionCollectTests(unittest.TestCase):
     TYPES = ("ec2_instance", "ebs_volume", "rds_instance", "rds_cluster", "s3_bucket", "efs", "elbv2", "kms_key", "secret",
              "acm_certificate")
     BUCKETS = ("acme-notes-data", "acme-notes-logs")
-    KEYS = (K_CUSTOMER, K_AWS, K_ASYM)
+    K_DENIED = "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0e"
+    KEYS = (K_CUSTOMER, K_AWS, K_ASYM, K_PENDING, K_DENIED)
 
     @classmethod
     def setUpClass(cls):
@@ -918,6 +987,9 @@ class EncryptionCollectTests(unittest.TestCase):
         no_policy = err("An error occurred (NoSuchBucketPolicy) when calling the GetBucketPolicy operation: The bucket policy does not exist")
         no_encryption = err("An error occurred (ServerSideEncryptionConfigurationNotFoundError) when calling the GetBucketEncryption "
                             "operation: The server side encryption configuration was not found")
+        denied = err("An error occurred (AccessDeniedException) when calling the DescribeKey operation: User: arn:aws:iam::111122223333:user/auditor "
+                     "is not authorized to perform: kms:DescribeKey on resource: key because no resource-based policy allows the kms:DescribeKey action")
+        invalid_state = err("An error occurred (KMSInvalidStateException) when calling the GetKeyRotationStatus operation: key is pending deletion")
         unsupported = err("An error occurred (UnsupportedOperationException) when calling the GetKeyRotationStatus operation: "
                           "You cannot perform this operation on an asymmetric KMS key")
         listing = {"Keys": [{"KeyId": k, "KeyArn": f"arn:aws:kms:us-east-1:111122223333:key/{k}"} for k in cls.KEYS]}
@@ -943,7 +1015,7 @@ class EncryptionCollectTests(unittest.TestCase):
             ("s3api", "list-buckets", None, "", core("s3api-list-buckets")),
             ("elbv2", "describe-load-balancers", None, "", ok(loadbalancers)),
             ("kms", "list-keys", None, "", ok(listing)),
-            ("acm", "list-certificates", None, "", ok(certificates)),
+            ("acm", "list-certificates", None, "keyTypes=", ok(certificates)),
             # checks
             ("ec2", "get-ebs-encryption-by-default", None, "", enc("ec2-get-ebs-encryption-by-default-off")),
             ("s3api", "get-bucket-encryption", None, "acme-notes-data", enc("s3api-get-bucket-encryption-sse-s3")),
@@ -953,6 +1025,10 @@ class EncryptionCollectTests(unittest.TestCase):
             ("kms", "describe-key", None, K_CUSTOMER, enc("kms-describe-key-customer")),
             ("kms", "describe-key", None, K_AWS, enc("kms-describe-key-aws-managed")),
             ("kms", "describe-key", None, K_ASYM, enc("kms-describe-key-asymmetric")),
+            ("kms", "describe-key", None, K_PENDING, enc("kms-describe-key-pending-deletion")),
+            ("kms", "describe-key", None, cls.K_DENIED, denied),
+            ("kms", "get-key-rotation-status", None, K_PENDING, invalid_state),
+            ("kms", "get-key-rotation-status", None, cls.K_DENIED, denied),
             ("kms", "get-key-rotation-status", None, K_CUSTOMER, enc("kms-get-key-rotation-status-off")),
             ("kms", "get-key-rotation-status", None, K_AWS, enc("kms-get-key-rotation-status-on")),
             ("kms", "get-key-rotation-status", None, K_ASYM, unsupported),
@@ -970,10 +1046,10 @@ class EncryptionCollectTests(unittest.TestCase):
     def rows(self, check_id):
         return [(r["status"], r["resource_id"], r["region"]) for r in self.result["results"] if r["check_id"] == check_id]
 
-    def test_run_succeeds_and_nothing_is_unverified(self):
+    def test_run_succeeds_and_only_the_blocked_key_is_unverified(self):
         self.assertEqual(self.code, 0)
-        unverified = [(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NO_VERIFICADO"]
-        self.assertEqual(unverified, [])
+        unverified = [(r["check_id"], r["resource_id"]) for r in self.result["results"] if r["status"] == "NO_VERIFICADO"]
+        self.assertEqual(unverified, [("ENC-006", self.K_DENIED), ("ENC-007", self.K_DENIED)])
 
     def test_ebs_outcomes(self):
         self.assertEqual(self.rows("ENC-001"), [("FAIL", I1, REGION), ("FAIL", I2, REGION)])
@@ -987,7 +1063,9 @@ class EncryptionCollectTests(unittest.TestCase):
         self.assertEqual(self.rows("ENC-005"), [("PASS", "acme-notes-data", REGION), ("FAIL", "acme-notes-logs", REGION)])
 
     def test_kms_secrets_outcomes(self):
-        self.assertEqual(self.rows("ENC-006"), [("FAIL", K_CUSTOMER, REGION)])
+        self.assertEqual(self.rows("ENC-006"), [("FAIL", K_CUSTOMER, REGION), ("NO_VERIFICADO", self.K_DENIED, REGION)])
+        self.assertEqual(self.rows("ENC-007"), [("PASS", K_CUSTOMER, REGION), ("PASS", K_AWS, REGION), ("PASS", K_ASYM, REGION),
+                                                ("FAIL", K_PENDING, REGION), ("NO_VERIFICADO", self.K_DENIED, REGION)])
         self.assertEqual(self.rows("ENC-008"), [("FAIL", "acme-notes/api-token", REGION), ("PASS", "acme-notes/db-password", REGION)])
 
     def test_transit_outcomes(self):
@@ -997,6 +1075,18 @@ class EncryptionCollectTests(unittest.TestCase):
         self.assertEqual(self.rows("TLS-004"), [("FAIL", "acme-notes-aurora", REGION), ("PASS", "acme-notes-db", REGION),
                                                 ("FAIL", "acme-notes-legacy", REGION)])
         self.assertEqual(self.rows("TLS-005"), [("PASS", CERT_ISSUED, REGION), ("FAIL", CERT_EXPIRED, REGION)])
+
+    def test_a_blocked_key_names_the_missing_permissions_and_does_not_hide_the_others(self):
+        for check_id in ("ENC-006", "ENC-007"):
+            (row,) = [r for r in self.result["results"] if r["check_id"] == check_id and r["resource_id"] == self.K_DENIED]
+            self.assertEqual(row["status"], "NO_VERIFICADO")
+            self.assertEqual(row["detail"]["error_code"], "ACCESS_DENIED")
+            self.assertEqual(row["missing"], catalog_check(check_id)["verify"]["needs"])
+
+    def test_the_acm_inventory_listing_includes_every_key_type(self):
+        (argv,) = [a for a in self.runner.calls if a[2] == "list-certificates"]
+        value = argv[argv.index("--includes") + 1]
+        self.assertEqual(value, "keyTypes=RSA_1024,RSA_2048,RSA_3072,RSA_4096,EC_prime256v1,EC_secp384r1,EC_secp521r1")
 
     def test_every_listed_key_is_described(self):
         asked = [a[a.index("--key-id") + 1] for a in self.runner.calls if a[2] == "describe-key"]

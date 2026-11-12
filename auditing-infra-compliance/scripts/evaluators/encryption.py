@@ -80,13 +80,16 @@ def s3_default_encryption(responses: dict, params: dict) -> list[dict]:
     return offenders
 
 
-def _denied(data: dict) -> bool:
-    return (data or {}).get("__error__") == "AccessDeniedException"
+def _kms_item_error(key_id: str, region: str, code: str, call: str, tolerated: frozenset[str]) -> dict:
+    """Entry for a failed per-key call (item_errors): tolerated codes mean the key is out of scope, the rest is unverified."""
+    if code in tolerated:
+        return _not_applicable(key_id, region)
+    reason = "la key policy no permite al auditor consultar la clave" if code == "ACCESS_DENIED" else "no se pudo consultar la clave"
+    return _unverified(key_id, region, error_code=code, call=call, reason=reason)
 
 
-def _kms_unverified(key_id: str, region: str, call: str) -> dict:
-    return _unverified(key_id, region, error_code="ACCESS_DENIED", call=call,
-                       reason="la key policy no permite al auditor consultar la clave")
+DESCRIBE_TOLERATED = frozenset({"NotFoundException"})
+ROTATION_TOLERATED = frozenset({"UnsupportedOperationException", "KMSInvalidStateException", "DisabledException", "NotFoundException"})
 
 
 def _in_rotation_scope(meta: dict) -> bool:
@@ -100,15 +103,14 @@ def _in_rotation_scope(meta: dict) -> bool:
 def kms_rotation(responses: dict, params: dict) -> list[dict]:
     """Drata 223: rotation on for customer-managed symmetric keys; anything else is not applicable.
 
-    A key whose policy blocks the auditor is unverified for that key only. Today collect.py never forwards ACCESS_DENIED
-    as an ok_error, so a blocked key turns the whole check into NO_VERIFICADO before this runs; the branch is ready for
-    an engine that forwards it.
+    Both calls declare item_errors: a key whose policy blocks the auditor (ACCESS_DENIED) or whose call failed otherwise is
+    unverified for that key only, the other keys are still evaluated.
     """
     rotation = {(region, key): data or {} for key, region, data in _for_each_pairs(responses, "rotation")}
     offenders = []
     for key_id, region, described in _for_each_pairs(responses, "describe"):
-        if _denied(described):
-            offenders.append(_kms_unverified(key_id, region, "describe-key"))
+        if "__error__" in (described or {}):
+            offenders.append(_kms_item_error(key_id, region, described["__error__"], "describe-key", DESCRIBE_TOLERATED))
             continue
         meta = (described or {}).get("KeyMetadata")
         if not meta or not _in_rotation_scope(meta):
@@ -117,12 +119,29 @@ def kms_rotation(responses: dict, params: dict) -> list[dict]:
         status = rotation.get((region, key_id))
         if status is None:
             offenders.append(_unverified(key_id, region, reason="sin respuesta de get-key-rotation-status"))
-        elif _denied(status):
-            offenders.append(_kms_unverified(key_id, region, "get-key-rotation-status"))
         elif "__error__" in status:
-            offenders.append(_not_applicable(key_id, region))
+            offenders.append(_kms_item_error(key_id, region, status["__error__"], "get-key-rotation-status", ROTATION_TOLERATED))
         elif not status.get("KeyRotationEnabled"):
             offenders.append(_offender(key_id, region, arn=meta.get("Arn"), reason="rotación automática deshabilitada"))
+    return offenders
+
+
+PENDING_DELETION_STATES = frozenset({"pendingdeletion", "pendingreplicadeletion"})
+
+
+@register("kms_pending_deletion")
+def kms_pending_deletion(responses: dict, params: dict) -> list[dict]:
+    """Keys in PendingDeletion / PendingReplicaDeletion. A key deleted meanwhile is not applicable; a key that could not
+    be described (item_errors, e.g. ACCESS_DENIED) is unverified for that key only."""
+    offenders = []
+    for key_id, region, described in _for_each_pairs(responses, "describe"):
+        if "__error__" in (described or {}):
+            offenders.append(_kms_item_error(key_id, region, described["__error__"], "describe-key", DESCRIBE_TOLERATED))
+            continue
+        meta = (described or {}).get("KeyMetadata") or {}
+        if str(meta.get("KeyState", "")).lower() in PENDING_DELETION_STATES:
+            offenders.append(_offender(key_id, region, key_state=meta.get("KeyState"), deletion_date=meta.get("DeletionDate"),
+                                       reason="clave programada para borrarse"))
     return offenders
 
 
@@ -178,7 +197,7 @@ def _denies_insecure_transport(policy: dict, bucket: str) -> bool:
     return covers(f"arn:aws:s3:::{bucket}") and covers(f"arn:aws:s3:::{bucket}/object")
 
 
-def _policy_document(data: dict) -> dict | None:
+def _bucket_policy_document(data: dict) -> dict | None:
     try:
         document = json.loads(data["Policy"])
     except (KeyError, TypeError, ValueError):
@@ -199,7 +218,7 @@ def s3_tls_only(responses: dict, params: dict) -> list[dict]:
             offenders.append(_not_applicable(bucket, region))
         elif error:
             offenders.append(_offender(bucket, region, reason="sin bucket policy"))
-        elif (document := _policy_document(data or {})) is None:
+        elif (document := _bucket_policy_document(data or {})) is None:
             offenders.append(_offender(bucket, region, reason="la bucket policy no se pudo leer como JSON"))
         elif not _denies_insecure_transport(document, bucket):
             offenders.append(_offender(bucket, region, reason="ninguna statement niega aws:SecureTransport=false sobre el bucket y sus objetos"))

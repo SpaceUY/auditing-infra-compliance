@@ -10,6 +10,9 @@ value is used). A call's for_each is {"from": <earlier call name> | "__inventory
 feature/resource mode). A call may list "ok_errors" (error codes): if its stderr contains one, a
 python evaluator receives {"__error__": <code>} as that call's data instead of the check becoming
 NO_VERIFICADO (never for ACCESS_DENIED / NO_CREDENTIALS, never for jmespath).
+A for_each call may also declare "item_errors": "evaluator" (python evaluators only): when one expanded item call fails
+(any error kind, including ACCESS_DENIED, except NO_CREDENTIALS) the evaluator gets that item's data as
+{"__error__": <ok_errors code or error kind, e.g. "ACCESS_DENIED">} and the check no longer collapses to NO_VERIFICADO.
 A check that declares `params.inventory_types` depends on those inventory types (`account_context_for` is only a
 feature-mode selection key and never blocks evaluation): if the listing of any of them failed, the check is NO_VERIFICADO (missing "inventory:<type>") instead of being evaluated
 on an incomplete inventory. Python evaluators also see `responses["__inventory_errors__"]` (set of broken types).
@@ -157,6 +160,17 @@ def _ok_error(call, res, query):
     return next((c for c in call.get("ok_errors") or [] if c in (res.error_message or "")), None)
 
 
+def _item_error(call, res, query):
+    """Error code handed to the evaluator as the item's data: an ok_errors match, or (call declares
+    "item_errors": "evaluator", for_each calls only, never jmespath) any failure except NO_CREDENTIALS, as its error kind."""
+    code = _ok_error(call, res, query)
+    if code or query is not None or "for_each" not in call:
+        return code
+    if call.get("item_errors") == "evaluator" and res.error_kind != "NO_CREDENTIALS":
+        return res.error_kind
+    return None
+
+
 def _run_calls(ctx, check, items):
     verify = check["verify"]
     query = verify.get("offenders") if verify["evaluator"] == "jmespath" else None
@@ -175,7 +189,7 @@ def _run_calls(ctx, check, items):
                 if res.ok:
                     collected["responses"][name].append((region, res.data))
                     collected["values"][name].append(value)
-                elif code := _ok_error(call, res, query):
+                elif code := _item_error(call, res, query):
                     collected["responses"][name].append((region, {"__error__": code}))
                     collected["values"][name].append(value)
                 else:

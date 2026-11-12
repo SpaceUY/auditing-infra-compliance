@@ -255,6 +255,22 @@ class ValidateTests(CatalogTestCase):
             checks[1]["verify"]["calls"][0]["ok_errors"] = bad
             self.assert_errors_for(checks, "LOG-001")
 
+    def test_item_errors_only_on_for_each_calls_of_python_checks(self):
+        def with_item_errors(value, for_each=True, evaluator="python:x"):
+            checks = self.checks()
+            call = checks[1]["verify"]["calls"][0]
+            call.pop("for_each", None)
+            if for_each:
+                call["for_each"] = {"from": "__inventory__", "path": "id", "arg": "--bucket"}
+            call["item_errors"] = value
+            checks[1]["verify"]["evaluator"] = evaluator
+            return checks
+
+        self.assertEqual(self.run_validate(with_item_errors("evaluator")), [])
+        for bad in (with_item_errors("evaluator", for_each=False), with_item_errors("fail"), with_item_errors(True),
+                    with_item_errors("evaluator", evaluator="jmespath")):
+            self.assert_errors_for(bad, "LOG-001")
+
     def test_dns_params_validated(self):
         def dns_check(params):
             checks = self.checks()

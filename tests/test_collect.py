@@ -396,6 +396,78 @@ class EngineTests(CollectCase):
         raw = json.loads((self.out / "raw" / "TLS-901" / "policy-us-east-1-0.json").read_text(encoding="utf-8"))
         self.assertEqual(raw["error_kind"], "ERROR")
 
+    def item_errors_check(self, ok_errors=None):
+        """A for_each python check whose calls declare item_errors; the evaluator records what each item received."""
+        seen = {}
+
+        @evaluators.register("test_item_errors")
+        def probe(responses, params):
+            seen.update(zip(responses["__for_each__"]["policy"], (data for _, data in responses["policy"])))
+            return [{"resource_id": bucket, "region": "us-east-1", "unverified": True,
+                     "detail": {"error_code": data["__error__"]}}
+                    for bucket, data in seen.items() if "__error__" in data and data["__error__"] != "NoSuchBucketPolicy"]
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_item_errors")
+
+        def mutate(check):
+            check["id"] = "TLS-902"
+            check["scope"], check["resource_types"] = "resource", ["s3_bucket"]
+            call = {"name": "policy", "service": "s3api", "operation": "get-bucket-policy", "args": [], "region": "global",
+                    "for_each": {"from": "__inventory__", "path": "id", "arg": "--bucket"}, "item_errors": "evaluator"}
+            if ok_errors:
+                call["ok_errors"] = ok_errors
+            check["verify"]["calls"] = [call]
+            check["verify"]["evaluator"] = "python:test_item_errors"
+            check["verify"].pop("offenders")
+
+        return self.catalog_with(mutate), seen
+
+    DENIED = "An error occurred (AccessDenied) when calling the GetBucketPolicy operation: not authorized to perform: s3:GetBucketPolicy"
+
+    def test_item_errors_one_denied_item_is_unverified_and_the_rest_is_evaluated(self):
+        responses = base_responses()
+        responses[("s3api", "get-bucket-policy", "us-east-1")] = [err(self.DENIED), ok({"Policy": "{}"})]
+        directory, seen = self.item_errors_check()
+        self.run_collect(responses, checks_dir=directory)
+        self.assertEqual(seen["acme-notes-data"], {"__error__": "ACCESS_DENIED"})
+        self.assertEqual(seen["acme-notes-logs"], {"Policy": "{}"})
+        rows = self.rows("TLS-902")
+        self.assertEqual([(r["status"], r["resource_id"]) for r in rows], [("NO_VERIFICADO", "acme-notes-data"), ("PASS", "acme-notes-logs")])
+        self.assertEqual(rows[0]["missing"], ["iam:GetAccountSummary"])
+        self.assertEqual(rows[1]["missing"], [])
+
+    def test_item_errors_hand_over_other_error_kinds_and_prefer_ok_errors_codes(self):
+        responses = base_responses()
+        responses[("s3api", "get-bucket-policy", "us-east-1")] = [
+            err("An error occurred (InternalFailure) boom"),
+            err("An error occurred (NoSuchBucketPolicy) when calling the GetBucketPolicy operation: The bucket policy does not exist")]
+        directory, seen = self.item_errors_check(["NoSuchBucketPolicy"])
+        self.run_collect(responses, checks_dir=directory)
+        self.assertEqual(seen, {"acme-notes-data": {"__error__": "ERROR"}, "acme-notes-logs": {"__error__": "NoSuchBucketPolicy"}})
+        self.assertEqual([r["status"] for r in self.rows("TLS-902")], ["NO_VERIFICADO", "PASS"])
+
+    def test_item_errors_never_hide_missing_credentials(self):
+        responses = base_responses()
+        responses[("s3api", "get-bucket-policy", "us-east-1")] = err(NO_CREDS)
+        directory, seen = self.item_errors_check()
+        self.run_collect(responses, checks_dir=directory)
+        (row,) = self.rows("TLS-902")
+        self.assertEqual(row["status"], "NO_VERIFICADO")
+        self.assertEqual(seen, {})
+
+    def test_item_errors_do_not_apply_to_calls_without_for_each(self):
+        directory, _ = self.item_errors_check()
+        data = json.loads((directory / "extra.json").read_text(encoding="utf-8"))
+        call = data["checks"][0]["verify"]["calls"][0]
+        call["name"], call["operation"], call["service"] = "buckets", "list-buckets", "s3api"
+        call.pop("for_each")
+        (directory / "extra.json").write_text(json.dumps(data), encoding="utf-8")
+        responses = base_responses()
+        responses[("s3api", "list-buckets", "us-east-1")] = [ok(load_fixture("aws/core/s3api-list-buckets.json")), err(self.DENIED)]
+        self.run_collect(responses, checks_dir=directory)
+        (row,) = self.rows("TLS-902")
+        self.assertEqual((row["status"], row["resource_id"]), ("NO_VERIFICADO", "account"))
+
     def test_unlisted_error_is_still_not_verified(self):
         responses = base_responses()
         responses[("s3api", "get-bucket-policy", "us-east-1")] = err("An error occurred (InternalFailure) boom")
