@@ -73,9 +73,9 @@ def _parse_time(value: object) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def _age_days(value: object, now: datetime) -> int | None:
+def _age(value: object, now: datetime) -> timedelta | None:
     parsed = _parse_time(value)
-    return None if parsed is None else (now - parsed).days
+    return None if parsed is None else now - parsed
 
 
 # ---------------------------------------------------------------- IAM: root account
@@ -134,9 +134,9 @@ def _active_keys(user: dict) -> list[str]:
     return [slot for slot in KEY_SLOTS if _is_true(user.get(f"{slot}_active"))]
 
 
-def _first_age(user: dict, fields: tuple[str, ...], now: datetime) -> int | None:
-    """Age in days of the first field holding a timestamp (never-used credentials fall back to creation)."""
-    return next((age for f in fields if (age := _age_days(user.get(f), now)) is not None), None)
+def _first_age(user: dict, fields: tuple[str, ...], now: datetime) -> timedelta | None:
+    """Age of the first field holding a timestamp (never-used credentials fall back to creation)."""
+    return next((age for f in fields if (age := _age(user.get(f), now)) is not None), None)
 
 
 @register("cred_report_console_mfa")
@@ -148,24 +148,27 @@ def cred_report_console_mfa(responses: dict, params: dict) -> list[dict]:
 
 @register("cred_report_key_age")
 def cred_report_key_age(responses: dict, params: dict) -> list[dict]:
+    """Drata 232 fails a key at `fail_at_days` or more (>=), i.e. fail_at_days is NOT the maximum allowed age."""
     region, users = _credential_users(responses)
-    now, max_days = _now(params), params["max_days"]
+    now, fail_at = _now(params), timedelta(days=params["fail_at_days"])
     offenders = []
     for user in users:
-        old = [{"key": slot, "age_days": age} for slot in _active_keys(user)
-               if (age := _age_days(user[f"{slot}_last_rotated"], now)) is not None and age >= max_days]
+        old = [{"key": slot, "age_days": age.days} for slot in _active_keys(user)
+               if (age := _age(user[f"{slot}_last_rotated"], now)) is not None and age >= fail_at]
         if old:
-            offenders.append(_offender(user["user"], region, keys=old, max_days=max_days))
+            offenders.append(_offender(user["user"], region, keys=old, fail_at_days=params["fail_at_days"]))
     return offenders
 
 
 def _unused_credentials(user: dict, now: datetime, max_days: int) -> list[dict]:
+    """Credentials unused for MORE than max_days (exact, to the second: 45d 1h is already 'more than 45 days')."""
     candidates = []
     if _is_true(user["password_enabled"]):
         candidates.append(("password", ("password_last_used", "password_last_changed", "user_creation_time")))
     candidates += [(slot, (f"{slot}_last_used_date", f"{slot}_last_rotated")) for slot in _active_keys(user)]
     ages = [(name, _first_age(user, fields, now)) for name, fields in candidates]
-    return [{"credential": name, "unused_days": age} for name, age in ages if age is not None and age > max_days]
+    return [{"credential": name, "unused_days": age.days} for name, age in ages
+            if age is not None and age.total_seconds() > max_days * 86400]
 
 
 @register("cred_report_unused")

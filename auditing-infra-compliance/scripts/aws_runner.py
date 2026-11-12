@@ -147,7 +147,8 @@ def classify_error(stderr: str) -> str:
         or ("config profile" in text and "could not be found" in text)
     ):
         return "NO_CREDENTIALS"
-    if any(p in text for p in ("throttling", "rate exceeded", "toomanyrequests")):
+    # ReportInProgress/ReportNotPresent: the IAM credential report is still being generated; retrying fixes it
+    if any(p in text for p in ("throttling", "rate exceeded", "toomanyrequests", "reportinprogress", "reportnotpresent")):
         return "THROTTLED"
     return "ERROR"
 

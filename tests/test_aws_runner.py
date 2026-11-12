@@ -190,6 +190,12 @@ class RunAwsTest(unittest.TestCase):
         self.assertEqual(len(runner.calls), 5)
         self.assertEqual(sleeps, [1, 2, 4, 8])
 
+    def test_credential_report_in_progress_is_retried(self):
+        in_progress = {"stdout": "", "returncode": 254, "stderr": "An error occurred (ReportInProgress) when calling the GetCredentialReport operation: not ready"}
+        result, runner, sleeps = run({("iam", "get-credential-report", "us-east-1"): [in_progress, OK]}, "iam", "get-credential-report")
+        self.assertTrue(result.ok)
+        self.assertEqual(sleeps, [1])
+
     def test_access_denied_not_retried(self):
         result, runner, sleeps = run({("ec2", "describe-instances", "us-east-1"): DENIED})
         self.assertFalse(result.ok)
@@ -277,6 +283,8 @@ class ClassifyErrorTest(unittest.TestCase):
                 "An error occurred (Throttling) when calling",
                 "An error occurred (ThrottlingException): Rate exceeded",
                 "An error occurred (TooManyRequestsException) when calling",
+                "An error occurred (ReportInProgress) when calling the GetCredentialReport operation: Report generation in progress",
+                "An error occurred (ReportNotPresent) when calling the GetCredentialReport operation: Report not present",
             ],
             "ERROR": ["An error occurred (ValidationError) when calling", "", "boom"],
         }

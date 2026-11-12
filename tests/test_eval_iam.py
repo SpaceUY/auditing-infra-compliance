@@ -137,16 +137,16 @@ class CredentialReportEvaluatorTests(unittest.TestCase):
         self.assertEqual(offenders[0]["region"], REGION)
 
     def test_cred_report_key_age_pass(self):
-        self.assertEqual(evaluate("cred_report_key_age", self.clean(), {"max_days": 90, "now": NOW}), [])
+        self.assertEqual(evaluate("cred_report_key_age", self.clean(), {"fail_at_days": 90, "now": NOW}), [])
 
     def test_cred_report_key_age_fail_reports_offenders(self):
-        offenders = evaluate("cred_report_key_age", self.offending(), {"max_days": 90, "now": NOW})
+        offenders = evaluate("cred_report_key_age", self.offending(), {"fail_at_days": 90, "now": NOW})
         self.assertEqual(ids(offenders), ["carol.old"])
         self.assertEqual(offenders[0]["detail"]["keys"], [{"key": "access_key_1", "age_days": 164}])
 
     def test_cred_report_key_age_ignores_inactive_keys(self):
         row = cred_row("old.inactive", access_key_1_active="false", access_key_1_last_rotated="2025-01-01T10:00:00+00:00")
-        self.assertEqual(evaluate("cred_report_key_age", report_responses(row), {"max_days": 90, "now": NOW}), [])
+        self.assertEqual(evaluate("cred_report_key_age", report_responses(row), {"fail_at_days": 90, "now": NOW}), [])
 
     def test_cred_report_unused_pass(self):
         self.assertEqual(evaluate("cred_report_unused", self.clean(), {"max_days": 45, "now": NOW}), [])
@@ -179,7 +179,7 @@ class CredentialReportEvaluatorTests(unittest.TestCase):
 
     def test_root_row_is_never_reported(self):
         responses = report_responses()
-        for name, params in (("cred_report_console_mfa", {}), ("cred_report_key_age", {"max_days": 1, "now": NOW}),
+        for name, params in (("cred_report_console_mfa", {}), ("cred_report_key_age", {"fail_at_days": 1, "now": NOW}),
                              ("cred_report_unused", {"max_days": 1, "now": NOW}), ("cred_report_multi_keys", {}),
                              ("iam_human_users", {})):
             self.assertEqual(evaluate(name, responses, params), [], name)
@@ -254,6 +254,59 @@ class PolicyEvaluatorTests(unittest.TestCase):
         self.assertEqual(offender["detail"]["reason"], "sin contacto alternativo SECURITY")
 
 
+
+class BoundaryTests(unittest.TestCase):
+    """Exact thresholds: now is NOW (2026-11-12T12:00Z); each case shifts a timestamp by hours."""
+
+    @staticmethod
+    def ago(days=0, hours=0):
+        return (datetime.fromisoformat(NOW) - timedelta(days=days, hours=hours)).isoformat()
+
+    def key_age(self, days, hours):
+        row = cred_row("u", access_key_1_active="true", access_key_1_last_rotated=self.ago(days, hours))
+        return ids(evaluate("cred_report_key_age", report_responses(row), {"fail_at_days": 90, "now": NOW}))
+
+    def unused(self, days, hours):
+        row = cred_row("u", access_key_1_active="true", access_key_1_last_rotated=self.ago(400),
+                       access_key_1_last_used_date=self.ago(days, hours))
+        return ids(evaluate("cred_report_unused", report_responses(row), {"max_days": 45, "now": NOW}))
+
+    def test_key_age_boundary(self):
+        self.assertEqual(self.key_age(89, 23), [])
+        self.assertEqual(self.key_age(90, 0), ["u"])
+        self.assertEqual(self.key_age(91, 0), ["u"])
+
+    def test_unused_boundary(self):
+        self.assertEqual(self.unused(45, 0), [])
+        self.assertEqual(self.unused(45, 1), ["u"])
+        self.assertEqual(self.unused(46, 0), ["u"])
+
+    def test_password_length_boundary(self):
+        for length, expected in ((13, 1), (14, 0)):
+            responses = one("policy", {"PasswordPolicy": {"MinimumPasswordLength": length, "PasswordReusePrevention": 24}})
+            self.assertEqual(len(evaluate("password_min_length", responses, {"min_length": 14})), expected, length)
+
+    def test_password_reuse_boundary(self):
+        for reuse, expected in ((23, 1), (24, 0)):
+            responses = one("policy", {"PasswordPolicy": {"MinimumPasswordLength": 14, "PasswordReusePrevention": reuse}})
+            self.assertEqual(len(evaluate("password_reuse_prevention", responses, {"min_reuse": 24})), expected, reuse)
+
+    def test_root_logins_boundary(self):
+        def logins(*times):
+            events = [{"EventName": "ConsoleLogin", "EventTime": t, "Username": "root"} for t in times]
+            return evaluate("root_usage", one("events", {"Events": events}), {"days": 7, "max": 1, "now": NOW})
+
+        self.assertEqual(logins(self.ago(1)), [])
+        self.assertEqual(len(logins(self.ago(1), self.ago(2))), 1)
+
+    def test_root_login_just_outside_window_is_ignored(self):
+        events = [{"EventName": "ConsoleLogin", "EventTime": self.ago(1), "Username": "root"},
+                  {"EventName": "ConsoleLogin", "EventTime": self.ago(7, 1), "Username": "root"}]
+        self.assertEqual(evaluate("root_usage", one("events", {"Events": events}), {"days": 7, "max": 1, "now": NOW}), [])
+        events[1]["EventTime"] = self.ago(6, 23)
+        self.assertEqual(len(evaluate("root_usage", one("events", {"Events": events}), {"days": 7, "max": 1, "now": NOW})), 1)
+
+
 class IamCatalogTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -273,6 +326,26 @@ class IamCatalogTests(unittest.TestCase):
             kind, _, name = check["verify"]["evaluator"].partition(":")
             if kind == "python":
                 self.assertIn(name, evaluators.EVALUATORS, check["id"])
+
+    def test_steps_are_not_numbered_by_hand(self):
+        for check in self.checks:
+            for step in check["remediation"]["steps"]:
+                self.assertNotRegex(step, r"^\d+\.\s", check["id"])
+
+    def test_iam_011_detach_only_runs_after_attach_and_add(self):
+        (command, _) = next(c for c in self.checks if c["id"] == "IAM-011")["remediation"]["commands"]
+        lines = [l for l in command.splitlines() if l.startswith("aws ")]
+        self.assertTrue(lines[0].startswith("aws iam create-group") and "&&" not in lines[0])
+        self.assertIn("attach-group-policy", lines[1])
+        self.assertRegex(lines[1], r"attach-group-policy .*&& aws iam add-user-to-group .*&& aws iam detach-user-policy")
+
+    def test_destructive_lines_are_chained_or_alone(self):
+        destructive = ("detach-", "delete-")
+        for check in self.checks:
+            for command in check["remediation"]["commands"]:
+                aws_lines = [l for l in command.splitlines() if l.startswith("aws ")]
+                if any(d in l for l in aws_lines for d in destructive):
+                    self.assertEqual(len(aws_lines), 1 if "&&" not in command else len(aws_lines), check["id"])
 
     def test_remediation_commands_follow_cloudshell_rules(self):
         for check in self.checks:

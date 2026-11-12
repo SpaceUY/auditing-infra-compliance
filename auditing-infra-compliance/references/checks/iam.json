@@ -59,12 +59,12 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "1. Iniciar sesión en la consola de AWS como usuario root (email de la cuenta y contraseña).",
-          "2. Abrir el menú de la cuenta (arriba a la derecha) y entrar a Security credentials.",
-          "3. En Multi-factor authentication (MFA) elegir Assign MFA device.",
-          "4. Elegir el tipo de dispositivo. Para este chequeo alcanza una app autenticadora; para Drata 225 hace falta una llave de hardware (ver IAM-002).",
-          "5. Registrar el dispositivo con dos códigos consecutivos y confirmar.",
-          "6. Guardar el acceso de recuperación en un lugar compartido y protegido del equipo (no en el repo ni en un chat)."
+          "Iniciar sesión en la consola de AWS como usuario root (email de la cuenta y contraseña).",
+          "Abrir el menú de la cuenta (arriba a la derecha) y entrar a Security credentials.",
+          "En Multi-factor authentication (MFA) elegir Assign MFA device.",
+          "Elegir el tipo de dispositivo. Para este chequeo alcanza una app autenticadora; para Drata 225 hace falta una llave de hardware (ver IAM-002).",
+          "Registrar el dispositivo con dos códigos consecutivos y confirmar.",
+          "Guardar el acceso de recuperación en un lugar compartido y protegido del equipo (no en el repo ni en un chat)."
         ],
         "commands": [],
         "verify_after": "aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled'",
@@ -139,11 +139,11 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "1. Iniciar sesión en la consola de AWS como usuario root.",
-          "2. Entrar a Security credentials y, en Multi-factor authentication (MFA), elegir Assign MFA device.",
-          "3. Elegir Passkey or security key (o Hardware TOTP token) y registrar la llave física del equipo.",
-          "4. Una vez registrada la llave, quitar el dispositivo MFA virtual del root (Remove) para que no quede asignado.",
-          "5. Borrar en IAM > Users > MFA devices los registros virtuales huérfanos, que también hacen fallar el test."
+          "Iniciar sesión en la consola de AWS como usuario root.",
+          "Entrar a Security credentials y, en Multi-factor authentication (MFA), elegir Assign MFA device.",
+          "Elegir Passkey or security key (o Hardware TOTP token) y registrar la llave física del equipo.",
+          "Una vez registrada la llave, quitar el dispositivo MFA virtual del root (Remove) para que no quede asignado.",
+          "Borrar en IAM > Users > MFA devices los registros virtuales huérfanos, que también hacen fallar el test."
         ],
         "commands": [],
         "verify_after": "aws iam list-virtual-mfa-devices",
@@ -213,11 +213,11 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "1. Iniciar sesión en la consola de AWS como usuario root.",
-          "2. Abrir Security credentials y mirar la sección Access keys: anotar el último uso de cada key.",
-          "3. Confirmar que ninguna aplicación ni pipeline usa esa key; si alguna la usa, migrarla antes a un rol IAM.",
-          "4. Elegir Make inactive para cada key y esperar unos días por si algo se rompe.",
-          "5. Elegir Delete para borrar las keys definitivamente."
+          "Iniciar sesión en la consola de AWS como usuario root.",
+          "Abrir Security credentials y mirar la sección Access keys: anotar el último uso de cada key.",
+          "Confirmar que ninguna aplicación ni pipeline usa esa key; si alguna la usa, migrarla antes a un rol IAM.",
+          "Elegir Make inactive para cada key y esperar unos días por si algo se rompe.",
+          "Elegir Delete para borrar las keys definitivamente."
         ],
         "commands": [],
         "verify_after": "aws iam get-account-summary --query 'SummaryMap.AccountAccessKeysPresent'",
@@ -284,11 +284,11 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "1. Identificar quién inició sesión como root (CloudTrail > Event history, filtrar por User name = root).",
-          "2. Dar a esa persona un acceso de administración propio con IAM Identity Center (o un rol IAM con MFA) para no volver a usar el root.",
-          "3. Reservar el root solo para las tareas que lo exigen (cerrar la cuenta, cambiar el plan de soporte) y registrarlas.",
-          "4. Crear una alarma de EventBridge o CloudWatch que avise por SNS cada vez que se use el root.",
-          "5. Esperar a que los inicios de sesión salgan de la ventana de 7 días para que el test vuelva a verde."
+          "Identificar quién inició sesión como root (CloudTrail > Event history, filtrar por User name = root).",
+          "Dar a esa persona un acceso de administración propio con IAM Identity Center (o un rol IAM con MFA) para no volver a usar el root.",
+          "Reservar el root solo para las tareas que lo exigen (cerrar la cuenta, cambiar el plan de soporte) y registrarlas.",
+          "Crear una alarma de EventBridge o CloudWatch que avise por SNS cada vez que se use el root.",
+          "Esperar a que los inicios de sesión salgan de la ventana de 7 días para que el test vuelva a verde."
         ],
         "commands": [],
         "verify_after": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=Username,AttributeValue=root --max-results 5",
@@ -367,10 +367,10 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "1. Pedir al usuario {resource_id} que inicie sesión y entre a Security credentials > Assign MFA device (app autenticadora o llave de seguridad).",
-          "2. Si no puede, un administrador lo registra desde IAM > Users > {resource_id} > Security credentials > Assign MFA device.",
-          "3. Si el usuario ya no necesita la consola, quitar el acceso: Security credentials > Console access > Disable.",
-          "4. Para usuarios que se van a migrar a IAM Identity Center, forzar MFA ahí en vez de en IAM (ver IAM-017)."
+          "Pedir al usuario {resource_id} que inicie sesión y entre a Security credentials > Assign MFA device (app autenticadora o llave de seguridad).",
+          "Si no puede, un administrador lo registra desde IAM > Users > {resource_id} > Security credentials > Assign MFA device.",
+          "Si el usuario ya no necesita la consola, quitar el acceso: Security credentials > Console access > Disable.",
+          "Para usuarios que se van a migrar a IAM Identity Center, forzar MFA ahí en vez de en IAM (ver IAM-017)."
         ],
         "commands": [],
         "verify_after": "aws iam list-mfa-devices --user-name \"{resource_id}\"",
@@ -446,7 +446,7 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "1. Aplicar la política de contraseñas completa (largo 14, reuso 24, complejidad) con un único comando."
+          "Aplicar la política de contraseñas completa (largo 14, reuso 24, complejidad) con un único comando."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws iam update-account-password-policy --minimum-password-length 14 --password-reuse-prevention 24 --require-symbols --require-numbers --require-uppercase-characters --require-lowercase-characters --allow-users-to-change-password"
@@ -524,7 +524,7 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "1. Aplicar la política de contraseñas completa (largo 14, reuso 24, complejidad) con un único comando."
+          "Aplicar la política de contraseñas completa (largo 14, reuso 24, complejidad) con un único comando."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws iam update-account-password-policy --minimum-password-length 14 --password-reuse-prevention 24 --require-symbols --require-numbers --require-uppercase-characters --require-lowercase-characters --allow-users-to-change-password"
@@ -568,9 +568,9 @@
         ],
         "evaluator": "python:cred_report_key_age",
         "params": {
-          "max_days": 90
+          "fail_at_days": 90
         },
-        "pass_when_text": "Ninguna access key activa tiene 90 días o más desde su última rotación (Drata falla desde los 90).",
+        "pass_when_text": "Ninguna access key activa tiene 90 días o más desde su última rotación (Drata 232 falla desde los 90 días).",
         "needs": [
           "iam:GenerateCredentialReport",
           "iam:GetCredentialReport"
@@ -609,15 +609,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "1. Identificar qué aplicación o pipeline usa la key del usuario {resource_id} (último uso en el credential report y en CloudTrail).",
-          "2. Crear una segunda access key (IAM > Users > {resource_id} > Security credentials > Create access key) y guardarla en el gestor de secretos del equipo, nunca en el repo ni en un chat.",
-          "3. Actualizar la aplicación o el pipeline para que use la key nueva y verificar que funciona.",
-          "4. Desactivar la key vieja y esperar unos días por si algo falla.",
-          "5. Borrar la key vieja cuando se confirme que nada la usa."
+          "Identificar qué aplicación o pipeline usa la key del usuario {resource_id} (último uso en el credential report y en CloudTrail).",
+          "Crear una segunda access key (IAM > Users > {resource_id} > Security credentials > Create access key) y guardarla en el gestor de secretos del equipo, nunca en el repo ni en un chat.",
+          "Actualizar la aplicación o el pipeline para que use la key nueva y verificar que funciona.",
+          "Desactivar la key vieja y esperar unos días por si algo falla.",
+          "Borrar la key vieja cuando se confirme que nada la usa."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__COMPLETAR_ACCESS_KEY_ID_VIEJA__\"\n# Paso 4: desactivar la key vieja\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\" --status Inactive",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__COMPLETAR_ACCESS_KEY_ID_VIEJA__\"\n# Paso 5: borrar la key vieja (irreversible)\naws iam delete-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__COMPLETAR_ACCESS_KEY_ID_VIEJA__\"\n# Paso 5: solo después de verificar que nada usa la key (irreversible)\naws iam delete-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\""
         ],
         "verify_after": "aws iam list-access-keys --user-name \"{resource_id}\"",
         "notes": "Si la aplicación sigue usando la key vieja, desactivarla la rompe: primero actualizar la aplicación, después desactivar. Si el usuario es una persona, conviene pasarla a IAM Identity Center en vez de rotar keys de larga vida (IAM-017)."
@@ -704,10 +704,10 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "1. Revisar en el credential report qué credencial del usuario {resource_id} lleva más de 45 días sin uso (contraseña o access key).",
-          "2. Si es una access key, desactivarla con el comando de abajo.",
-          "3. Si es la contraseña de consola, deshabilitar el acceso desde la consola: IAM > Users > {resource_id} > Security credentials > Console access > Disable.",
-          "4. Si el usuario ya no existe en la organización, borrarlo después (fuera de este arreglo)."
+          "Revisar en el credential report qué credencial del usuario {resource_id} lleva más de 45 días sin uso (contraseña o access key).",
+          "Si es una access key, desactivarla con el comando de abajo.",
+          "Si es la contraseña de consola, deshabilitar el acceso desde la consola: IAM > Users > {resource_id} > Security credentials > Console access > Disable.",
+          "Si el usuario ya no existe en la organización, borrarlo después (fuera de este arreglo)."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nKEY_ID=\"__COMPLETAR_ACCESS_KEY_ID__\"\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$KEY_ID\" --status Inactive"
@@ -783,9 +783,9 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "1. Ver cuál de las dos keys de {resource_id} usa la aplicación (último uso en el credential report: access_key_1_last_used_date y access_key_2_last_used_date).",
-          "2. Si ya se migró la aplicación a la key más nueva, desactivar la más vieja.",
-          "3. Esperar unos días y, si no hay errores, borrar la key desactivada."
+          "Ver cuál de las dos keys de {resource_id} usa la aplicación (último uso en el credential report: access_key_1_last_used_date y access_key_2_last_used_date).",
+          "Si ya se migró la aplicación a la key más nueva, desactivar la más vieja.",
+          "Esperar unos días y, si no hay errores, borrar la key desactivada."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__COMPLETAR_ACCESS_KEY_ID_VIEJA__\"\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\" --status Inactive"
@@ -861,14 +861,14 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "1. Listar las políticas que {resource_id} tiene hoy (adjuntas e inline) con los comandos de verificación.",
-          "2. Crear un grupo por función (por ejemplo developers) o elegir uno existente, y adjuntarle esas políticas.",
-          "3. Agregar a {resource_id} al grupo y comprobar que sigue accediendo a lo que necesita.",
-          "4. Quitar del usuario la política adjunta (detach-user-policy) o la inline (delete-user-policy)."
+          "Listar las políticas que {resource_id} tiene hoy (adjuntas e inline) con los comandos de verificación.",
+          "Crear un grupo por función (por ejemplo developers) o elegir uno existente, y adjuntarle esas políticas.",
+          "Agregar a {resource_id} al grupo y comprobar que sigue accediendo a lo que necesita.",
+          "Quitar del usuario la política adjunta (detach-user-policy) o la inline (delete-user-policy)."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nGROUP_NAME=\"__COMPLETAR_GRUPO__\"\nPOLICY_ARN=\"__COMPLETAR_POLICY_ARN__\"\naws iam create-group --group-name \"$GROUP_NAME\"\naws iam attach-group-policy --group-name \"$GROUP_NAME\" --policy-arn \"$POLICY_ARN\"\naws iam add-user-to-group --group-name \"$GROUP_NAME\" --user-name \"$USER_NAME\"\naws iam detach-user-policy --user-name \"$USER_NAME\" --policy-arn \"$POLICY_ARN\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nINLINE_POLICY_NAME=\"__COMPLETAR_NOMBRE_POLITICA_INLINE__\"\naws iam delete-user-policy --user-name \"$USER_NAME\" --policy-name \"$INLINE_POLICY_NAME\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nGROUP_NAME=\"__COMPLETAR_GRUPO__\"\nPOLICY_ARN=\"__COMPLETAR_POLICY_ARN__\"\naws iam create-group --group-name \"$GROUP_NAME\"\n# create-group puede fallar si el grupo ya existe: es esperable. Lo que sigue se encadena con && para que quitar el permiso directo solo corra si los pasos anteriores salieron bien\naws iam attach-group-policy --group-name \"$GROUP_NAME\" --policy-arn \"$POLICY_ARN\" && aws iam add-user-to-group --group-name \"$GROUP_NAME\" --user-name \"$USER_NAME\" && aws iam detach-user-policy --user-name \"$USER_NAME\" --policy-arn \"$POLICY_ARN\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nINLINE_POLICY_NAME=\"__COMPLETAR_NOMBRE_POLITICA_INLINE__\"\n# solo después de verificar que el grupo cubre esos permisos\naws iam delete-user-policy --user-name \"$USER_NAME\" --policy-name \"$INLINE_POLICY_NAME\""
         ],
         "verify_after": "aws iam list-attached-user-policies --user-name \"{resource_id}\"",
         "notes": "Quitar los permisos directos antes de que el grupo los cubra deja al usuario sin acceso: agregar al grupo primero, quitar después. Si el grupo ya existe, omitir create-group. Una política inline puede tener permisos que ninguna política administrada cubre: revisar su contenido antes de borrarla."
@@ -902,7 +902,7 @@
         ],
         "evaluator": "python:admin_policies",
         "params": {},
-        "pass_when_text": "Ninguna política administrada propia adjuntas a una identidad permite Action * sobre Resource * en su versión por defecto.",
+        "pass_when_text": "Ninguna política administrada propia adjunta a una identidad permite Action * sobre Resource * en su versión por defecto.",
         "needs": [
           "iam:GetAccountAuthorizationDetails"
         ]
@@ -938,11 +938,11 @@
         "risk": "high",
         "downtime": false,
         "steps": [
-          "1. Ver qué usuarios, grupos y roles tienen adjunta la política con el comando de verificación.",
-          "2. Definir los permisos que realmente se usan (IAM Access Analyzer puede generar una política a partir de CloudTrail).",
-          "3. Crear una política acotada y adjuntarla a esas identidades.",
-          "4. Quitar la política de administrador de cada identidad (detach) y comprobar que nada se rompe.",
-          "5. Si la política ya no se usa, borrarla."
+          "Ver qué usuarios, grupos y roles tienen adjunta la política con el comando de verificación.",
+          "Definir los permisos que realmente se usan (IAM Access Analyzer puede generar una política a partir de CloudTrail).",
+          "Crear una política acotada y adjuntarla a esas identidades.",
+          "Quitar la política de administrador de cada identidad (detach) y comprobar que nada se rompe.",
+          "Si la política ya no se usa, borrarla."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPOLICY_ARN=\"{resource_id}\"\naws iam list-entities-for-policy --policy-arn \"$POLICY_ARN\"",
@@ -1008,9 +1008,9 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "1. Leer la política con los comandos de abajo y listar qué acciones con comodín usa y sobre qué recursos.",
-          "2. Reemplazar cada comodín por la lista de acciones y recursos que la aplicación necesita realmente.",
-          "3. Crear una versión nueva de la política y comprobar que la aplicación sigue funcionando."
+          "Leer la política con los comandos de abajo y listar qué acciones con comodín usa y sobre qué recursos.",
+          "Reemplazar cada comodín por la lista de acciones y recursos que la aplicación necesita realmente.",
+          "Crear una versión nueva de la política y comprobar que la aplicación sigue funcionando."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPOLICY_ARN=\"__COMPLETAR_POLICY_ARN__\"\nVERSION_ID=$(aws iam get-policy --policy-arn \"$POLICY_ARN\" --query Policy.DefaultVersionId --output text)\naws iam get-policy-version --policy-arn \"$POLICY_ARN\" --version-id \"$VERSION_ID\""
@@ -1084,8 +1084,8 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "1. Decidir quién puede asumir el rol de soporte (un grupo o rol de administradores) y completar su ARN.",
-          "2. Crear el rol con una política de confianza que exija MFA y adjuntarle AWSSupportAccess."
+          "Decidir quién puede asumir el rol de soporte (un grupo o rol de administradores) y completar su ARN.",
+          "Crear el rol con una política de confianza que exija MFA y adjuntarle AWSSupportAccess."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTRUST='{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"__COMPLETAR_PRINCIPAL_ARN__\"},\"Action\":\"sts:AssumeRole\",\"Condition\":{\"Bool\":{\"aws:MultiFactorAuthPresent\":\"true\"}}}]}'\naws iam create-role --role-name aws-support-access --assume-role-policy-document \"$TRUST\"\naws iam attach-role-policy --role-name aws-support-access --policy-arn arn:aws:iam::aws:policy/AWSSupportAccess"
@@ -1157,7 +1157,7 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "1. Crear un analizador de acceso externo de cuenta en la región indicada."
+          "Crear un analizador de acceso externo de cuenta en la región indicada."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws accessanalyzer create-analyzer --analyzer-name external-access-analyzer --type ACCOUNT --region \"$REGION\""
@@ -1228,8 +1228,8 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "1. Decidir el nombre, cargo, email y teléfono del contacto de seguridad (conviene una casilla compartida del equipo, no un email personal).",
-          "2. Completar los valores y ejecutar el comando."
+          "Decidir el nombre, cargo, email y teléfono del contacto de seguridad (conviene una casilla compartida del equipo, no un email personal).",
+          "Completar los valores y ejecutar el comando."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws account put-alternate-contact --alternate-contact-type SECURITY --name \"__COMPLETAR_NOMBRE__\" --title \"__COMPLETAR_CARGO__\" --email-address \"__COMPLETAR_EMAIL_SEGURIDAD__\" --phone-number \"__COMPLETAR_TELEFONO__\""
@@ -1301,10 +1301,10 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "1. Habilitar IAM Identity Center y conectarlo al proveedor de identidad del equipo (o usar su directorio propio).",
-          "2. Crear los permission sets equivalentes a los permisos que {resource_id} tiene hoy.",
-          "3. Asignar a la persona esos permission sets y confirmar que entra por el portal de acceso.",
-          "4. Deshabilitar el acceso de consola del usuario IAM y, cuando no quede uso, desactivar sus access keys."
+          "Habilitar IAM Identity Center y conectarlo al proveedor de identidad del equipo (o usar su directorio propio).",
+          "Crear los permission sets equivalentes a los permisos que {resource_id} tiene hoy.",
+          "Asignar a la persona esos permission sets y confirmar que entra por el portal de acceso.",
+          "Deshabilitar el acceso de consola del usuario IAM y, cuando no quede uso, desactivar sus access keys."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nKEY_ID=\"__COMPLETAR_ACCESS_KEY_ID__\"\n# Paso 4: cuando la persona ya entra por Identity Center\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$KEY_ID\" --status Inactive"
