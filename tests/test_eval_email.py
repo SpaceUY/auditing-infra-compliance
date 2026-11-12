@@ -201,7 +201,7 @@ class EmailCatalogTests(unittest.TestCase):
             self.assertEqual((check["scope"], check["resource_types"], check["all_regions"]), ("resource", ["ses_identity"], False), check["id"])
 
     def test_dns_checks_declare_the_record_and_the_pattern(self):
-        for check_id, name, pattern in (("EML-004", "{domain}", "v=spf1"), ("EML-005", "_dmarc.{domain}", "p=(quarantine|reject)")):
+        for check_id, name, pattern in (("EML-004", "{domain}", "v=spf1"), ("EML-005", "_dmarc.{domain}", "(?i)(^|;)\\s*p=(quarantine|reject)\\b")):
             check = catalog_check(check_id)
             self.assertEqual(check["verify"]["params"], {"rrtype": "TXT", "name_template": name, "must_match": pattern, "domains_from": "ses_identity"})
             self.assertEqual((check["verify"]["calls"], check["verify"]["needs"]), ([], []))
@@ -209,7 +209,9 @@ class EmailCatalogTests(unittest.TestCase):
     def test_dmarc_pattern_accepts_quarantine_and_reject_only(self):
         pattern = re.compile(catalog_check("EML-005")["verify"]["params"]["must_match"])
         for text, expected in (('"v=DMARC1; p=reject; rua=mailto:dmarc@acme-notes.example"', True), ('"v=DMARC1; p=quarantine"', True),
-                               ('"v=DMARC1; p=none"', False), ('"v=DMARC1"', False)):
+                               ('"v=DMARC1;p=quarantine"', True), ('"v=DMARC1; P=REJECT"', True), ('p=reject', True),
+                               ('"v=DMARC1; p=none; sp=reject"', False), ('"v=DMARC1; sp=quarantine; p=none"', False),
+                               ('"v=DMARC1; p=none"', False), ('"v=DMARC1; p=rejected"', False), ('"v=DMARC1"', False)):
             self.assertEqual(bool(pattern.search(text)), expected, text)
 
     def test_ses_reads_use_sesv2_and_declare_item_errors(self):

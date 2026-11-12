@@ -62,6 +62,22 @@
     "tags": {}
   },
   {
+    "type": "kms_key",
+    "id": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+    "arn": "arn:aws:kms:us-east-1:111122223333:key/2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+    "name": "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e",
+    "region": "us-east-1",
+    "tags": {}
+  },
+  {
+    "type": "kms_key",
+    "id": "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+    "arn": "arn:aws:kms:us-east-1:111122223333:key/3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+    "name": "3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+    "region": "us-east-1",
+    "tags": {}
+  },
+  {
     "type": "iam_role",
     "id": "acme-notes-app",
     "arn": "arn:aws:iam::111122223333:role/acme-notes-app",

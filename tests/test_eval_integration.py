@@ -218,6 +218,23 @@ class KmsAuditorAccessTests(unittest.TestCase):
         (offender,) = self.run_with("denied")
         self.assertEqual(offender["detail"]["missing_actions"], {VANTA: ["kms:ListGrants"]})
 
+    def deny_not_principal(self, *listed):
+        statements = [{"Effect": "Allow", "Principal": {"AWS": "arn:aws:iam::111122223333:root"}, "Action": "kms:*", "Resource": "*"},
+                      {"Effect": "Deny", "NotPrincipal": {"AWS": list(listed)}, "Action": "kms:*", "Resource": "*"}]
+        return {"PolicyName": "default", "Policy": json.dumps({"Version": "2012-10-17", "Statement": statements})}
+
+    def test_a_deny_with_not_principal_denies_every_auditor_that_is_not_listed(self):
+        admin = "arn:aws:iam::111122223333:role/acme-notes-admin"
+        (offender,) = self.run_with(self.deny_not_principal(admin))
+        self.assertEqual(list(offender["detail"]["missing_actions"]), [DRATA, VANTA])
+
+    def test_a_deny_with_not_principal_spares_the_listed_role_and_its_account_root(self):
+        drata, vanta = (f"arn:aws:iam::111122223333:role/{n}" for n in (DRATA, VANTA))
+        self.assertEqual(self.run_with(self.deny_not_principal(drata, vanta)), [])
+        (offender,) = self.run_with(self.deny_not_principal(vanta))
+        self.assertEqual(list(offender["detail"]["missing_actions"]), [DRATA])
+        self.assertEqual(self.run_with(self.deny_not_principal("arn:aws:iam::111122223333:root")), [])
+
     def test_only_the_roles_that_exist_are_required(self):
         inventory = [i for i in fx("inventory-with-drata-and-vanta") if i["id"] != VANTA]
         responses = merge(for_each("describe", [(KEY, fx("kms-describe-key-customer"))]), for_each("policy", [(KEY, fx("kms-get-key-policy-closed"))]))

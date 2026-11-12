@@ -345,10 +345,10 @@
         "params": {
           "rrtype": "TXT",
           "name_template": "_dmarc.{domain}",
-          "must_match": "p=(quarantine|reject)",
+          "must_match": "(?i)(^|;)\\s*p=(quarantine|reject)\\b",
           "domains_from": "ses_identity"
         },
-        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad de dominio de SES (las direcciones de email no se evalúan) tiene un registro TXT en _dmarc.DOMINIO con una política p=quarantine o p=reject. Sin registro DMARC, o con p=none (solo monitoreo), falla con severidad alta: el dominio se puede suplantar. El motor consulta el DNS público con dig o nslookup. El patrón p=(quarantine|reject) también coincide con sp=quarantine o sp=reject: un registro con p=none y sp=reject pasa por error, revisar a mano los DMARC con p=none. Si no hay identidades de dominio, el resultado es N/A (vacío); si el DNS no se puede consultar, NO_VERIFICADO.",
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad de dominio de SES (las direcciones de email no se evalúan) tiene un registro TXT en _dmarc.DOMINIO con una política p=quarantine o p=reject. Sin registro DMARC, o con p=none (solo monitoreo), falla con severidad alta: el dominio se puede suplantar. El motor consulta el DNS público con dig o nslookup. El patrón se ancla a la etiqueta p= (sin distinguir mayúsculas): sp=reject o un p=none con sp=reject no cuentan. Si no hay identidades de dominio, el resultado es N/A (vacío); si el DNS no se puede consultar, NO_VERIFICADO.",
         "needs": []
       },
       "vault_signals": [

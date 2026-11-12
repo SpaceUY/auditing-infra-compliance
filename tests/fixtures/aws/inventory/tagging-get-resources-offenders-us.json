@@ -109,6 +109,27 @@
           "Value": "elsewhere"
         }
       ]
+    },
+    {
+      "ResourceARN": "arn:aws:kms:us-east-1:111122223333:key/3c4d5e6f-7a8b-4c9d-8e1f-2a3b4c5d6e7f",
+      "Tags": [
+        {
+          "Key": "VantaOwner",
+          "Value": "ana@acme-notes.example"
+        },
+        {
+          "Key": "Project",
+          "Value": "acme-notes"
+        },
+        {
+          "Key": "Environment",
+          "Value": "prod"
+        },
+        {
+          "Key": "Owner",
+          "Value": "ana@acme-notes.example"
+        }
+      ]
     }
   ]
 }

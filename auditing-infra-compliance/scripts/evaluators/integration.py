@@ -41,7 +41,7 @@ def _action_matches(statement: dict, action: str) -> bool:
 
 def _grants(statements: list[dict], action: str, applies: Callable[[dict], bool]) -> bool:
     """An Allow for `action` that nothing denies. Allow statements this check does not model (Condition, NotAction,
-    NotPrincipal) are never counted; a Deny it cannot rule out (NotAction, any Condition) counts as denying."""
+    NotPrincipal) are never counted; a Deny it cannot rule out (NotAction, any Condition) counts as denying; a Deny with NotPrincipal denies every principal not listed."""
     allowed = any(s.get("Effect") == "Allow" and not s.get("Condition") and not s.get("NotAction") and not s.get("NotPrincipal")
                   and _action_matches(s, action) and applies(s) for s in statements)
     denied = any(s.get("Effect") == "Deny" and (_action_matches(s, action) or s.get("NotAction")) and applies(s) for s in statements)
@@ -164,12 +164,19 @@ def _key_error(key_id: str, region: str, code: str, call: str) -> dict:
     return _unverified(key_id, region, error_code=code, call=call, reason=reason)
 
 
-def _principal_covers(statement: dict, role_arn: str) -> bool:
-    """The statement's Principal is the role, its account root (IAM delegation) or '*'."""
-    principal = statement.get("Principal")
+def _names_role(principal: object, role_arn: str) -> bool:
+    """A Principal / NotPrincipal value that is '*', the role, its account root or the bare account id."""
     account = role_arn.split(":")[4]
     names = _as_list(principal.get("AWS") if isinstance(principal, dict) else principal)
     return any(n in ("*", role_arn, account) or n == f"arn:{role_arn.split(':')[1]}:iam::{account}:root" for n in names)
+
+
+def _principal_covers(statement: dict, role_arn: str) -> bool:
+    """The statement applies to the role: its Principal is the role, its account root or '*'; a Deny with NotPrincipal applies
+    to every principal that is NOT listed, so it applies unless the role (or its account root) is listed."""
+    if "NotPrincipal" in statement:
+        return not _names_role(statement["NotPrincipal"], role_arn)
+    return _names_role(statement.get("Principal"), role_arn)
 
 
 def _missing_actions(statements: list[dict], role_arn: str, actions: list[str]) -> list[str]:
