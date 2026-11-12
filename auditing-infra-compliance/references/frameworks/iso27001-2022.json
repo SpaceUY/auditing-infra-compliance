@@ -1,0 +1,778 @@
+{
+  "version": "ISO/IEC 27001:2022",
+  "clauses": [
+    {
+      "id": "4.1",
+      "name": "Understanding the organization and its context"
+    },
+    {
+      "id": "4.2",
+      "name": "Needs and expectations of interested parties"
+    },
+    {
+      "id": "4.3",
+      "name": "Determining the ISMS scope"
+    },
+    {
+      "id": "4.4",
+      "name": "Information security management system"
+    },
+    {
+      "id": "5.1",
+      "name": "Leadership and commitment"
+    },
+    {
+      "id": "5.2",
+      "name": "Information security policy"
+    },
+    {
+      "id": "5.3",
+      "name": "Organizational roles and authorities"
+    },
+    {
+      "id": "6.1.1",
+      "name": "Risk and opportunity actions: general"
+    },
+    {
+      "id": "6.1.2",
+      "name": "Information security risk assessment"
+    },
+    {
+      "id": "6.1.3",
+      "name": "Information security risk treatment and Statement of Applicability"
+    },
+    {
+      "id": "6.2",
+      "name": "Security objectives and planning"
+    },
+    {
+      "id": "6.3",
+      "name": "Planning of changes"
+    },
+    {
+      "id": "7.1",
+      "name": "Resources"
+    },
+    {
+      "id": "7.2",
+      "name": "Competence"
+    },
+    {
+      "id": "7.3",
+      "name": "Awareness"
+    },
+    {
+      "id": "7.4",
+      "name": "Communication"
+    },
+    {
+      "id": "7.5.1",
+      "name": "Documented information: general"
+    },
+    {
+      "id": "7.5.2",
+      "name": "Documented information: creating and updating"
+    },
+    {
+      "id": "7.5.3",
+      "name": "Documented information: control"
+    },
+    {
+      "id": "8.1",
+      "name": "Operational planning and control"
+    },
+    {
+      "id": "8.2",
+      "name": "Risk assessment execution"
+    },
+    {
+      "id": "8.3",
+      "name": "Risk treatment execution"
+    },
+    {
+      "id": "9.1",
+      "name": "Monitoring, measurement, analysis and evaluation"
+    },
+    {
+      "id": "9.2.1",
+      "name": "Internal audit: general"
+    },
+    {
+      "id": "9.2.2",
+      "name": "Internal audit programme"
+    },
+    {
+      "id": "9.3.1",
+      "name": "Management review: general"
+    },
+    {
+      "id": "9.3.2",
+      "name": "Management review inputs"
+    },
+    {
+      "id": "9.3.3",
+      "name": "Management review results"
+    },
+    {
+      "id": "10.1",
+      "name": "Continual improvement"
+    },
+    {
+      "id": "10.2",
+      "name": "Nonconformity and corrective action"
+    }
+  ],
+  "controls": [
+    {
+      "id": "A.5.1",
+      "theme": "organizational",
+      "name": "Information security policies",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.2",
+      "theme": "organizational",
+      "name": "Security roles and responsibilities",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.3",
+      "theme": "organizational",
+      "name": "Segregation of duties",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.4",
+      "theme": "organizational",
+      "name": "Management responsibilities",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.5",
+      "theme": "organizational",
+      "name": "Contact with authorities",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.6",
+      "theme": "organizational",
+      "name": "Contact with special interest groups",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.7",
+      "theme": "organizational",
+      "name": "Threat intelligence",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.8",
+      "theme": "organizational",
+      "name": "Security in project management",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.9",
+      "theme": "organizational",
+      "name": "Inventory of information and assets",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.5.10",
+      "theme": "organizational",
+      "name": "Acceptable use of assets",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.11",
+      "theme": "organizational",
+      "name": "Return of assets",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.12",
+      "theme": "organizational",
+      "name": "Information classification",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.13",
+      "theme": "organizational",
+      "name": "Information labelling",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.14",
+      "theme": "organizational",
+      "name": "Information transfer",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.15",
+      "theme": "organizational",
+      "name": "Access control",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.5.16",
+      "theme": "organizational",
+      "name": "Identity management",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.5.17",
+      "theme": "organizational",
+      "name": "Authentication information",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.5.18",
+      "theme": "organizational",
+      "name": "Access rights",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.5.19",
+      "theme": "organizational",
+      "name": "Security in supplier relationships",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.20",
+      "theme": "organizational",
+      "name": "Security in supplier agreements",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.21",
+      "theme": "organizational",
+      "name": "ICT supply chain security",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.22",
+      "theme": "organizational",
+      "name": "Supplier service monitoring and change management",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.23",
+      "theme": "organizational",
+      "name": "Security of cloud services use",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.5.24",
+      "theme": "organizational",
+      "name": "Incident management planning",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.25",
+      "theme": "organizational",
+      "name": "Security event assessment and decision",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.26",
+      "theme": "organizational",
+      "name": "Incident response",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.27",
+      "theme": "organizational",
+      "name": "Learning from incidents",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.28",
+      "theme": "organizational",
+      "name": "Evidence collection",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.29",
+      "theme": "organizational",
+      "name": "Security during disruption",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.30",
+      "theme": "organizational",
+      "name": "ICT readiness for business continuity",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.31",
+      "theme": "organizational",
+      "name": "Legal, regulatory and contractual requirements",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.32",
+      "theme": "organizational",
+      "name": "Intellectual property rights",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.33",
+      "theme": "organizational",
+      "name": "Protection of records",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.5.34",
+      "theme": "organizational",
+      "name": "Privacy and PII protection",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.35",
+      "theme": "organizational",
+      "name": "Independent security review",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.36",
+      "theme": "organizational",
+      "name": "Compliance with policies and standards",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.5.37",
+      "theme": "organizational",
+      "name": "Documented operating procedures",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.6.1",
+      "theme": "people",
+      "name": "Screening",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.6.2",
+      "theme": "people",
+      "name": "Terms of employment",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.6.3",
+      "theme": "people",
+      "name": "Security awareness and training",
+      "responsibility": "shared",
+      "technical": false
+    },
+    {
+      "id": "A.6.4",
+      "theme": "people",
+      "name": "Disciplinary process",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.6.5",
+      "theme": "people",
+      "name": "Responsibilities after termination or change",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.6.6",
+      "theme": "people",
+      "name": "Confidentiality agreements",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.6.7",
+      "theme": "people",
+      "name": "Remote working",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.6.8",
+      "theme": "people",
+      "name": "Security event reporting",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.7.1",
+      "theme": "physical",
+      "name": "Physical security perimeters",
+      "responsibility": "inherited",
+      "technical": false
+    },
+    {
+      "id": "A.7.2",
+      "theme": "physical",
+      "name": "Physical entry",
+      "responsibility": "inherited",
+      "technical": false
+    },
+    {
+      "id": "A.7.3",
+      "theme": "physical",
+      "name": "Securing offices, rooms and facilities",
+      "responsibility": "inherited",
+      "technical": false
+    },
+    {
+      "id": "A.7.4",
+      "theme": "physical",
+      "name": "Physical security monitoring",
+      "responsibility": "inherited",
+      "technical": false
+    },
+    {
+      "id": "A.7.5",
+      "theme": "physical",
+      "name": "Protection from physical and environmental threats",
+      "responsibility": "inherited",
+      "technical": false
+    },
+    {
+      "id": "A.7.6",
+      "theme": "physical",
+      "name": "Working in secure areas",
+      "responsibility": "shared",
+      "technical": false
+    },
+    {
+      "id": "A.7.7",
+      "theme": "physical",
+      "name": "Clear desk and clear screen",
+      "responsibility": "shared",
+      "technical": false
+    },
+    {
+      "id": "A.7.8",
+      "theme": "physical",
+      "name": "Equipment siting and protection",
+      "responsibility": "inherited",
+      "technical": false
+    },
+    {
+      "id": "A.7.9",
+      "theme": "physical",
+      "name": "Security of off-premises assets",
+      "responsibility": "shared",
+      "technical": false
+    },
+    {
+      "id": "A.7.10",
+      "theme": "physical",
+      "name": "Storage media",
+      "responsibility": "shared",
+      "technical": false
+    },
+    {
+      "id": "A.7.11",
+      "theme": "physical",
+      "name": "Supporting utilities",
+      "responsibility": "inherited",
+      "technical": false
+    },
+    {
+      "id": "A.7.12",
+      "theme": "physical",
+      "name": "Cabling security",
+      "responsibility": "inherited",
+      "technical": false
+    },
+    {
+      "id": "A.7.13",
+      "theme": "physical",
+      "name": "Equipment maintenance",
+      "responsibility": "inherited",
+      "technical": false
+    },
+    {
+      "id": "A.7.14",
+      "theme": "physical",
+      "name": "Secure disposal or re-use of equipment",
+      "responsibility": "inherited",
+      "technical": false
+    },
+    {
+      "id": "A.8.1",
+      "theme": "technological",
+      "name": "User endpoint devices",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.8.2",
+      "theme": "technological",
+      "name": "Privileged access rights",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.3",
+      "theme": "technological",
+      "name": "Information access restriction",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.4",
+      "theme": "technological",
+      "name": "Access to source code",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.8.5",
+      "theme": "technological",
+      "name": "Secure authentication",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.6",
+      "theme": "technological",
+      "name": "Capacity management",
+      "responsibility": "shared",
+      "technical": true
+    },
+    {
+      "id": "A.8.7",
+      "theme": "technological",
+      "name": "Protection against malware",
+      "responsibility": "shared",
+      "technical": false
+    },
+    {
+      "id": "A.8.8",
+      "theme": "technological",
+      "name": "Technical vulnerability management",
+      "responsibility": "shared",
+      "technical": true
+    },
+    {
+      "id": "A.8.9",
+      "theme": "technological",
+      "name": "Configuration management",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.10",
+      "theme": "technological",
+      "name": "Information deletion",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.11",
+      "theme": "technological",
+      "name": "Data masking",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.12",
+      "theme": "technological",
+      "name": "Data leakage prevention",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.13",
+      "theme": "technological",
+      "name": "Information backup",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.14",
+      "theme": "technological",
+      "name": "Redundancy of processing facilities",
+      "responsibility": "shared",
+      "technical": true
+    },
+    {
+      "id": "A.8.15",
+      "theme": "technological",
+      "name": "Logging",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.16",
+      "theme": "technological",
+      "name": "Monitoring activities",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.17",
+      "theme": "technological",
+      "name": "Clock synchronization",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.18",
+      "theme": "technological",
+      "name": "Privileged utility programs",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.19",
+      "theme": "technological",
+      "name": "Software installation on operational systems",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.20",
+      "theme": "technological",
+      "name": "Network security",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.21",
+      "theme": "technological",
+      "name": "Security of network services",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.22",
+      "theme": "technological",
+      "name": "Network segregation",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.23",
+      "theme": "technological",
+      "name": "Web filtering",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.24",
+      "theme": "technological",
+      "name": "Use of cryptography",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.25",
+      "theme": "technological",
+      "name": "Secure development life cycle",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.8.26",
+      "theme": "technological",
+      "name": "Application security requirements",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.8.27",
+      "theme": "technological",
+      "name": "Secure architecture and engineering principles",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.8.28",
+      "theme": "technological",
+      "name": "Secure coding",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.8.29",
+      "theme": "technological",
+      "name": "Security testing in development and acceptance",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.8.30",
+      "theme": "technological",
+      "name": "Outsourced development",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.8.31",
+      "theme": "technological",
+      "name": "Separation of development, test and production",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.8.32",
+      "theme": "technological",
+      "name": "Change management",
+      "responsibility": "customer",
+      "technical": true
+    },
+    {
+      "id": "A.8.33",
+      "theme": "technological",
+      "name": "Test information",
+      "responsibility": "customer",
+      "technical": false
+    },
+    {
+      "id": "A.8.34",
+      "theme": "technological",
+      "name": "Protecting systems during audit testing",
+      "responsibility": "shared",
+      "technical": true
+    }
+  ]
+}

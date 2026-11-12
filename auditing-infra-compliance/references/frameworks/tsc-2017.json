@@ -1,0 +1,371 @@
+{
+  "version": "TSC 2017 (rev. 2022 PoF)",
+  "criteria": [
+    {
+      "id": "CC1.1",
+      "category": "security",
+      "name": "Integrity and ethical values",
+      "technical": false
+    },
+    {
+      "id": "CC1.2",
+      "category": "security",
+      "name": "Board oversight independence",
+      "technical": false
+    },
+    {
+      "id": "CC1.3",
+      "category": "security",
+      "name": "Structures, reporting lines and authorities",
+      "technical": false
+    },
+    {
+      "id": "CC1.4",
+      "category": "security",
+      "name": "Attracting and retaining competent people",
+      "technical": false
+    },
+    {
+      "id": "CC1.5",
+      "category": "security",
+      "name": "Accountability for internal control",
+      "technical": false
+    },
+    {
+      "id": "CC2.1",
+      "category": "security",
+      "name": "Quality information for internal control",
+      "technical": false
+    },
+    {
+      "id": "CC2.2",
+      "category": "security",
+      "name": "Internal communication",
+      "technical": false
+    },
+    {
+      "id": "CC2.3",
+      "category": "security",
+      "name": "External communication",
+      "technical": false
+    },
+    {
+      "id": "CC3.1",
+      "category": "security",
+      "name": "Specifying objectives",
+      "technical": false
+    },
+    {
+      "id": "CC3.2",
+      "category": "security",
+      "name": "Identifying and analyzing risks",
+      "technical": false
+    },
+    {
+      "id": "CC3.3",
+      "category": "security",
+      "name": "Fraud risk",
+      "technical": false
+    },
+    {
+      "id": "CC3.4",
+      "category": "security",
+      "name": "Identifying and assessing changes",
+      "technical": false
+    },
+    {
+      "id": "CC4.1",
+      "category": "security",
+      "name": "Ongoing and separate evaluations",
+      "technical": false
+    },
+    {
+      "id": "CC4.2",
+      "category": "security",
+      "name": "Communicating deficiencies",
+      "technical": false
+    },
+    {
+      "id": "CC5.1",
+      "category": "security",
+      "name": "Selecting control activities",
+      "technical": false
+    },
+    {
+      "id": "CC5.2",
+      "category": "security",
+      "name": "General IT controls",
+      "technical": false
+    },
+    {
+      "id": "CC5.3",
+      "category": "security",
+      "name": "Policies and procedures",
+      "technical": false
+    },
+    {
+      "id": "CC6.1",
+      "category": "security",
+      "name": "Logical access security",
+      "technical": true
+    },
+    {
+      "id": "CC6.2",
+      "category": "security",
+      "name": "Credential registration and authorization",
+      "technical": true
+    },
+    {
+      "id": "CC6.3",
+      "category": "security",
+      "name": "Access authorization, modification and removal",
+      "technical": true
+    },
+    {
+      "id": "CC6.4",
+      "category": "security",
+      "name": "Physical access restriction",
+      "technical": false
+    },
+    {
+      "id": "CC6.5",
+      "category": "security",
+      "name": "Secure disposal of assets",
+      "technical": false
+    },
+    {
+      "id": "CC6.6",
+      "category": "security",
+      "name": "Protection from external threats",
+      "technical": true
+    },
+    {
+      "id": "CC6.7",
+      "category": "security",
+      "name": "Restricting information transmission and movement",
+      "technical": true
+    },
+    {
+      "id": "CC6.8",
+      "category": "security",
+      "name": "Preventing and detecting malicious software",
+      "technical": true
+    },
+    {
+      "id": "CC7.1",
+      "category": "security",
+      "name": "Detection and monitoring procedures",
+      "technical": true
+    },
+    {
+      "id": "CC7.2",
+      "category": "security",
+      "name": "Monitoring for anomalies",
+      "technical": true
+    },
+    {
+      "id": "CC7.3",
+      "category": "security",
+      "name": "Evaluating security events",
+      "technical": true
+    },
+    {
+      "id": "CC7.4",
+      "category": "security",
+      "name": "Incident response program",
+      "technical": false
+    },
+    {
+      "id": "CC7.5",
+      "category": "security",
+      "name": "Recovery from incidents",
+      "technical": false
+    },
+    {
+      "id": "CC8.1",
+      "category": "security",
+      "name": "Change management",
+      "technical": false
+    },
+    {
+      "id": "CC9.1",
+      "category": "security",
+      "name": "Business disruption risk mitigation",
+      "technical": false
+    },
+    {
+      "id": "CC9.2",
+      "category": "security",
+      "name": "Vendor and partner risk",
+      "technical": false
+    },
+    {
+      "id": "A1.1",
+      "category": "availability",
+      "name": "Capacity management",
+      "technical": true
+    },
+    {
+      "id": "A1.2",
+      "category": "availability",
+      "name": "Environmental protections, backups and recovery infrastructure",
+      "technical": true
+    },
+    {
+      "id": "A1.3",
+      "category": "availability",
+      "name": "Recovery plan testing",
+      "technical": false
+    },
+    {
+      "id": "C1.1",
+      "category": "confidentiality",
+      "name": "Identifying and maintaining confidential information",
+      "technical": false
+    },
+    {
+      "id": "C1.2",
+      "category": "confidentiality",
+      "name": "Disposal of confidential information",
+      "technical": true
+    },
+    {
+      "id": "PI1.1",
+      "category": "processing_integrity",
+      "name": "Quality information on processing objectives",
+      "technical": false
+    },
+    {
+      "id": "PI1.2",
+      "category": "processing_integrity",
+      "name": "Processing inputs",
+      "technical": false
+    },
+    {
+      "id": "PI1.3",
+      "category": "processing_integrity",
+      "name": "Processing activities",
+      "technical": false
+    },
+    {
+      "id": "PI1.4",
+      "category": "processing_integrity",
+      "name": "Processing outputs",
+      "technical": false
+    },
+    {
+      "id": "PI1.5",
+      "category": "processing_integrity",
+      "name": "Stored items",
+      "technical": false
+    },
+    {
+      "id": "P1.1",
+      "category": "privacy",
+      "name": "Privacy notice",
+      "technical": false
+    },
+    {
+      "id": "P2.1",
+      "category": "privacy",
+      "name": "Choice and consent",
+      "technical": false
+    },
+    {
+      "id": "P3.1",
+      "category": "privacy",
+      "name": "Collection of personal information",
+      "technical": false
+    },
+    {
+      "id": "P3.2",
+      "category": "privacy",
+      "name": "Explicit consent for sensitive data",
+      "technical": false
+    },
+    {
+      "id": "P4.1",
+      "category": "privacy",
+      "name": "Use of personal information",
+      "technical": false
+    },
+    {
+      "id": "P4.2",
+      "category": "privacy",
+      "name": "Retention of personal information",
+      "technical": false
+    },
+    {
+      "id": "P4.3",
+      "category": "privacy",
+      "name": "Disposal of personal information",
+      "technical": false
+    },
+    {
+      "id": "P5.1",
+      "category": "privacy",
+      "name": "Access by data subjects",
+      "technical": false
+    },
+    {
+      "id": "P5.2",
+      "category": "privacy",
+      "name": "Correction of personal information",
+      "technical": false
+    },
+    {
+      "id": "P6.1",
+      "category": "privacy",
+      "name": "Disclosure with consent",
+      "technical": false
+    },
+    {
+      "id": "P6.2",
+      "category": "privacy",
+      "name": "Record of authorized disclosures",
+      "technical": false
+    },
+    {
+      "id": "P6.3",
+      "category": "privacy",
+      "name": "Record of unauthorized disclosures",
+      "technical": false
+    },
+    {
+      "id": "P6.4",
+      "category": "privacy",
+      "name": "Vendor privacy commitments",
+      "technical": false
+    },
+    {
+      "id": "P6.5",
+      "category": "privacy",
+      "name": "Vendor breach notification",
+      "technical": false
+    },
+    {
+      "id": "P6.6",
+      "category": "privacy",
+      "name": "Breach notification to subjects and regulators",
+      "technical": false
+    },
+    {
+      "id": "P6.7",
+      "category": "privacy",
+      "name": "Accounting of disclosures",
+      "technical": false
+    },
+    {
+      "id": "P7.1",
+      "category": "privacy",
+      "name": "Quality of personal information",
+      "technical": false
+    },
+    {
+      "id": "P8.1",
+      "category": "privacy",
+      "name": "Inquiry, complaint and dispute process",
+      "technical": false
+    }
+  ]
+}
