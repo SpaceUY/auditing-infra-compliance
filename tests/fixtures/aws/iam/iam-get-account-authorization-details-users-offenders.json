@@ -1,0 +1,54 @@
+{
+  "UserDetailList": [
+    {
+      "Path": "/",
+      "UserName": "alice.dev",
+      "UserId": "AIDAEXAMPLEACME0003",
+      "Arn": "arn:aws:iam::111122223333:user/alice.dev",
+      "CreateDate": "2026-01-05T10:00:00+00:00",
+      "GroupList": [
+        "developers"
+      ],
+      "AttachedManagedPolicies": [],
+      "UserPolicyList": []
+    },
+    {
+      "Path": "/",
+      "UserName": "bob.qa",
+      "UserId": "AIDAEXAMPLEACME0003",
+      "Arn": "arn:aws:iam::111122223333:user/bob.qa",
+      "CreateDate": "2026-01-05T10:00:00+00:00",
+      "GroupList": [
+        "developers"
+      ],
+      "AttachedManagedPolicies": [
+        {
+          "PolicyName": "ReadOnlyAccess",
+          "PolicyArn": "arn:aws:iam::aws:policy/ReadOnlyAccess"
+        }
+      ],
+      "UserPolicyList": []
+    },
+    {
+      "Path": "/",
+      "UserName": "ci-deployer",
+      "UserId": "AIDAEXAMPLEACME0003",
+      "Arn": "arn:aws:iam::111122223333:user/ci-deployer",
+      "CreateDate": "2026-01-05T10:00:00+00:00",
+      "GroupList": [
+        "developers"
+      ],
+      "AttachedManagedPolicies": [],
+      "UserPolicyList": [
+        {
+          "PolicyName": "deploy-notes-app",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": []
+          }
+        }
+      ]
+    }
+  ],
+  "IsTruncated": false
+}

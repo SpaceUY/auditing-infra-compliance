@@ -1,0 +1,25 @@
+{
+  "Events": [
+    {
+      "EventId": "00000000-0000-4000-8000-000000000001",
+      "EventName": "ConsoleLogin",
+      "EventTime": "2026-11-11T09:12:00+00:00",
+      "Username": "root",
+      "CloudTrailEvent": "{\"eventName\": \"ConsoleLogin\", \"responseElements\": {\"ConsoleLogin\": \"Success\"}}"
+    },
+    {
+      "EventId": "00000000-0000-4000-8000-000000000002",
+      "EventName": "ConsoleLogin",
+      "EventTime": "2026-11-10T17:40:00+00:00",
+      "Username": "root",
+      "CloudTrailEvent": "{\"eventName\": \"ConsoleLogin\", \"responseElements\": {\"ConsoleLogin\": \"Failure\"}}"
+    },
+    {
+      "EventId": "00000000-0000-4000-8000-000000000003",
+      "EventName": "ConsoleLogin",
+      "EventTime": "2026-10-01T08:00:00+00:00",
+      "Username": "root",
+      "CloudTrailEvent": "{\"eventName\": \"ConsoleLogin\", \"responseElements\": {\"ConsoleLogin\": \"Success\"}}"
+    }
+  ]
+}

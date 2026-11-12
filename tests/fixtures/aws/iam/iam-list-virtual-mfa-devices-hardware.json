@@ -1,0 +1,15 @@
+{
+  "VirtualMFADevices": [
+    {
+      "SerialNumber": "arn:aws:iam::111122223333:mfa/alice.dev",
+      "User": {
+        "Path": "/",
+        "UserName": "alice.dev",
+        "UserId": "AIDAEXAMPLEACME0002",
+        "Arn": "arn:aws:iam::111122223333:user/alice.dev",
+        "CreateDate": "2026-01-05T10:00:00+00:00"
+      },
+      "EnableDate": "2026-01-05T10:05:00+00:00"
+    }
+  ]
+}
