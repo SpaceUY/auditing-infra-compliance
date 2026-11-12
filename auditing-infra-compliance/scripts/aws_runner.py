@@ -34,9 +34,52 @@ DENYLIST = frozenset(
         ("ec2", "get-password-data"),
         ("rds-data", "*"),
         ("s3", "*"),
+        ("sso", "get-role-credentials"),
+        ("cognito-identity", "get-credentials-for-identity"),
+        ("cognito-identity", "get-open-id-token"),
+        ("cognito-identity", "get-open-id-token-for-developer-identity"),
+        ("codeartifact", "get-authorization-token"),
+        ("ecr-public", "get-authorization-token"),
+        ("ecr", "get-login"),
+        ("redshift", "get-cluster-credentials"),
+        ("redshift", "get-cluster-credentials-with-iam"),
+        ("redshift-serverless", "get-credentials"),
+        ("ssm", "get-parameter-history"),
+        ("logs", "get-query-results"),
+        ("logs", "get-log-record"),
+        ("logs", "get-log-object"),
+        ("athena", "get-query-results"),
+        ("ec2", "get-console-output"),
+        ("ec2", "get-console-screenshot"),
+        ("codecommit", "get-file"),
+        ("codecommit", "get-blob"),
+        ("codecommit", "get-folder"),
     }
 )
 FORBIDDEN_ARGS = frozenset({"--with-decryption"})
+# Flags the runner sets itself or that could redirect/expand the call; rejected exactly,
+# with "=value", and as argparse-style abbreviations of at least 6 characters.
+FORBIDDEN_FLAGS = frozenset(
+    {
+        "--endpoint-url",
+        "--debug",
+        "--cli-input-json",
+        "--cli-input-yaml",
+        "--no-verify-ssl",
+        "--ca-bundle",
+        "--profile",
+        "--region",
+        "--query",
+        "--output",
+    }
+)
+_MIN_ABBREVIATION = 6
+# Keys removed from parsed responses because they commonly carry secrets.
+SCRUB: dict[tuple[str, str], frozenset[str]] = {
+    ("lambda", "list-functions"): frozenset({"Environment"}),
+    ("lambda", "get-function-configuration"): frozenset({"Environment"}),
+    ("ecs", "describe-task-definition"): frozenset({"environment", "secrets"}),
+}
 
 TIMEOUT_SECONDS = 120
 BACKOFF_SECONDS = (1, 2, 4, 8)
@@ -57,14 +100,26 @@ class CallResult:
 
 
 def assert_read_only(service: str, operation: str, args: list[str]) -> None:
-    if not _NAME_RE.match(service or "") or not _NAME_RE.match(operation or ""):
+    if not _NAME_RE.fullmatch(service or "") or not _NAME_RE.fullmatch(operation or ""):
         raise ReadOnlyViolation(f"nombre de servicio/operación inválido: {service!r} {operation!r}")
     if (service, "*") in DENYLIST or (service, operation) in DENYLIST:
         raise ReadOnlyViolation(f"{service} {operation} está en la denylist (puede exponer secretos o datos)")
     if operation not in ALLOWED_EXACT and not operation.startswith(ALLOWED_PREFIXES):
         raise ReadOnlyViolation(f"{service} {operation} no es una operación de solo lectura")
     for arg in args:
-        if arg.split("=", 1)[0] in FORBIDDEN_ARGS:
+        _check_arg(arg)
+
+
+def _check_arg(arg: object) -> None:
+    if not isinstance(arg, str):
+        raise ReadOnlyViolation(f"argumento no es texto: {arg!r}")
+    if "file://" in arg or "fileb://" in arg:
+        raise ReadOnlyViolation(f"argumento prohibido (lectura de archivo local): {arg}")
+    flag = arg.split("=", 1)[0].strip()
+    if flag.startswith("--with-dec") or flag in FORBIDDEN_ARGS:
+        raise ReadOnlyViolation(f"argumento prohibido: {arg}")
+    if flag.startswith("--") and len(flag) >= _MIN_ABBREVIATION:
+        if any(forbidden.startswith(flag) for forbidden in FORBIDDEN_FLAGS):
             raise ReadOnlyViolation(f"argumento prohibido: {arg}")
 
 
@@ -86,9 +141,9 @@ def classify_error(stderr: str) -> str:
         or ("badrequestexception" in text and "not enabled" in text)
     ):
         return "NOT_ENABLED"
-    if any(
-        p in text
-        for p in ("unable to locate credentials", "expiredtoken", "invalidclienttokenid", "could not be found")
+    if (
+        any(p in text for p in ("unable to locate credentials", "expiredtoken", "invalidclienttokenid"))
+        or ("config profile" in text and "could not be found" in text)
     ):
         return "NO_CREDENTIALS"
     if any(p in text for p in ("throttling", "rate exceeded", "toomanyrequests")):
@@ -128,7 +183,7 @@ def run_aws(
         except OSError as exc:
             return _failure("ERROR", f"no se pudo ejecutar aws: {exc}", argv)
         if proc.returncode == 0:
-            return _parse_success(proc.stdout, argv)
+            return _parse_success(proc.stdout, argv, SCRUB.get((service, operation), frozenset()))
         kind = classify_error(proc.stderr or "")
         if kind == "THROTTLED" and attempt < len(BACKOFF_SECONDS):
             sleep(BACKOFF_SECONDS[attempt])
@@ -137,13 +192,23 @@ def run_aws(
     raise AssertionError("unreachable")
 
 
-def _parse_success(stdout: str, argv: list[str]) -> CallResult:
+def _scrub(data: object, keys: frozenset[str]) -> object:
+    if isinstance(data, dict):
+        return {k: _scrub(v, keys) for k, v in data.items() if k not in keys}
+    if isinstance(data, list):
+        return [_scrub(item, keys) for item in data]
+    return data
+
+
+def _parse_success(stdout: str, argv: list[str], scrub_keys: frozenset[str] = frozenset()) -> CallResult:
     if not stdout.strip():
         return CallResult(ok=True, data=None, error_kind=None, error_message=None, argv=tuple(argv))
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
         return _failure("ERROR", f"salida no es JSON válido: {exc}", argv)
+    if scrub_keys:
+        data = _scrub(data, scrub_keys)
     return CallResult(ok=True, data=data, error_kind=None, error_message=None, argv=tuple(argv))
 
 

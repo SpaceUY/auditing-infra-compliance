@@ -4,7 +4,7 @@ import unittest
 
 from tests.helpers import FakeRunner  # also puts scripts/ on sys.path
 
-import awscli  # noqa: E402
+import aws_runner  # noqa: E402
 
 OK = {"stdout": json.dumps({"Reservations": []}), "stderr": "", "returncode": 0}
 THROTTLED = {"stdout": "", "stderr": "An error occurred (Throttling) when calling: Rate exceeded", "returncode": 254}
@@ -16,7 +16,7 @@ def run(responses, service="ec2", operation="describe-instances", args=(), **kw)
     sleeps = []
     kw.setdefault("region", "us-east-1")
     kw.setdefault("profile", None)
-    result = awscli.run_aws(service, operation, list(args), runner=runner, sleep=sleeps.append, **kw)
+    result = aws_runner.run_aws(service, operation, list(args), runner=runner, sleep=sleeps.append, **kw)
     return result, runner, sleeps
 
 
@@ -28,11 +28,11 @@ class AssertReadOnlyTest(unittest.TestCase):
             ("iam", "get-account-summary"),
         ):
             with self.subTest(op=op):
-                awscli.assert_read_only(service, op, [])
+                aws_runner.assert_read_only(service, op, [])
 
     def test_allows_exact_exceptions(self):
-        awscli.assert_read_only("cloudtrail", "lookup-events", [])
-        awscli.assert_read_only("iam", "generate-credential-report", [])
+        aws_runner.assert_read_only("cloudtrail", "lookup-events", [])
+        aws_runner.assert_read_only("iam", "generate-credential-report", [])
 
     def test_rejects_write_ops(self):
         for service, op in (
@@ -42,32 +42,94 @@ class AssertReadOnlyTest(unittest.TestCase):
             ("iam", "delete-access-key"),
             ("cloudtrail", "start-logging"),
         ):
-            with self.subTest(op=op), self.assertRaises(awscli.ReadOnlyViolation):
-                awscli.assert_read_only(service, op, [])
+            with self.subTest(op=op), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only(service, op, [])
 
     def test_rejects_denylist(self):
-        for service, op in awscli.DENYLIST:
+        for service, op in aws_runner.DENYLIST:
             op = "execute-statement" if op == "*" and service == "rds-data" else op
             op = "ls" if op == "*" and service == "s3" else op
-            with self.subTest(service=service, op=op), self.assertRaises(awscli.ReadOnlyViolation):
-                awscli.assert_read_only(service, op, [])
+            with self.subTest(service=service, op=op), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only(service, op, [])
 
     def test_wildcard_entries_cover_whole_service(self):
-        with self.assertRaises(awscli.ReadOnlyViolation):
-            awscli.assert_read_only("rds-data", "execute-statement", [])
-        with self.assertRaises(awscli.ReadOnlyViolation):
-            awscli.assert_read_only("s3", "ls", [])
+        with self.assertRaises(aws_runner.ReadOnlyViolation):
+            aws_runner.assert_read_only("rds-data", "execute-statement", [])
+        with self.assertRaises(aws_runner.ReadOnlyViolation):
+            aws_runner.assert_read_only("s3", "ls", [])
 
     def test_rejects_with_decryption(self):
-        with self.assertRaises(awscli.ReadOnlyViolation):
-            awscli.assert_read_only("ssm", "describe-parameters", ["--with-decryption"])
-        with self.assertRaises(awscli.ReadOnlyViolation):
-            awscli.assert_read_only("ssm", "describe-parameters", ["--with-decryption=true"])
+        with self.assertRaises(aws_runner.ReadOnlyViolation):
+            aws_runner.assert_read_only("ssm", "describe-parameters", ["--with-decryption"])
+        with self.assertRaises(aws_runner.ReadOnlyViolation):
+            aws_runner.assert_read_only("ssm", "describe-parameters", ["--with-decryption=true"])
 
     def test_rejects_malformed_names(self):
         for service, op in (("ec2", "describe-instances; rm"), ("--profile", "list-x"), ("", "list-x")):
-            with self.subTest(service=service, op=op), self.assertRaises(awscli.ReadOnlyViolation):
-                awscli.assert_read_only(service, op, [])
+            with self.subTest(service=service, op=op), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only(service, op, [])
+
+
+class ArgHardeningTest(unittest.TestCase):
+    def test_rejects_trailing_newline_and_spaces_in_names(self):
+        for service, op in (
+            ("secretsmanager", "get-secret-value\n"),
+            ("s3\n", "list-buckets"),
+            (" s3", "list-buckets"),
+            ("s3 ", "list-buckets"),
+            ("iam", "list-users\n"),
+        ):
+            with self.subTest(service=service, op=op), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only(service, op, [])
+
+    def test_rejects_with_decryption_abbreviations(self):
+        for arg in ("--with-decrypt", "--with-decryp=true", "--with-dec", "--with-decryption ", " --with-decryption"):
+            with self.subTest(arg=arg), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only("ssm", "describe-parameters", [arg])
+
+    def test_rejects_forbidden_flags_exact_eq_and_prefix(self):
+        flags = (
+            "--endpoint-url", "--debug", "--cli-input-json", "--cli-input-yaml", "--no-verify-ssl",
+            "--ca-bundle", "--profile", "--region", "--query", "--output",
+        )
+        for flag in flags:
+            variants = [flag, flag + "=x"]
+            variants += [flag[:n] for n in range(6, len(flag))]
+            variants += [flag[:n] + "=x" for n in range(6, len(flag))]
+            for arg in variants:
+                with self.subTest(arg=arg), self.assertRaises(aws_runner.ReadOnlyViolation):
+                    aws_runner.assert_read_only("ec2", "describe-instances", [arg])
+
+    def test_rejects_file_urls(self):
+        for arg in ("file:///etc/passwd", "fileb://x", "--filters=file://x", "Name=a,Values=file://x"):
+            with self.subTest(arg=arg), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only("ec2", "describe-instances", [arg])
+
+    def test_rejects_non_string_args(self):
+        for arg in (1, None, b"--x", ["a"]):
+            with self.subTest(arg=arg), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only("ec2", "describe-instances", [arg])
+
+    def test_allows_normal_args(self):
+        aws_runner.assert_read_only(
+            "ec2", "describe-instances", ["--instance-ids", "i-1", "--filters", "Name=tag:a,Values=b", "--max-items", "5"]
+        )
+
+    def test_new_denylist_entries(self):
+        for pair in (
+            ("sso", "get-role-credentials"), ("cognito-identity", "get-credentials-for-identity"),
+            ("cognito-identity", "get-open-id-token"), ("cognito-identity", "get-open-id-token-for-developer-identity"),
+            ("codeartifact", "get-authorization-token"), ("ecr-public", "get-authorization-token"),
+            ("ecr", "get-login"), ("redshift", "get-cluster-credentials"),
+            ("redshift", "get-cluster-credentials-with-iam"), ("redshift-serverless", "get-credentials"),
+            ("ssm", "get-parameter-history"), ("logs", "get-query-results"), ("logs", "get-log-record"),
+            ("logs", "get-log-object"), ("athena", "get-query-results"), ("ec2", "get-console-output"),
+            ("ec2", "get-console-screenshot"), ("codecommit", "get-file"), ("codecommit", "get-blob"),
+            ("codecommit", "get-folder"),
+        ):
+            self.assertIn(pair, aws_runner.DENYLIST)
+            with self.subTest(pair=pair), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only(*pair, [])
 
 
 class RunAwsTest(unittest.TestCase):
@@ -80,8 +142,8 @@ class RunAwsTest(unittest.TestCase):
 
     def test_write_op_never_reaches_runner(self):
         runner = FakeRunner({})
-        with self.assertRaises(awscli.ReadOnlyViolation):
-            awscli.run_aws("iam", "create-user", [], region=None, profile=None, runner=runner)
+        with self.assertRaises(aws_runner.ReadOnlyViolation):
+            aws_runner.run_aws("iam", "create-user", [], region=None, profile=None, runner=runner)
         self.assertEqual(runner.calls, [])
 
     def test_query_and_region_in_argv(self):
@@ -126,6 +188,31 @@ class RunAwsTest(unittest.TestCase):
         self.assertEqual(sleeps, [])
         self.assertIn("AccessDenied", result.error_message)
 
+    def test_scrubs_secret_bearing_keys_recursively(self):
+        payload = {
+            "Functions": [{"FunctionName": "f", "Environment": {"Variables": {"K": "v"}}, "Nested": [{"Environment": 1}]}]
+        }
+        result, _, _ = run(
+            {("lambda", "list-functions", "us-east-1"): {"stdout": json.dumps(payload), "returncode": 0}},
+            "lambda", "list-functions",
+        )
+        self.assertEqual(result.data, {"Functions": [{"FunctionName": "f", "Nested": [{}]}]})
+
+    def test_scrubs_ecs_task_definition(self):
+        payload = {"taskDefinition": {"containerDefinitions": [{"name": "c", "environment": [1], "secrets": [2]}]}}
+        result, _, _ = run(
+            {("ecs", "describe-task-definition", "us-east-1"): {"stdout": json.dumps(payload), "returncode": 0}},
+            "ecs", "describe-task-definition",
+        )
+        self.assertEqual(result.data, {"taskDefinition": {"containerDefinitions": [{"name": "c"}]}})
+
+    def test_no_scrub_for_other_operations(self):
+        payload = {"Environment": "keep"}
+        result, _, _ = run(
+            {("ec2", "describe-instances", "us-east-1"): {"stdout": json.dumps(payload), "returncode": 0}}
+        )
+        self.assertEqual(result.data, payload)
+
     def test_invalid_json_is_error(self):
         result, _, _ = run({("ec2", "describe-instances", "us-east-1"): {"stdout": "not json", "returncode": 0}})
         self.assertFalse(result.ok)
@@ -140,7 +227,7 @@ class RunAwsTest(unittest.TestCase):
         def runner(argv, **kwargs):
             raise subprocess.TimeoutExpired(argv, 120)
 
-        result = awscli.run_aws("ec2", "describe-instances", [], region=None, profile=None, runner=runner)
+        result = aws_runner.run_aws("ec2", "describe-instances", [], region=None, profile=None, runner=runner)
         self.assertFalse(result.ok)
         self.assertEqual(result.error_kind, "ERROR")
 
@@ -148,7 +235,7 @@ class RunAwsTest(unittest.TestCase):
         def runner(argv, **kwargs):
             raise FileNotFoundError("aws")
 
-        result = awscli.run_aws("ec2", "describe-instances", [], region=None, profile=None, runner=runner)
+        result = aws_runner.run_aws("ec2", "describe-instances", [], region=None, profile=None, runner=runner)
         self.assertFalse(result.ok)
         self.assertEqual(result.error_kind, "ERROR")
 
@@ -186,16 +273,19 @@ class ClassifyErrorTest(unittest.TestCase):
         for expected, samples in table.items():
             for stderr in samples:
                 with self.subTest(expected=expected, stderr=stderr):
-                    self.assertEqual(awscli.classify_error(stderr), expected)
+                    self.assertEqual(aws_runner.classify_error(stderr), expected)
+
+    def test_resource_not_found_is_error_not_no_credentials(self):
+        self.assertEqual(aws_runner.classify_error("Resource X could not be found"), "ERROR")
 
     def test_bad_request_without_not_enabled_is_error(self):
-        self.assertEqual(awscli.classify_error("An error occurred (BadRequestException) when calling"), "ERROR")
+        self.assertEqual(aws_runner.classify_error("An error occurred (BadRequestException) when calling"), "ERROR")
 
 
 class RunDnsTest(unittest.TestCase):
     def test_dig_preferred(self):
         runner = FakeRunner({("dig", None, None): {"stdout": '"v=spf1 -all"\n\n', "returncode": 0}})
-        result = awscli.run_dns(
+        result = aws_runner.run_dns(
             "acme-notes.example", "TXT", runner=runner, which=lambda t: f"/usr/bin/{t}"
         )
         self.assertTrue(result.ok)
@@ -206,14 +296,14 @@ class RunDnsTest(unittest.TestCase):
     def test_dns_falls_back_to_nslookup(self):
         runner = FakeRunner({("nslookup", None, None): {"stdout": "Server: x\ntext = \"v=spf1 -all\"\n", "returncode": 0}})
         which = lambda t: "/usr/bin/nslookup" if t == "nslookup" else None  # noqa: E731
-        result = awscli.run_dns("acme-notes.example", "TXT", runner=runner, which=which)
+        result = aws_runner.run_dns("acme-notes.example", "TXT", runner=runner, which=which)
         self.assertTrue(result.ok)
         self.assertEqual(runner.calls[0], ["nslookup", "-type=TXT", "acme-notes.example"])
         self.assertIn('text = "v=spf1 -all"', result.data)
 
     def test_dns_missing_tools(self):
         runner = FakeRunner({})
-        result = awscli.run_dns("acme-notes.example", "TXT", runner=runner, which=lambda t: None)
+        result = aws_runner.run_dns("acme-notes.example", "TXT", runner=runner, which=lambda t: None)
         self.assertFalse(result.ok)
         self.assertEqual(result.error_kind, "ERROR")
         self.assertEqual(result.error_message, "dig/nslookup no disponibles")
@@ -221,7 +311,7 @@ class RunDnsTest(unittest.TestCase):
 
     def test_dns_command_failure_is_error(self):
         runner = FakeRunner({("dig", None, None): {"stderr": "timed out", "returncode": 9}})
-        result = awscli.run_dns("acme-notes.example", "TXT", runner=runner, which=lambda t: "/x")
+        result = aws_runner.run_dns("acme-notes.example", "TXT", runner=runner, which=lambda t: "/x")
         self.assertFalse(result.ok)
         self.assertEqual(result.error_kind, "ERROR")
 

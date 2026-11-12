@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-import awscli
+import aws_runner
 
 SEVERITIES = ("critical", "high", "medium", "low")
 STATUSES = (
@@ -107,8 +107,8 @@ def resolve_mappings(check: dict, drata: dict[int, dict]) -> dict:
 
 def _is_read_only(service: str, operation: str) -> bool:
     try:
-        awscli.assert_read_only(service, operation, [])
-    except awscli.ReadOnlyViolation:
+        aws_runner.assert_read_only(service, operation, [])
+    except aws_runner.ReadOnlyViolation:
         return False
     return True
 
