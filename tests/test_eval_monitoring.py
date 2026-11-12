@@ -30,7 +30,8 @@ METRIC_CHECKS = {"MON-001": ("AWS/RDS", ["CPUUtilization"]), "MON-002": ("AWS/RD
                  "MON-003": ("AWS/RDS", ["ReadIOPS", "WriteIOPS"]), "MON-004": ("AWS/RDS", ["FreeableMemory"]),
                  "MON-005": ("AWS/EC2", ["CPUUtilization"]),
                  "MON-006": ("AWS/ApplicationELB", ["HTTPCode_Target_5XX_Count", "UnHealthyHostCount", "TargetResponseTime"]),
-                 "MON-007": ("AWS/SQS", ["ApproximateAgeOfOldestMessage"]), "MON-008": ("AWS/Lambda", ["Errors"])}
+                 "MON-007": ("AWS/SQS", ["ApproximateAgeOfOldestMessage"]), "MON-008": ("AWS/Lambda", ["Errors"]),
+                 "MON-009": ("AWS/ElastiCache", ["DatabaseMemoryUsagePercentage"])}
 
 
 def fx(name):
@@ -69,7 +70,12 @@ def db_alarm(metric, db="acme-notes-db", **kwargs):
     return alarm(metric, {"DBInstanceIdentifier": db}, **kwargs)
 
 
-def build(alarms, inventory, topics=None, region=REGION):
+def cache_groups(*groups, region=REGION):
+    """describe-replication-groups answer: (id, [member cluster ids]) per group."""
+    return [(region, {"ReplicationGroups": [{"ReplicationGroupId": g, "MemberClusters": list(m)} for g, m in groups]})]
+
+
+def build(alarms, inventory, topics=None, region=REGION, **extra):
     """responses of the two calls: the alarms of `region` and one subscriptions answer per topic ({topic arn: data}).
     By default every SNS topic named by an alarm of the same region answers 'confirmed'."""
     documents = alarms if isinstance(alarms, dict) else {region: alarms}
@@ -80,6 +86,7 @@ def build(alarms, inventory, topics=None, region=REGION):
     responses["subs"] = [(r, data) for (r, _), data in answers.items()]
     responses["__for_each__"] = {"subs": [arn for (_, arn) in answers]}
     responses["__inventory__"] = inventory
+    responses.update(extra)
     return responses
 
 
@@ -103,16 +110,19 @@ def covered(check_id):
                  "MON-006": [item("elbv2", "acme-notes-alb", arn=LB_ARN)],
                  "MON-007": [item("sqs_queue", QUEUE_URL)],
                  "MON-008": [item("lambda_function", "acme-notes-resizer")],
-                 "MON-009": [item("dynamodb_table", "acme-notes-sessions"), item("elasticache_group", "acme-notes-cache")]
+                 "MON-009": [item("elasticache_group", "acme-notes-cache")]
                  }.get(check_id, [rds()])
     return fx("cloudwatch-describe-alarms-covered")["MetricAlarms"], inventory
 
 
+GROUPS = cache_groups(("acme-notes-cache", ["acme-notes-cache-0001-001"]), ("acme-notes-extra", ["acme-notes-extra-0001-001"]))
+
+
 class AlarmCoveragePassTests(unittest.TestCase):
     def test_alarm_coverage_pass(self):
-        for check_id in (*METRIC_CHECKS, "MON-009"):
+        for check_id in METRIC_CHECKS:
             alarms, inventory = covered(check_id)
-            self.assertEqual(evaluate(build(alarms, inventory), check_id), [], check_id)
+            self.assertEqual(evaluate(build(alarms, inventory, groups=GROUPS), check_id), [], check_id)
 
     def test_alarm_coverage_fail_reports_offenders(self):
         for check_id in METRIC_CHECKS:
@@ -120,14 +130,15 @@ class AlarmCoveragePassTests(unittest.TestCase):
             extra = {"MON-005": item("ec2_instance", "i-0c3d4e5f60718293a"),
                      "MON-006": item("elbv2", "acme-notes-admin", arn=LB_ARN.replace("acme-notes-alb/50dc6c495c0c9188", "acme-notes-admin/1a2b3c4d5e6f7a8b")),
                      "MON-007": item("sqs_queue", QUEUE_URL.replace("jobs", "mail")),
-                     "MON-008": item("lambda_function", "acme-notes-exporter")}.get(check_id, rds("acme-notes-replica"))
-            offenders = evaluate(build(alarms, [*inventory, extra]), check_id)
+                     "MON-008": item("lambda_function", "acme-notes-exporter"),
+                     "MON-009": item("elasticache_group", "acme-notes-extra")}.get(check_id, rds("acme-notes-replica"))
+            offenders = evaluate(build(alarms, [*inventory, extra], groups=GROUPS), check_id)
             self.assertEqual(set(ids(offenders)), {extra["id"]}, check_id)
             self.assertEqual({o["detail"]["missing_part"] for o in offenders}, {"alarm"}, check_id)
             self.assertEqual({o["region"] for o in offenders}, {REGION}, check_id)
 
     def test_resources_of_other_types_are_ignored(self):
-        self.assertEqual(evaluate(build([], [item("sqs_queue", QUEUE_URL), item("vpc", "vpc-1")])), [])
+        self.assertEqual(evaluate(build([], [item("sqs_queue", QUEUE_URL), item("vpc", "vpc-1"), item("dynamodb_table", "acme-notes-sessions")])), [])
 
 
 class MissingPartTests(unittest.TestCase):
@@ -344,33 +355,81 @@ class DimensionTests(unittest.TestCase):
         (offender,) = evaluate(build(group, [item("ec2_instance", SOLO_I)]), "MON-005")
         self.assertEqual(offender["resource_id"], SOLO_I)
 
-    def test_dynamodb_table_needs_both_throttle_alarms(self):
-        table = item("dynamodb_table", "acme-notes-sessions")
-        one = [alarm("ReadThrottleEvents", {"TableName": "acme-notes-sessions"}, ns="AWS/DynamoDB")]
-        (offender,) = evaluate(build(one, [table]), "MON-009")
-        self.assertEqual((offender["resource_id"], offender["detail"]["metric"]), ("acme-notes-sessions", "WriteThrottleEvents"))
-
     def test_elasticache_group_is_matched_by_group_id_or_by_a_member_node(self):
         group = item("elasticache_group", "acme-notes-cache")
+        members = cache_groups(("acme-notes-cache", ["acme-notes-cache-001", "acme-notes-cache-002"]))
         for dims in ({"ReplicationGroupId": "acme-notes-cache"}, {"CacheClusterId": "acme-notes-cache-001"},
-                     {"CacheClusterId": "acme-notes-cache-0001-002"}):
+                     {"CacheClusterId": "acme-notes-cache-002", "CacheNodeId": "0001"}):
             right = [alarm("DatabaseMemoryUsagePercentage", dims, ns="AWS/ElastiCache")]
-            self.assertEqual(evaluate(build(right, [group]), "MON-009"), [], dims)
+            self.assertEqual(evaluate(build(right, [group], groups=members), "MON-009"), [], dims)
 
-    def test_elasticache_node_of_another_group_does_not_count(self):
-        group = item("elasticache_group", "acme-notes-cache")
-        for node in ("acme-notes-cache2-001", "acme-notes-cache-extra-001", "acme-notes-cache-0001-0002", "other-acme-notes-cache-001"):
-            wrong = [alarm("DatabaseMemoryUsagePercentage", {"CacheClusterId": node}, ns="AWS/ElastiCache")]
-            (offender,) = evaluate(build(wrong, [group]), "MON-009")
-            self.assertEqual(offender["detail"]["missing_part"], "alarm", node)
+    def test_elasticache_node_of_a_look_alike_group_does_not_count(self):
+        # members of group acme-notes-cache-001 are named like nodes of group acme-notes-cache
+        groups = cache_groups(("acme-notes-cache", ["acme-notes-cache-001"]), ("acme-notes-cache-001", ["acme-notes-cache-001-001"]))
+        inventory = [item("elasticache_group", "acme-notes-cache"), item("elasticache_group", "acme-notes-cache-001")]
+        alarms = [alarm("DatabaseMemoryUsagePercentage", {"CacheClusterId": "acme-notes-cache-001-001"}, ns="AWS/ElastiCache")]
+        (offender,) = evaluate(build(alarms, inventory, groups=groups), "MON-009")
+        self.assertEqual((offender["resource_id"], offender["detail"]["missing_part"]), ("acme-notes-cache", "alarm"))
 
-    def test_mon_009_judges_each_type_with_its_own_namespace_and_metric(self):
-        table, group = item("dynamodb_table", "acme-notes-sessions"), item("elasticache_group", "acme-notes-cache")
-        offenders = evaluate(build([], [table, group]), "MON-009")
-        self.assertEqual([(o["resource_id"], o["detail"]["namespace"], o["detail"]["metric"]) for o in offenders],
-                         [("acme-notes-sessions", "AWS/DynamoDB", "ReadThrottleEvents"),
-                          ("acme-notes-sessions", "AWS/DynamoDB", "WriteThrottleEvents"),
-                          ("acme-notes-cache", "AWS/ElastiCache", "DatabaseMemoryUsagePercentage")])
+    def test_elasticache_node_alarm_needs_the_group_members_to_be_known(self):
+        alarms = [alarm("DatabaseMemoryUsagePercentage", {"CacheClusterId": "acme-notes-cache-001"}, ns="AWS/ElastiCache")]
+        (offender,) = evaluate(build(alarms, [item("elasticache_group", "acme-notes-cache")], groups=[]), "MON-009")
+        self.assertEqual(offender["detail"]["missing_part"], "alarm")
+
+    def test_dynamodb_tables_are_not_evaluated(self):
+        self.assertEqual(evaluate(build([], [item("dynamodb_table", "acme-notes-sessions")]), "MON-009"), [])
+
+
+class ScopeTests(unittest.TestCase):
+    """Resources the metric does not exist for are not_applicable (no row), never a FAIL."""
+
+    @staticmethod
+    def engines(**dbs):
+        return [(REGION, {"DBInstances": [{"DBInstanceIdentifier": n, "Engine": e} for n, e in dbs.items()]})]
+
+    def test_aurora_is_not_applicable_for_free_storage_space_only(self):
+        db = rds("acme-notes-aurora-1")
+        instances = self.engines(**{"acme-notes-aurora-1": "aurora-postgresql"})
+        self.assertEqual(flags(evaluate(build([], [db], instances=instances), "MON-002")), [("acme-notes-aurora-1", "not_applicable")])
+        for check_id in ("MON-001", "MON-004"):
+            self.assertEqual(flags(evaluate(build([], [db], instances=instances), check_id)), [("acme-notes-aurora-1", "offender")], check_id)
+
+    def test_neptune_and_documentdb_are_not_applicable_for_every_rds_check(self):
+        inventory = [rds("acme-notes-graph"), rds("acme-notes-docs")]
+        instances = self.engines(**{"acme-notes-graph": "neptune", "acme-notes-docs": "docdb"})
+        for check_id in ("MON-001", "MON-002", "MON-003", "MON-004"):
+            entries = evaluate(build([], inventory, instances=instances), check_id)
+            self.assertEqual(flags(entries), [("acme-notes-graph", "not_applicable"), ("acme-notes-docs", "not_applicable")], check_id)
+
+    def test_regular_engines_are_evaluated(self):
+        instances = self.engines(**{"acme-notes-db": "postgres", "acme-notes-mysql": "mysql", "acme-notes-maria": "MariaDB"})
+        inventory = [rds("acme-notes-db"), rds("acme-notes-mysql"), rds("acme-notes-maria")]
+        self.assertEqual(ids(evaluate(build([], inventory, instances=instances), "MON-002")), ["acme-notes-db", "acme-notes-mysql", "acme-notes-maria"])
+
+    def test_engine_unknown_is_evaluated(self):
+        self.assertEqual(flags(evaluate(build([], [rds()], instances=self.engines()), "MON-002")), [("acme-notes-db", "offender")])
+        self.assertEqual(flags(evaluate(build([], [rds()]), "MON-002")), [("acme-notes-db", "offender")])
+
+    def test_engine_is_matched_per_region(self):
+        instances = [(OTHER, {"DBInstances": [{"DBInstanceIdentifier": "acme-notes-db", "Engine": "neptune"}]})]
+        self.assertEqual(flags(evaluate(build([], [rds()], instances=instances), "MON-001")), [("acme-notes-db", "offender")])
+
+    def test_catalog_declares_the_engines_left_out(self):
+        self.assertEqual(params_of("MON-001")["not_applicable_engines"], ["neptune", "docdb"])
+        self.assertEqual(params_of("MON-002")["not_applicable_engines"], ["aurora", "neptune", "docdb"])
+
+    @staticmethod
+    def states(**by_state):
+        return [(REGION, {"Reservations": [{"Instances": [{"InstanceId": i, "State": {"Name": st}}]} for i, st in by_state.items()]})]
+
+    def test_instances_that_are_not_running_are_not_applicable(self):
+        inventory = [item("ec2_instance", WEB_I), item("ec2_instance", SOLO_I), item("ec2_instance", "i-0c3d4e5f60718293a")]
+        instances = self.states(**{WEB_I: "running", SOLO_I: "stopped", "i-0c3d4e5f60718293a": "pending"})
+        self.assertEqual(flags(evaluate(build([], inventory, instances=instances), "MON-005")),
+                         [(WEB_I, "offender"), (SOLO_I, "not_applicable"), ("i-0c3d4e5f60718293a", "not_applicable")])
+
+    def test_instance_with_unknown_state_is_evaluated(self):
+        self.assertEqual(flags(evaluate(build([], [item("ec2_instance", SOLO_I)], instances=[]), "MON-005")), [(SOLO_I, "offender")])
 
 
 class MultiMetricTests(unittest.TestCase):
@@ -415,39 +474,45 @@ class AlarmCoverageCatalogTests(unittest.TestCase):
         for check in self.checks:
             self.assertEqual(check["verify"]["evaluator"], "python:alarm_coverage", check["id"])
             self.assertIn("alarm_coverage", evaluators.EVALUATORS)
-            if check["id"] == "MON-009":
-                continue
             namespace, metrics = METRIC_CHECKS[check["id"]]
             params = check["verify"]["params"]
             self.assertEqual(params["namespace"], namespace, check["id"])
             self.assertEqual([params["metric"]] if isinstance(params["metric"], str) else params["metric"], metrics, check["id"])
             self.assertIsInstance(params["resource_dimension"], str, check["id"])
 
-    def test_mon_009_declares_a_spec_per_resource_type(self):
-        by_type = params_of("MON-009")["by_type"]
-        self.assertEqual(set(by_type), {"dynamodb_table", "elasticache_group"})
-        self.assertEqual((by_type["dynamodb_table"]["namespace"], by_type["dynamodb_table"]["resource_dimension"]), ("AWS/DynamoDB", "TableName"))
-        self.assertEqual(by_type["elasticache_group"]["namespace"], "AWS/ElastiCache")
-
     def test_resource_types_scope_and_regions(self):
         types = {"MON-001": ["rds_instance"], "MON-002": ["rds_instance"], "MON-003": ["rds_instance"], "MON-004": ["rds_instance"],
                  "MON-005": ["ec2_instance"], "MON-006": ["elbv2"], "MON-007": ["sqs_queue"], "MON-008": ["lambda_function"],
-                 "MON-009": ["dynamodb_table", "elasticache_group"]}
+                 "MON-009": ["elasticache_group"]}
         self.assertEqual({c["id"]: c["resource_types"] for c in self.checks}, types)
         for check in self.checks:
             self.assertEqual((check["scope"], check["all_regions"], check["severity"]), ("resource", False, "high"), check["id"])
 
     def test_calls_read_alarms_and_the_subscriptions_of_their_topics(self):
         for check in self.checks:
-            alarms, subscriptions = check["verify"]["calls"]
+            alarms, subscriptions, *rest = check["verify"]["calls"]
             self.assertEqual((alarms["service"], alarms["operation"], alarms["region"]), ("cloudwatch", "describe-alarms", "each"))
             self.assertEqual((subscriptions["service"], subscriptions["operation"]), ("sns", "list-subscriptions-by-topic"))
             self.assertEqual(subscriptions["for_each"], {"from": alarms["name"], "path": "MetricAlarms[].AlarmActions[]", "arg": "--topic-arn"})
             self.assertEqual(subscriptions["item_errors"], "evaluator")
             self.assertEqual(subscriptions["ok_errors"], ["NotFound"])
-            self.assertEqual(check["verify"]["needs"], ["cloudwatch:DescribeAlarms", "sns:ListSubscriptionsByTopic"])
+            self.assertEqual(check["verify"]["needs"][:2], ["cloudwatch:DescribeAlarms", "sns:ListSubscriptionsByTopic"])
             self.assertEqual(alarms["name"], "alarms")
             self.assertEqual(subscriptions["name"], "subs")
+
+    def test_extra_calls_read_the_engine_the_state_and_the_group_members(self):
+        expected = {"MON-001": ("rds", "describe-db-instances", "rds:DescribeDBInstances"), "MON-002": ("rds", "describe-db-instances", "rds:DescribeDBInstances"),
+                    "MON-003": ("rds", "describe-db-instances", "rds:DescribeDBInstances"), "MON-004": ("rds", "describe-db-instances", "rds:DescribeDBInstances"),
+                    "MON-005": ("ec2", "describe-instances", "ec2:DescribeInstances"),
+                    "MON-009": ("elasticache", "describe-replication-groups", "elasticache:DescribeReplicationGroups")}
+        for check in self.checks:
+            calls = check["verify"]["calls"]
+            if check["id"] not in expected:
+                self.assertEqual(len(calls), 2, check["id"])
+                continue
+            service, operation, permission = expected[check["id"]]
+            self.assertEqual((len(calls), calls[2]["service"], calls[2]["operation"], calls[2]["region"]), (3, service, operation, "each"), check["id"])
+            self.assertIn(permission, check["verify"]["needs"], check["id"])
 
     def test_drata_mappings_follow_the_brief_and_resolve_from_the_dcf_file(self):
         drata = catalog.load_drata_map(REFS / "mappings" / "drata-dcf.json")
@@ -501,7 +566,7 @@ class AlarmCoverageCatalogTests(unittest.TestCase):
             self.assertIn("__COMPLETAR_SNS_TOPIC_ARN__", command, check_id)
 
     def test_multi_metric_checks_have_one_alarm_command_per_metric(self):
-        for check_id, count in (("MON-003", 2), ("MON-006", 3), ("MON-009", 3)):
+        for check_id, count in (("MON-003", 2), ("MON-006", 3), ("MON-009", 1)):
             commands = self.alarm_commands(check_id)
             self.assertEqual(len(commands), count, check_id)
         for command, metric in zip(self.alarm_commands("MON-003"), ("ReadIOPS", "WriteIOPS")):
@@ -539,6 +604,23 @@ class AlarmCoverageCatalogTests(unittest.TestCase):
             self.assertIn("__COMPLETAR_OWNER_EMAIL__", blocks[0], check["id"])
             self.assertRegex(rem["notes"], r"(?i)confirm", check["id"])
             self.assertRegex(rem["notes"], r"PendingConfirmation", check["id"])
+
+    def test_notes_say_that_composite_alarms_are_not_honoured(self):
+        for check in self.checks:
+            self.assertRegex(check["remediation"]["notes"], r"alarmas compuestas", check["id"])
+            self.assertRegex(check["remediation"]["notes"], r"action faltante", check["id"])
+
+    def test_mon_009_is_elasticache_only_and_says_so(self):
+        check = catalog_check("MON-009")
+        self.assertEqual(check["verify"]["params"], {"namespace": "AWS/ElastiCache", "metric": "DatabaseMemoryUsagePercentage",
+                                                     "resource_dimension": "ReplicationGroupId"})
+        self.assertRegex(check["verify"]["pass_when_text"], r"DynamoDB no se evalúan|tablas DynamoDB no se evalúan")
+        self.assertNotIn("DynamoDB", json.dumps(check["remediation"]))
+
+    def test_mon_008_has_no_article_for_test_300(self):
+        check = catalog_check("MON-008")
+        self.assertNotIn("source", check["mappings"]["drata"][0])
+        self.assertFalse([u for u in check["sources"] if "9828822" in u])
 
     def test_notes_state_that_no_threshold_is_dictated(self):
         for check in self.checks:
@@ -594,7 +676,8 @@ class MonitoringCollectTests(unittest.TestCase):
             ("ec2", "describe-regions", None, "", core("ec2-describe-regions")),
             ("iam", "list-attached-user-policies", None, "", ok({"AttachedPolicies": []})),
             ("rds", "describe-db-instances", None, "", ok({"DBInstances": [
-                {"DBInstanceIdentifier": n, "DBInstanceArn": f"arn:aws:rds:{REGION}:{ACCOUNT}:db:{n}"} for n in ("acme-notes-db", "acme-notes-replica")]})),
+                {"DBInstanceIdentifier": n, "Engine": e, "DBInstanceArn": f"arn:aws:rds:{REGION}:{ACCOUNT}:db:{n}"}
+                for n, e in (("acme-notes-db", "postgres"), ("acme-notes-replica", "aurora-postgresql"), ("acme-notes-bare", "postgres"))]})),
             ("sqs", "list-queues", None, "", ok({"QueueUrls": [QUEUE_URL]})),
             ("cloudwatch", "describe-alarms", None, "", ok({"MetricAlarms": alarms, "CompositeAlarms": []})),
             ("sns", "list-subscriptions-by-topic", None, "acme-notes-alerts", ok(fx("sns-list-subscriptions-by-topic-raw"))),
@@ -607,18 +690,19 @@ class MonitoringCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_every_resource_gets_its_own_verdict(self):
         self.assertEqual(self.code, 0)
-        self.assertEqual(self.rows("MON-001"), [("NO_VERIFICADO", "acme-notes-replica"), ("PASS", "acme-notes-db")])
-        self.assertEqual(self.rows("MON-002"), [("FAIL", "acme-notes-replica"), ("PASS", "acme-notes-db")])
+        self.assertEqual(self.rows("MON-001"), [("FAIL", "acme-notes-bare"), ("NO_VERIFICADO", "acme-notes-replica"), ("PASS", "acme-notes-db")])
+        # the Aurora instance has no FreeStorageSpace metric: no row at all
+        self.assertEqual(self.rows("MON-002"), [("FAIL", "acme-notes-bare"), ("PASS", "acme-notes-db")])
         self.assertEqual(self.rows("MON-007"), [("FAIL", QUEUE_URL)])
 
     def test_fail_rows_carry_the_missing_part(self):
         parts = {(r["check_id"], r["resource_id"]): r["detail"]["missing_part"] for r in self.result["results"] if r["status"] == "FAIL"}
-        self.assertEqual(parts, {("MON-002", "acme-notes-replica"): "alarm", ("MON-007", QUEUE_URL): "action"})
+        self.assertEqual(parts, {("MON-001", "acme-notes-bare"): "alarm", ("MON-002", "acme-notes-bare"): "alarm", ("MON-007", QUEUE_URL): "action"})
 
     def test_blocked_topic_is_unverified_with_the_missing_permission_for_that_resource_only(self):
         (row,) = [r for r in self.result["results"] if r["status"] == "NO_VERIFICADO"]
         self.assertEqual((row["check_id"], row["resource_id"]), ("MON-001", "acme-notes-replica"))
-        self.assertEqual(row["missing"], ["cloudwatch:DescribeAlarms", "sns:ListSubscriptionsByTopic"])
+        self.assertEqual(row["missing"], ["cloudwatch:DescribeAlarms", "sns:ListSubscriptionsByTopic", "rds:DescribeDBInstances"])
 
     def test_each_distinct_topic_is_read_once_per_check(self):
         calls = [c for c in self.runner.calls if c[1:3] == ["sns", "list-subscriptions-by-topic"]]

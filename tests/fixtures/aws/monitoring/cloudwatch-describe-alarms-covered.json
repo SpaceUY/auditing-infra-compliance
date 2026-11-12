@@ -293,54 +293,6 @@
       "StateValue": "OK"
     },
     {
-      "AlarmName": "acme-notes-sessions-ReadThrottleEvents",
-      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-sessions-ReadThrottleEvents",
-      "ActionsEnabled": true,
-      "AlarmActions": [
-        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
-      ],
-      "OKActions": [],
-      "InsufficientDataActions": [],
-      "Namespace": "AWS/DynamoDB",
-      "MetricName": "ReadThrottleEvents",
-      "Dimensions": [
-        {
-          "Name": "TableName",
-          "Value": "acme-notes-sessions"
-        }
-      ],
-      "Statistic": "Average",
-      "Period": 300,
-      "EvaluationPeriods": 3,
-      "Threshold": 80.0,
-      "ComparisonOperator": "GreaterThanThreshold",
-      "StateValue": "OK"
-    },
-    {
-      "AlarmName": "acme-notes-sessions-WriteThrottleEvents",
-      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-sessions-WriteThrottleEvents",
-      "ActionsEnabled": true,
-      "AlarmActions": [
-        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
-      ],
-      "OKActions": [],
-      "InsufficientDataActions": [],
-      "Namespace": "AWS/DynamoDB",
-      "MetricName": "WriteThrottleEvents",
-      "Dimensions": [
-        {
-          "Name": "TableName",
-          "Value": "acme-notes-sessions"
-        }
-      ],
-      "Statistic": "Average",
-      "Period": 300,
-      "EvaluationPeriods": 3,
-      "Threshold": 80.0,
-      "ComparisonOperator": "GreaterThanThreshold",
-      "StateValue": "OK"
-    },
-    {
       "AlarmName": "acme-notes-cache-memory",
       "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-cache-memory",
       "ActionsEnabled": true,

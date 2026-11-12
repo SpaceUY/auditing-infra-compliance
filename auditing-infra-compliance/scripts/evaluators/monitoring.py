@@ -5,23 +5,21 @@ import re
 
 from evaluators import _for_each_pairs, _not_applicable, _offender, _unverified, register
 
-# Resource type each CloudWatch namespace is evaluated for (params.namespace picks the type when params has no by_type).
+# Resource type each CloudWatch namespace is evaluated for.
 NAMESPACE_TYPES = {
     "AWS/RDS": "rds_instance", "AWS/EC2": "ec2_instance", "AWS/ApplicationELB": "elbv2", "AWS/SQS": "sqs_queue",
-    "AWS/Lambda": "lambda_function", "AWS/DynamoDB": "dynamodb_table", "AWS/ElastiCache": "elasticache_group",
+    "AWS/Lambda": "lambda_function", "AWS/ElastiCache": "elasticache_group",
 }
 _UNCONFIRMED = frozenset({"pendingconfirmation", "deleted"})
 _ASG_TAG = "aws:autoscaling:groupName"
 _ALB_ARN = re.compile(r":loadbalancer/(app/[^/]+/[^/]+)$")
 
 
-def _specs(params: dict) -> dict[str, dict]:
-    """{resource type: {namespace, metrics, dimension}} from params {namespace, metric (name or list), resource_dimension},
-    or from params.by_type ({resource type: the same three keys}) when one check covers several types."""
-    raw = params.get("by_type") or {NAMESPACE_TYPES[params["namespace"]]: params}
-    return {type_: {"namespace": spec["namespace"], "dimension": spec["resource_dimension"],
-                    "metrics": [spec["metric"]] if isinstance(spec["metric"], str) else list(spec["metric"])}
-            for type_, spec in raw.items()}
+def _spec(params: dict) -> dict:
+    """{type, namespace, dimension, metrics} from params {namespace, metric (name or list), resource_dimension}."""
+    metric = params["metric"]
+    return {"type": NAMESPACE_TYPES[params["namespace"]], "namespace": params["namespace"], "dimension": params["resource_dimension"],
+            "metrics": [metric] if isinstance(metric, str) else list(metric)}
 
 
 def _dimension_value(item: dict) -> str | None:
@@ -34,7 +32,7 @@ def _dimension_value(item: dict) -> str | None:
     return item["id"]
 
 
-def _covers(item: dict, dimension: str, value: str, dims: dict[str, str]) -> bool:
+def _covers(item: dict, dimension: str, value: str, dims: dict[str, str], members: set[str]) -> bool:
     """The alarm dimensions name the resource (extra dimensions are fine), or the group/nodes that contain it."""
     if dims.get(dimension) == value:
         return True
@@ -42,7 +40,7 @@ def _covers(item: dict, dimension: str, value: str, dims: dict[str, str]) -> boo
         group = (item.get("tags") or {}).get(_ASG_TAG)
         return bool(group) and dims.get("AutoScalingGroupName") == group
     if item["type"] == "elasticache_group":
-        return re.fullmatch(rf"{re.escape(value)}-\d{{3,4}}(-\d{{3}})?", dims.get("CacheClusterId", "")) is not None
+        return dims.get("CacheClusterId") in members
     return False
 
 
@@ -95,12 +93,12 @@ def _topic_state(topic: str, region: str, account: str | None, subscriptions: di
     return ("confirmed" if confirmed else "unconfirmed"), {}
 
 
-def _judge(item: dict, metric: str, spec: dict, value: str, alarms: list, subscriptions: dict) -> dict | None:
+def _judge(item: dict, metric: str, spec: dict, value: str, alarms: list, subscriptions: dict, members: set[str]) -> dict | None:
     """None when covered; else an offender (detail.missing_part) or an unverified entry for this resource and metric."""
     region = item["region"]
     base = {"namespace": spec["namespace"], "metric": metric, "dimension": {"name": spec["dimension"], "value": value}}
     matching = [alarm for alarm, ns, name, dims in alarms
-                if ns == spec["namespace"] and name == metric and _covers(item, spec["dimension"], value, dims)]
+                if ns == spec["namespace"] and name == metric and _covers(item, spec["dimension"], value, dims, members)]
     if not matching:
         return _offender(item["id"], region, missing_part="alarm", **base,
                          reason=f"no hay una alarma de CloudWatch sobre {spec['namespace']} {metric} con {spec['dimension']}={value}")
@@ -120,26 +118,56 @@ def _judge(item: dict, metric: str, spec: dict, value: str, alarms: list, subscr
                      reason="el topic SNS de la alarma no tiene ninguna suscripción confirmada (todas están en PendingConfirmation, o no hay ninguna)")
 
 
+def _engines(responses: dict) -> dict[tuple[str, str], str]:
+    """{(region, id): lower-case Engine} of the db instances read by the check's `instances` call."""
+    return {(region, db["DBInstanceIdentifier"]): str(db.get("Engine") or "").lower()
+            for region, data in responses.get("instances", []) for db in (data or {}).get("DBInstances", [])}
+
+
+def _states(responses: dict) -> dict[tuple[str, str], str]:
+    """{(region, instance id): state name} of the EC2 instances read by the check's `instances` call."""
+    return {(region, i["InstanceId"]): (i.get("State") or {}).get("Name")
+            for region, data in responses.get("instances", []) for r in (data or {}).get("Reservations", []) for i in r.get("Instances", [])}
+
+
+def _members(responses: dict) -> dict[tuple[str, str], set[str]]:
+    """{(region, replication group): its member cache cluster ids} from the check's `groups` call."""
+    return {(region, g["ReplicationGroupId"]): set(g.get("MemberClusters") or [])
+            for region, data in responses.get("groups", []) for g in (data or {}).get("ReplicationGroups", [])}
+
+
+def _out_of_scope(item: dict, params: dict, engines: dict, states: dict) -> bool:
+    """Engines named in params.not_applicable_engines (prefix match) and EC2 instances that are not running are not evaluated;
+    when the engine or state is unknown the resource is evaluated."""
+    key = (item["region"], item["id"])
+    if item["type"] == "rds_instance":
+        engine = engines.get(key)
+        return engine is not None and engine.startswith(tuple(params.get("not_applicable_engines") or ()))
+    return item["type"] == "ec2_instance" and states.get(key, "running") != "running"
+
+
 @register("alarm_coverage")
 def alarm_coverage(responses: dict, params: dict) -> list[dict]:
     """Per resource and metric: an alarm in the resource's region on the namespace+metric with the resource's dimension,
     an enabled SNS action, and a topic with at least one confirmed subscription. Topics are read per topic (`subs`,
-    for_each over the alarm actions); one that cannot be read leaves only the resources that depend on it unverified."""
-    specs, alarms = _specs(params), _alarms_by_region(responses)
+    for_each over the alarm actions); one that cannot be read leaves only the resources that depend on it unverified.
+    Optional calls: `instances` (RDS engine / EC2 state) and `groups` (ElastiCache member nodes)."""
+    spec, alarms = _spec(params), _alarms_by_region(responses)
+    engines, states, members = _engines(responses), _states(responses), _members(responses)
     subscriptions = {}
     for topic, region, data in _for_each_pairs(responses, "subs"):
         subscriptions.setdefault((region, topic), data)
     results = []
     for item in responses.get("__inventory__", []):
-        spec = specs.get(item["type"])
-        if spec is None:
+        if item["type"] != spec["type"]:
             continue
         value = _dimension_value(item)
-        if value is None:
+        if value is None or _out_of_scope(item, params, engines, states):
             results.append(_not_applicable(item["id"], item["region"]))
             continue
+        nodes = members.get((item["region"], item["id"]), set())
         for metric in spec["metrics"]:
-            verdict = _judge(item, metric, spec, value, alarms.get(item["region"], []), subscriptions)
+            verdict = _judge(item, metric, spec, value, alarms.get(item["region"], []), subscriptions, nodes)
             if verdict:
                 results.append(verdict)
     return results
