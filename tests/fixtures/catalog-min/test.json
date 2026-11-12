@@ -1,0 +1,85 @@
+{
+  "domain": "test",
+  "checks": [
+    {
+      "id": "IAM-001",
+      "title": "La cuenta root tiene MFA habilitado",
+      "domain": "iam",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "critical",
+      "not_enabled_means": "fail",
+      "verify": {
+        "calls": [
+          {"name": "summary", "service": "iam", "operation": "get-account-summary", "args": [], "region": "global"}
+        ],
+        "evaluator": "jmespath",
+        "offenders": "SummaryMap.AccountMFAEnabled == `0` && [`root`] || `[]`",
+        "pass_when_text": "AccountMFAEnabled es 1",
+        "needs": ["iam:GetAccountSummary"]
+      },
+      "vault_signals": ["mfa root"],
+      "mappings": {
+        "drata": [
+          {"test": 214, "name": "MFA for AWS Root Account", "source": "https://example.invalid/drata/214"}
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": ["IAM.9"],
+        "cis_aws": ["1.5"]
+      },
+      "remediation": {
+        "kind": "console_only",
+        "risk": "low",
+        "downtime": false,
+        "steps": ["Iniciar sesion como root y activar MFA virtual."],
+        "commands": [],
+        "verify_after": "",
+        "notes": ""
+      },
+      "sources": ["https://example.invalid/docs/root-mfa"]
+    },
+    {
+      "id": "LOG-001",
+      "title": "Hay un trail de CloudTrail multi-region activo",
+      "domain": "logging",
+      "scope": "resource",
+      "resource_types": ["cloudtrail_trail"],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "fail",
+      "verify": {
+        "calls": [
+          {"name": "trails", "service": "cloudtrail", "operation": "describe-trails", "args": [], "region": "global"}
+        ],
+        "evaluator": "python:cloudtrail_multi_region",
+        "params": {"require_log_validation": true},
+        "pass_when_text": "Existe al menos un trail multi-region con logging activo",
+        "needs": ["cloudtrail:DescribeTrails"]
+      },
+      "vault_signals": ["cloudtrail"],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": ["CC7.2"],
+        "iso_inferred": ["A.8.15"],
+        "security_hub": ["CloudTrail.1"],
+        "cis_aws": ["3.1"]
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": ["Crear un trail multi-region."],
+        "commands": [
+          "REGION=\"us-east-1\"\naws cloudtrail create-trail --name acme-notes-trail --s3-bucket-name __COMPLETAR_BUCKET__ --is-multi-region-trail --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudtrail get-trail-status --name acme-notes-trail",
+        "notes": ""
+      },
+      "sources": ["https://example.invalid/docs/cloudtrail"]
+    }
+  ]
+}
