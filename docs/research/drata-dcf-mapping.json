@@ -1,0 +1,2740 @@
+{
+ "meta": {
+  "retrieved_at": "2026-11-12",
+  "source": "Drata Control Framework (DCF) as exposed by the Drata API/MCP (read-only): monitoring test -> DCF control(s) -> SOC 2 (TSC 2017) and ISO/IEC 27001:2022 requirements.",
+  "test_id_semantics": "test_id = Drata testId (test template id), not a per-account instance id.",
+  "notes": [
+   "Drata has no per-test framework mapping: tests map to DCF controls, controls map to requirements; all tests of one control inherit the same requirements.",
+   "Mappings reflect Drata defaults as observed on 2026-11-12; an account can customize control mappings, so prefer a live read when a Drata connection is available.",
+   "Per-account test status (enabled/unused/disabled, pass/fail) is intentionally not stored here."
+  ]
+ },
+ "tests": [
+  {
+   "test_id": 7,
+   "test_name": "Only Authorized Employees Change Code",
+   "check_type": "VERSION_CONTROL",
+   "controls": [
+    {
+     "dcf_id": "DCF-4",
+     "name": "Version Control System",
+     "soc2": [
+      "CC8.1"
+     ],
+     "iso27001_2022": [
+      "A.8.4",
+      "A.8.19",
+      "A.8.28"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8,
+   "test_name": "Formal Code Review Process",
+   "check_type": "VERSION_CONTROL",
+   "controls": [
+    {
+     "dcf_id": "DCF-5",
+     "name": "Change Review Process",
+     "soc2": [
+      "CC8.1"
+     ],
+     "iso27001_2022": [
+      "A.5.3",
+      "A.8.30"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 9,
+   "test_name": "Production Code Changes Restricted",
+   "check_type": "VERSION_CONTROL",
+   "controls": [
+    {
+     "dcf_id": "DCF-6",
+     "name": "Production Changes Restricted",
+     "soc2": [
+      "CC5.1",
+      "CC8.1"
+     ],
+     "iso27001_2022": [
+      "A.8.4",
+      "A.8.31"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 30,
+   "test_name": "Zone Redundancy",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-27",
+     "name": "Cloud Resources Availability",
+     "soc2": [
+      "A1.2",
+      "CC9.1"
+     ],
+     "iso27001_2022": [
+      "A.8.14"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 61,
+   "test_name": "Screen Lock Required on Employee Computers",
+   "check_type": "AGENT",
+   "controls": [
+    {
+     "dcf_id": "DCF-48",
+     "name": "Screen Lockout",
+     "soc2": null,
+     "iso27001_2022": null
+    }
+   ]
+  },
+  {
+   "test_id": 63,
+   "test_name": "Password Manager Records on Employee Computers",
+   "check_type": "AGENT",
+   "controls": [
+    {
+     "dcf_id": "DCF-49",
+     "name": "Password Manager",
+     "soc2": null,
+     "iso27001_2022": null
+    }
+   ]
+  },
+  {
+   "test_id": 64,
+   "test_name": "Malware Detection Software Installed on Employee Computers",
+   "check_type": "AGENT",
+   "controls": [
+    {
+     "dcf_id": "DCF-50",
+     "name": "Antimalware Software on Devices",
+     "soc2": null,
+     "iso27001_2022": null
+    }
+   ]
+  },
+  {
+   "test_id": 65,
+   "test_name": "Security Patches Auto-Applied on Employee Computers",
+   "check_type": "AGENT",
+   "controls": [
+    {
+     "dcf_id": "DCF-51",
+     "name": "Automated Updates on Devices",
+     "soc2": null,
+     "iso27001_2022": null
+    }
+   ]
+  },
+  {
+   "test_id": 66,
+   "test_name": "Hard-Disk Encryption Enabled on Employee Computers",
+   "check_type": "AGENT",
+   "controls": [
+    {
+     "dcf_id": "DCF-52",
+     "name": "Hard-Disk Encryption",
+     "soc2": null,
+     "iso27001_2022": null
+    }
+   ]
+  },
+  {
+   "test_id": 68,
+   "test_name": "Databases Encrypted at Rest",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-54",
+     "name": "Encryption at Rest",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2",
+      "PI1.4",
+      "PI1.5"
+     ],
+     "iso27001_2022": [
+      "A.5.33",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 69,
+   "test_name": "Customer Data in Cloud Storage is Encrypted at Rest",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-54",
+     "name": "Encryption at Rest",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2",
+      "PI1.4",
+      "PI1.5"
+     ],
+     "iso27001_2022": [
+      "A.5.33",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 86,
+   "test_name": "MFA on Identity Provider",
+   "check_type": "IDENTITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-67",
+     "name": "Multi-Factor Authentication",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.8.5",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 87,
+   "test_name": "MFA on Version Control System",
+   "check_type": "VERSION_CONTROL",
+   "controls": [
+    {
+     "dcf_id": "DCF-67",
+     "name": "Multi-Factor Authentication",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.8.5",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 88,
+   "test_name": "MFA on Cloud Infrastructure",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-67",
+     "name": "Multi-Factor Authentication",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.8.5",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 94,
+   "test_name": "Terminated Version Control Accounts Removed",
+   "check_type": "VERSION_CONTROL",
+   "controls": [
+    {
+     "dcf_id": "DCF-70",
+     "name": "Access Deprovisioning",
+     "soc2": [
+      "CC6.1",
+      "CC6.2",
+      "CC6.3"
+     ],
+     "iso27001_2022": [
+      "A.5.16",
+      "A.5.18"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 95,
+   "test_name": "Infrastructure Accounts Properly Removed",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-70",
+     "name": "Access Deprovisioning",
+     "soc2": [
+      "CC6.1",
+      "CC6.2",
+      "CC6.3"
+     ],
+     "iso27001_2022": [
+      "A.5.16",
+      "A.5.18"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 96,
+   "test_name": "Employees have Unique Email Accounts",
+   "check_type": "IDENTITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-71",
+     "name": "Unique User IDs",
+     "soc2": [
+      "CC6.1"
+     ],
+     "iso27001_2022": [
+      "A.5.16",
+      "A.8.2"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 97,
+   "test_name": "Employees have Unique Version Control Accounts",
+   "check_type": "VERSION_CONTROL",
+   "controls": [
+    {
+     "dcf_id": "DCF-71",
+     "name": "Unique User IDs",
+     "soc2": [
+      "CC6.1"
+     ],
+     "iso27001_2022": [
+      "A.5.16",
+      "A.8.2"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 98,
+   "test_name": "Employees have Unique Infrastructure Accounts",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-71",
+     "name": "Unique User IDs",
+     "soc2": [
+      "CC6.1"
+     ],
+     "iso27001_2022": [
+      "A.5.16",
+      "A.8.2"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 102,
+   "test_name": "Public SSH Denied",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-73",
+     "name": "Access to Remote Server Administration Ports Restricted",
+     "soc2": [
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.20",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 104,
+   "test_name": "Cloud Storage Public Access Disabled",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-75",
+     "name": "Restricted Public Access",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.20",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 105,
+   "test_name": "Threat Detection in Place",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-87",
+     "name": "Threat Detection System",
+     "soc2": [
+      "CC6.6",
+      "CC6.8",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 107,
+   "test_name": "Database Backups",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-77",
+     "name": "Data Backups",
+     "soc2": [
+      "A1.2"
+     ],
+     "iso27001_2022": [
+      "A.8.13"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 108,
+   "test_name": "Cloud Storage Buckets Versioned",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-78",
+     "name": "Storage Bucket Versioning",
+     "soc2": [
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.5.33",
+      "A.8.13"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 112,
+   "test_name": "Database CPU Monitored",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 113,
+   "test_name": "Database Free Storage Space Monitored",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 114,
+   "test_name": "Database Read I/O Monitored",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 115,
+   "test_name": "Messaging Queue Message Age Monitored",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 117,
+   "test_name": "NoSQL Cluster Storage Utilization Monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 118,
+   "test_name": "Infrastructure Instance CPU Monitored",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 119,
+   "test_name": "Firewall Default Disallows Traffic",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-85",
+     "name": "Network Security Controls",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.16",
+      "A.8.20",
+      "A.8.21",
+      "A.8.22"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 122,
+   "test_name": "Web Application Firewall in Place",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-88",
+     "name": "Web Application Firewall",
+     "soc2": [
+      "CC6.6",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 123,
+   "test_name": "Cloud Infrastructure Linked to Drata",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-160",
+     "name": "Continuous Control Monitoring",
+     "soc2": [
+      "CC2.1",
+      "CC2.2",
+      "CC3.2",
+      "CC3.3",
+      "CC3.4",
+      "CC4.1",
+      "CC4.2",
+      "CC5.1",
+      "CC5.2"
+     ],
+     "iso27001_2022": [
+      "8.1",
+      "9.1",
+      "A.5.36"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 124,
+   "test_name": "Root Infrastructure Account Unused",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-90",
+     "name": "Root Infrastructure Account Monitored",
+     "soc2": [
+      "CC6.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.2",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 130,
+   "test_name": "Load Balancer Used",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-96",
+     "name": "Load Balancer",
+     "soc2": [
+      "A1.1"
+     ],
+     "iso27001_2022": [
+      "A.8.6",
+      "A.8.14"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 131,
+   "test_name": "Autoscaling Configurations in Place",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-97",
+     "name": "Autoscaling",
+     "soc2": [
+      "A1.1"
+     ],
+     "iso27001_2022": [
+      "A.8.6"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 132,
+   "test_name": "Daily Backups Monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-99",
+     "name": "Backup Monitoring",
+     "soc2": [
+      "A1.2"
+     ],
+     "iso27001_2022": [
+      "A.8.13"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 133,
+   "test_name": "Failed Backup Alerts Being Sent",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-99",
+     "name": "Backup Monitoring",
+     "soc2": [
+      "A1.2"
+     ],
+     "iso27001_2022": [
+      "A.8.13"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 134,
+   "test_name": "Failed Backups Addressed in Timely Manner",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-99",
+     "name": "Backup Monitoring",
+     "soc2": [
+      "A1.2"
+     ],
+     "iso27001_2022": [
+      "A.8.13"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 205,
+   "test_name": "CloudTrail Log File Integrity Validation Enabled",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-478",
+     "name": "Change Detection Mechanism",
+     "soc2": [
+      "CC6.8",
+      "CC7.1",
+      "CC8.1"
+     ],
+     "iso27001_2022": [
+      "A.8.15"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 206,
+   "test_name": "SQL freeable memory monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 214,
+   "test_name": "MFA for AWS Root Account",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-90",
+     "name": "Root Infrastructure Account Monitored",
+     "soc2": [
+      "CC6.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.2",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 215,
+   "test_name": "AWS IAM Password Minimum Length",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-68",
+     "name": "Password Policy and Configuration",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.5.17",
+      "A.8.5"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 216,
+   "test_name": "AWS IAM Password Reuse",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-350",
+     "name": "Password History Enforcement",
+     "soc2": [
+      "CC6.1"
+     ],
+     "iso27001_2022": [
+      "A.5.17"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 217,
+   "test_name": "AWS IAM Group-Based Access Control",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-776",
+     "name": "Principle of Least Privilege",
+     "soc2": [
+      "CC6.3"
+     ],
+     "iso27001_2022": [
+      "A.8.2",
+      "A.8.3"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 218,
+   "test_name": "AWS EBS Volume Encryption",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-54",
+     "name": "Encryption at Rest",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2",
+      "PI1.4",
+      "PI1.5"
+     ],
+     "iso27001_2022": [
+      "A.5.33",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 219,
+   "test_name": "AWS RDS Auto Minor Version Upgrade",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-152",
+     "name": "Automated Security Updates",
+     "soc2": [
+      "CC6.8",
+      "CC8.1"
+     ],
+     "iso27001_2022": [
+      "A.8.8",
+      "A.8.19"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 220,
+   "test_name": "AWS RDS Public Access Restricted",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-75",
+     "name": "Restricted Public Access",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.20",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 221,
+   "test_name": "AWS S3 Bucket Access Logging",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 222,
+   "test_name": "AWS CloudTrail Logs Encrypted",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-54",
+     "name": "Encryption at Rest",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2",
+      "PI1.4",
+      "PI1.5"
+     ],
+     "iso27001_2022": [
+      "A.5.33",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 223,
+   "test_name": "AWS CMK Rotation",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-779",
+     "name": "Cryptographic Key Rotation",
+     "soc2": [
+      "CC6.1"
+     ],
+     "iso27001_2022": [
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 224,
+   "test_name": "AWS VPC Flow Logging",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 225,
+   "test_name": "Hardware MFA for AWS Root Account",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-90",
+     "name": "Root Infrastructure Account Monitored",
+     "soc2": [
+      "CC6.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.2",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 226,
+   "test_name": "AWS S3 Object-Level Logging for Read & Write Events",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 227,
+   "test_name": "AWS Network ACLs Public Remote Server Administration Access Restricted",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-73",
+     "name": "Access to Remote Server Administration Ports Restricted",
+     "soc2": [
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.20",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 228,
+   "test_name": "AWS Security Groups Restrict Public RDP Access",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-73",
+     "name": "Access to Remote Server Administration Ports Restricted",
+     "soc2": [
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.20",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 230,
+   "test_name": "AWS IAM Principle of Least Privilege",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-776",
+     "name": "Principle of Least Privilege",
+     "soc2": [
+      "CC6.3"
+     ],
+     "iso27001_2022": [
+      "A.8.2",
+      "A.8.3"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 231,
+   "test_name": "AWS EFS Encrypted at Rest",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-54",
+     "name": "Encryption at Rest",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2",
+      "PI1.4",
+      "PI1.5"
+     ],
+     "iso27001_2022": [
+      "A.5.33",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 232,
+   "test_name": "AWS IAM Access Key Rotation",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-783",
+     "name": "Credentials Rotation",
+     "soc2": [
+      "CC6.1"
+     ],
+     "iso27001_2022": [
+      "A.5.17"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 233,
+   "test_name": "AWS VPC Default Security Groups Restrict All Traffic",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-85",
+     "name": "Network Security Controls",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.16",
+      "A.8.20",
+      "A.8.21",
+      "A.8.22"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 234,
+   "test_name": "AWS S3 HTTP Requests Denied",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-55",
+     "name": "Encryption in Transit",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "CC6.7",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.5.14",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 243,
+   "test_name": "Azure Log Alert for Create Policy Assignment",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 244,
+   "test_name": "Azure Log Alert for Delete Public IP Address",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 245,
+   "test_name": "Azure Log Alert for Delete Policy Assignment",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 246,
+   "test_name": "Azure Log Alert for Create or Update Network Security Group",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 247,
+   "test_name": "Azure Log Alert for Delete Network Security Group",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 248,
+   "test_name": "Azure Log Alert for Create or Update Security Solution",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 249,
+   "test_name": "Azure Log Alert for Delete Security Solution",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 250,
+   "test_name": "Azure Log Alert for Create or Update SQL Server Firewall Rule",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 251,
+   "test_name": "Azure Log Alert for Delete SQL Server Firewall Rule",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 252,
+   "test_name": "Azure Log Alert for Create or Update Public IP Address rule",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 253,
+   "test_name": "Azure Storage Accounts Accessed Via Private Endpoints",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-55",
+     "name": "Encryption in Transit",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "CC6.7",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.5.14",
+      "A.8.24"
+     ]
+    },
+    {
+     "dcf_id": "DCF-748",
+     "name": "Segmentation of Networks",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.21",
+      "A.8.22"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 254,
+   "test_name": "Azure Key Vaults Key Expiration",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-779",
+     "name": "Cryptographic Key Rotation",
+     "soc2": [
+      "CC6.1"
+     ],
+     "iso27001_2022": [
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 256,
+   "test_name": "Azure SQL Servers Auditing",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    },
+    {
+     "dcf_id": "DCF-407",
+     "name": "Audit Logs Data Points",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.15",
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 257,
+   "test_name": "Azure PostgreSQL Database Server Log Checkpoints",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 263,
+   "test_name": "Azure Storage Accounts Secure TLS Configuration",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-55",
+     "name": "Encryption in Transit",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "CC6.7",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.5.14",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 268,
+   "test_name": "Azure Network Security Group SSH Public Access Restricted",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-73",
+     "name": "Access to Remote Server Administration Ports Restricted",
+     "soc2": [
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.20",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 269,
+   "test_name": "Azure App Service Web App Redirects HTTP Traffic to HTTPS",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-55",
+     "name": "Encryption in Transit",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "CC6.7",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.5.14",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 270,
+   "test_name": "Azure SQL Data Encryption",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-54",
+     "name": "Encryption at Rest",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2",
+      "PI1.4",
+      "PI1.5"
+     ],
+     "iso27001_2022": [
+      "A.5.33",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 290,
+   "test_name": "AWS Database Writes I/O Monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 291,
+   "test_name": "AWS Security Groups HTTP Access Restricted",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-85",
+     "name": "Network Security Controls",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.16",
+      "A.8.20",
+      "A.8.21",
+      "A.8.22"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 292,
+   "test_name": "AWS EC2 Instances IMDSv1 Disabled",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-12",
+     "name": "Baseline Configuration and Hardening Standards",
+     "soc2": [
+      "CC6.1",
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.9"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 293,
+   "test_name": "AWS Classic Load Balancer Latency Monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 294,
+   "test_name": "AWS Application Load Balancer Target Response Time Monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 295,
+   "test_name": "AWS Classic Load Balancer Server Errors Monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 296,
+   "test_name": "AWS Application Load Balancer Server Errors Monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 297,
+   "test_name": "AWS Classic Load Balancer Unhealthy Hosts Monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 298,
+   "test_name": "AWS Application Load Balancer Unhealthy Hosts Monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 299,
+   "test_name": "AWS Application Load Balancer Redirects HTTP to HTTPS",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-55",
+     "name": "Encryption in Transit",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "CC6.7",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.5.14",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 300,
+   "test_name": "AWS Lambda Error Rate Monitored",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 301,
+   "test_name": "AWS DynamoDB Point-in-Time Recovery Enabled",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-86",
+     "name": "System Monitoring",
+     "soc2": [
+      "A1.1",
+      "CC4.1",
+      "CC7.1",
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 310,
+   "test_name": "Audit Logs Enabled for EKS Clusters",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 323,
+   "test_name": "Critical Vulnerabilities Addressed (Orca Security)",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-18",
+     "name": "Vulnerability Scans",
+     "soc2": [
+      "CC3.2",
+      "CC4.1",
+      "CC5.2",
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.8"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 324,
+   "test_name": "High Vulnerabilities Addressed (Orca Security)",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-18",
+     "name": "Vulnerability Scans",
+     "soc2": [
+      "CC3.2",
+      "CC4.1",
+      "CC5.2",
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.8"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 325,
+   "test_name": "Critical Vulnerabilities Addressed (Upwind)",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-18",
+     "name": "Vulnerability Scans",
+     "soc2": [
+      "CC3.2",
+      "CC4.1",
+      "CC5.2",
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.8"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 326,
+   "test_name": "High Vulnerabilities Addressed (Upwind)",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-18",
+     "name": "Vulnerability Scans",
+     "soc2": [
+      "CC3.2",
+      "CC4.1",
+      "CC5.2",
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.8"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 327,
+   "test_name": "Critical Vulnerabilities Addressed (GitLab)",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-18",
+     "name": "Vulnerability Scans",
+     "soc2": [
+      "CC3.2",
+      "CC4.1",
+      "CC5.2",
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.8"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 328,
+   "test_name": "High Vulnerabilities Addressed (GitLab)",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-18",
+     "name": "Vulnerability Scans",
+     "soc2": [
+      "CC3.2",
+      "CC4.1",
+      "CC5.2",
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.8"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 329,
+   "test_name": "Critical Vulnerabilities Addressed (Socket)",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-18",
+     "name": "Vulnerability Scans",
+     "soc2": [
+      "CC3.2",
+      "CC4.1",
+      "CC5.2",
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.8"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 330,
+   "test_name": "High Vulnerabilities Addressed (Socket)",
+   "check_type": "OBSERVABILITY",
+   "controls": [
+    {
+     "dcf_id": "DCF-18",
+     "name": "Vulnerability Scans",
+     "soc2": [
+      "CC3.2",
+      "CC4.1",
+      "CC5.2",
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.8"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8000,
+   "test_name": "Autoscaling Configured",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-97",
+     "name": "Autoscaling",
+     "soc2": [
+      "A1.1"
+     ],
+     "iso27001_2022": [
+      "A.8.6"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8001,
+   "test_name": "Backup Retention Configured",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-77",
+     "name": "Data Backups",
+     "soc2": [
+      "A1.2"
+     ],
+     "iso27001_2022": [
+      "A.8.13"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8002,
+   "test_name": "Transparent Data-at-Rest Encryption Enabled",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-54",
+     "name": "Encryption at Rest",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "P4.2",
+      "PI1.4",
+      "PI1.5"
+     ],
+     "iso27001_2022": [
+      "A.5.33",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8003,
+   "test_name": "Cloud Storage Versioning Enabled",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-78",
+     "name": "Storage Bucket Versioning",
+     "soc2": [
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.5.33",
+      "A.8.13"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8004,
+   "test_name": "Zone Redundancy Configured",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-27",
+     "name": "Cloud Resources Availability",
+     "soc2": [
+      "A1.2",
+      "CC9.1"
+     ],
+     "iso27001_2022": [
+      "A.8.14"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8005,
+   "test_name": "Logging Configuration Enabled",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-406",
+     "name": "Audit Logging",
+     "soc2": [
+      "CC7.2"
+     ],
+     "iso27001_2022": [
+      "A.8.16"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8007,
+   "test_name": "VPC Configuration",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-85",
+     "name": "Network Security Controls",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.16",
+      "A.8.20",
+      "A.8.21",
+      "A.8.22"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8008,
+   "test_name": "TLS Enforced",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-55",
+     "name": "Encryption in Transit",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "CC6.7",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.5.14",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8009,
+   "test_name": "Security Groups Configured",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-85",
+     "name": "Network Security Controls",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.16",
+      "A.8.20",
+      "A.8.21",
+      "A.8.22"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8010,
+   "test_name": "Network Configurations Restrict Broad Access",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-85",
+     "name": "Network Security Controls",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.16",
+      "A.8.20",
+      "A.8.21",
+      "A.8.22"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8011,
+   "test_name": "Public Access Restricted",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-75",
+     "name": "Restricted Public Access",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.20",
+      "A.8.21"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8012,
+   "test_name": "Network Access Denied By Default",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-85",
+     "name": "Network Security Controls",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.16",
+      "A.8.20",
+      "A.8.21",
+      "A.8.22"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8013,
+   "test_name": "Automatic Software Updates",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-152",
+     "name": "Automated Security Updates",
+     "soc2": [
+      "CC6.8",
+      "CC8.1"
+     ],
+     "iso27001_2022": [
+      "A.8.8",
+      "A.8.19"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8014,
+   "test_name": "Log Integrity",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-478",
+     "name": "Change Detection Mechanism",
+     "soc2": [
+      "CC6.8",
+      "CC7.1",
+      "CC8.1"
+     ],
+     "iso27001_2022": [
+      "A.8.15"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8015,
+   "test_name": "Strong TLS Ciphers",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-55",
+     "name": "Encryption in Transit",
+     "soc2": [
+      "C1.1",
+      "CC6.1",
+      "CC6.6",
+      "CC6.7",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "A.5.14",
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8016,
+   "test_name": "Web Application Firewall",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-85",
+     "name": "Network Security Controls",
+     "soc2": [
+      "CC6.1",
+      "CC6.6"
+     ],
+     "iso27001_2022": [
+      "A.8.16",
+      "A.8.20",
+      "A.8.21",
+      "A.8.22"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8017,
+   "test_name": "Automated Backups",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-77",
+     "name": "Data Backups",
+     "soc2": [
+      "A1.2"
+     ],
+     "iso27001_2022": [
+      "A.8.13"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8018,
+   "test_name": "Secure API Version",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-12",
+     "name": "Baseline Configuration and Hardening Standards",
+     "soc2": [
+      "CC6.1",
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.9"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8019,
+   "test_name": "Log Retention",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-101",
+     "name": "Data Retention Policy",
+     "soc2": [
+      "C1.1",
+      "P4.2"
+     ],
+     "iso27001_2022": [
+      "7.5.3",
+      "A.5.14",
+      "A.5.33"
+     ]
+    },
+    {
+     "dcf_id": "DCF-441",
+     "name": "Audit Log Retention Period",
+     "soc2": [],
+     "iso27001_2022": [
+      "A.8.15"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8020,
+   "test_name": "Default Service Accounts Disabled",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-229",
+     "name": "Vendor Default Accounts Disabled, Removed or Changed",
+     "soc2": [],
+     "iso27001_2022": [
+      "A.5.17"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8025,
+   "test_name": "Access Policies Restrict Broad Access",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-776",
+     "name": "Principle of Least Privilege",
+     "soc2": [
+      "CC6.3"
+     ],
+     "iso27001_2022": [
+      "A.8.2",
+      "A.8.3"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8026,
+   "test_name": "Role Based Access Control",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-776",
+     "name": "Principle of Least Privilege",
+     "soc2": [
+      "CC6.3"
+     ],
+     "iso27001_2022": [
+      "A.8.2",
+      "A.8.3"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8027,
+   "test_name": "Secure Runtime Configurations",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-785",
+     "name": "Supported System Components",
+     "soc2": [
+      "CC7.1"
+     ],
+     "iso27001_2022": [
+      "A.8.9"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8028,
+   "test_name": "Resource Tagging",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-777",
+     "name": "Cloud Resource Tagging",
+     "soc2": [
+      "CC6.1"
+     ],
+     "iso27001_2022": [
+      "A.5.9",
+      "A.5.12"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8029,
+   "test_name": "Deletion Protection",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-775",
+     "name": "Cloud Deletion Protection",
+     "soc2": [
+      "C1.1"
+     ],
+     "iso27001_2022": [
+      "A.5.33"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8030,
+   "test_name": "Data Retention",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-782",
+     "name": "Cloud Storage Lifecycle",
+     "soc2": [
+      "C1.2"
+     ],
+     "iso27001_2022": [
+      "A.8.10"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8031,
+   "test_name": "Automatic Cryptographic Key Rotation",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-779",
+     "name": "Cryptographic Key Rotation",
+     "soc2": [
+      "CC6.1"
+     ],
+     "iso27001_2022": [
+      "A.8.24"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8032,
+   "test_name": "Automatic Secret Rotation",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-783",
+     "name": "Credentials Rotation",
+     "soc2": [
+      "CC6.1"
+     ],
+     "iso27001_2022": [
+      "A.5.17"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8035,
+   "test_name": "Connection Draining",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-96",
+     "name": "Load Balancer",
+     "soc2": [
+      "A1.1"
+     ],
+     "iso27001_2022": [
+      "A.8.6",
+      "A.8.14"
+     ]
+    }
+   ]
+  },
+  {
+   "test_id": 8036,
+   "test_name": "High Availability",
+   "check_type": "INFRASTRUCTURE",
+   "controls": [
+    {
+     "dcf_id": "DCF-27",
+     "name": "Cloud Resources Availability",
+     "soc2": [
+      "A1.2",
+      "CC9.1"
+     ],
+     "iso27001_2022": [
+      "A.8.14"
+     ]
+    }
+   ]
+  }
+ ]
+}
