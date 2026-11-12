@@ -33,6 +33,12 @@ class AssertReadOnlyTest(unittest.TestCase):
     def test_allows_exact_exceptions(self):
         aws_runner.assert_read_only("cloudtrail", "lookup-events", [])
         aws_runner.assert_read_only("iam", "generate-credential-report", [])
+        aws_runner.assert_read_only("inspector2", "batch-get-account-status", [])
+
+    def test_other_batch_get_operations_stay_rejected(self):
+        for service, op in (("secretsmanager", "batch-get-secret-value"), ("dynamodb", "batch-get-item")):
+            with self.subTest(op=op), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only(service, op, [])
 
     def test_rejects_write_ops(self):
         for service, op in (

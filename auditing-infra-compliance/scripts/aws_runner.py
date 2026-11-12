@@ -8,7 +8,9 @@ import time
 from dataclasses import dataclass
 
 ALLOWED_PREFIXES = ("describe-", "list-", "get-")
-ALLOWED_EXACT = frozenset({"lookup-events", "generate-credential-report"})
+# batch-get-account-status (Inspector) only reads the scanning state; the batch-get- prefix stays closed
+# because batch-get-secret-value and batch-get-item return secrets or data.
+ALLOWED_EXACT = frozenset({"lookup-events", "generate-credential-report", "batch-get-account-status"})
 DENYLIST = frozenset(
     {
         ("secretsmanager", "get-secret-value"),

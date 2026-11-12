@@ -301,7 +301,10 @@ def _check_rows(ctx, check):
     skipped = {o["resource_id"] for o in offenders if o.get("not_applicable")}  # R20: no FAIL and no PASS row
     offenders = [o for o in offenders if not o.get("not_applicable")]
     rows += [_row(check, "FAIL", o["resource_id"], o["region"], o["detail"]) for o in offenders]
-    return rows + _pass_rows(check, items, offenders, skipped, {f["region"] for f in failures}, bool(rows))
+    rows += _pass_rows(check, items, offenders, skipped, {f["region"] for f in failures}, bool(rows))
+    if is_resource and not rows:  # R23: every in-scope item was not applicable
+        return [_row(check, "N/A", "account", None, {"reason": "ningún recurso aplica"}, vacuous=True)]
+    return rows
 
 
 def _pass_rows(check, items, offenders, skipped, failed_regions, any_fail):

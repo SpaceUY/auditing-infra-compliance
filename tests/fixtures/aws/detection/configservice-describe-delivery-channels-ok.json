@@ -1,0 +1,9 @@
+{
+  "DeliveryChannels": [
+    {
+      "name": "default",
+      "s3BucketName": "acme-notes-config-logs",
+      "snsTopicARN": "arn:aws:sns:us-east-1:111122223333:acme-notes-config"
+    }
+  ]
+}

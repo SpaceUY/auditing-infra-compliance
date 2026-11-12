@@ -1,0 +1,11 @@
+{
+  "Rules": [
+    {
+      "Name": "acme-notes-guardduty-findings",
+      "Arn": "arn:aws:events:us-east-1:111122223333:rule/acme-notes-guardduty-findings",
+      "State": "DISABLED",
+      "EventBusName": "default",
+      "EventPattern": "{\"source\": [\"aws.guardduty\"], \"detail-type\": [\"GuardDuty Finding\"]}"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "ConfigurationRecorders": [
+    {
+      "name": "default",
+      "roleARN": "arn:aws:iam::111122223333:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig",
+      "recordingGroup": {
+        "allSupported": true,
+        "includeGlobalResourceTypes": true,
+        "resourceTypes": []
+      },
+      "recordingMode": {
+        "recordingFrequency": "CONTINUOUS",
+        "recordingModeOverrides": [
+          {
+            "description": "IAM global types daily",
+            "resourceTypes": [
+              "AWS::IAM::User",
+              "AWS::IAM::Role"
+            ],
+            "recordingFrequency": "DAILY"
+          }
+        ]
+      }
+    }
+  ]
+}

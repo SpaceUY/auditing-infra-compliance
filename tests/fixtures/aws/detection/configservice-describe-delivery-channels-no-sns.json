@@ -1,0 +1,8 @@
+{
+  "DeliveryChannels": [
+    {
+      "name": "default",
+      "s3BucketName": "acme-notes-config-logs"
+    }
+  ]
+}

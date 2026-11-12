@@ -427,6 +427,25 @@ class EngineTests(CollectCase):
         self.run_collect(checks_dir=self.catalog_with(python_check))
         self.assertEqual([(r["status"], r["resource_id"]) for r in self.rows("DAT-903")], [("PASS", "acme-notes-logs")])
 
+    def test_all_items_not_applicable_yields_one_na_row(self):
+        @evaluators.register("test_na_all")
+        def na_all(responses, params):
+            return [{"resource_id": b, "region": "us-east-1", "detail": {}, "not_applicable": True}
+                    for b in ("acme-notes-data", "acme-notes-logs")]
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_na_all")
+
+        def python_check(check):
+            check["id"] = "DAT-904"
+            check["scope"] = "resource"
+            check["resource_types"] = ["s3_bucket"]
+            check["verify"]["evaluator"] = "python:test_na_all"
+
+        self.run_collect(checks_dir=self.catalog_with(python_check))
+        (row,) = self.rows("DAT-904")
+        self.assertEqual((row["status"], row["resource_id"], row["vacuous"]), ("N/A", "account", True))
+        self.assertEqual(row["detail"], {"reason": "ningún recurso aplica"})
+
     def test_inventory_available_to_evaluators(self):
         seen = {}
 

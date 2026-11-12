@@ -1,0 +1,17 @@
+{
+  "AutoScalingGroups": [
+    {
+      "AutoScalingGroupName": "acme-notes-legacy",
+      "AutoScalingGroupARN": "arn:aws:autoscaling:us-east-1:111122223333:autoScalingGroup:0a1b2c3d-0000-4000-8000-000000000001:autoScalingGroupName/acme-notes-legacy",
+      "MinSize": 1,
+      "MaxSize": 4,
+      "DesiredCapacity": 2,
+      "AvailabilityZones": [
+        "us-east-1a",
+        "us-east-1b"
+      ],
+      "Instances": [],
+      "LaunchConfigurationName": "acme-notes-legacy-lc-2024"
+    }
+  ]
+}

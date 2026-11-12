@@ -1,0 +1,16 @@
+{
+  "CreatedAt": "2026-01-15T10:00:00.000Z",
+  "FindingPublishingFrequency": "SIX_HOURS",
+  "ServiceRole": "arn:aws:iam::111122223333:role/aws-service-role/guardduty.amazonaws.com/AWSServiceRoleForAmazonGuardDuty",
+  "UpdatedAt": "2026-01-15T10:00:00.000Z",
+  "Tags": {},
+  "Status": "ENABLED",
+  "DataSources": {
+    "CloudTrail": {
+      "Status": "ENABLED"
+    },
+    "S3Logs": {
+      "Status": "ENABLED"
+    }
+  }
+}
