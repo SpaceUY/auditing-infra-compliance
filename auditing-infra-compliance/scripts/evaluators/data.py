@@ -129,70 +129,69 @@ def s3_bpa(responses: dict, params: dict) -> list[dict]:
 # ---------------------------------------------------------------- AWS Backup
 
 UNSUCCESSFUL_STATES = frozenset({"FAILED", "EXPIRED", "ABORTED", "PARTIAL", "COMPLETED_WITH_ISSUES"})
+NOT_FOUND = "ResourceNotFoundException"
 
 
-def _plans_by_region(responses: dict) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for region, data in responses.get("plans", []):
-        counts[region] = counts.get(region, 0) + len((data or {}).get("BackupPlansList") or [])
-    return counts
+def _vaults(responses: dict) -> list[tuple[str, dict]]:
+    return [(region, v) for region, data in responses.get("vaults", []) for v in (data or {}).get("BackupVaultList", [])]
 
 
-def _jobs_in_window(data: dict, now: datetime, window: timedelta) -> list[dict]:
-    """Jobs created in [now - window, now], compared with total seconds."""
-    def inside(job: dict) -> bool:
-        created = _parse_time(job.get("CreationDate"))
-        return created is not None and 0 <= (now - created).total_seconds() <= window.total_seconds()
-    return [job for job in (data or {}).get("BackupJobs", []) if inside(job)]
+def _jobs_in_window(responses: dict, now: datetime, window: timedelta) -> dict[tuple[str, str], list[dict]]:
+    """{(region, vault name): jobs created in [now - window, now]}, compared with total seconds."""
+    found: dict[tuple[str, str], list[dict]] = {}
+    for region, data in responses.get("jobs", []):
+        for job in (data or {}).get("BackupJobs", []):
+            created = _parse_time(job.get("CreationDate"))
+            if created is not None and 0 <= (now - created).total_seconds() <= window.total_seconds():
+                found.setdefault((region, job.get("BackupVaultName", "")), []).append(job)
+    return found
 
 
-def _resource_verdicts(jobs: list[dict]) -> dict[str, set[str]]:
-    """{resource ARN: states of its jobs}."""
+def _failed_resources(jobs: list[dict]) -> list[dict]:
+    """Resources whose jobs in the window have no COMPLETED one but at least one unsuccessful (retries that completed clear it)."""
     states: dict[str, set[str]] = {}
     for job in jobs:
         states.setdefault(job.get("ResourceArn", "desconocido"), set()).add(str(job.get("State", "")).upper())
-    return states
+    return [{"arn": arn, "states": sorted(found & UNSUCCESSFUL_STATES)} for arn, found in sorted(states.items())
+            if "COMPLETED" not in found and found & UNSUCCESSFUL_STATES]
 
 
 @register("backup_jobs_recent")
 def backup_jobs_recent(responses: dict, params: dict) -> list[dict]:
-    """Drata 132: every resource with an AWS Backup job in the last params["window_hours"] (default 24, clock from
-    params["now"]) has a COMPLETED one. A resource whose jobs all ended unsuccessfully fails; jobs still running are neither.
-    A region with backup plans and no job at all in the window fails as a whole."""
+    """Drata 132, one verdict per vault: every resource with jobs in the last params["window_hours"] (default 24, clock from
+    params["now"]) has a COMPLETED one; jobs still running are neither a failure nor a success. A vault that holds recovery
+    points and had no job at all in the window fails; an empty vault with no jobs is not applicable."""
     now, window = _now(params), timedelta(hours=float(params.get("window_hours", 24)))
     hours = int(window.total_seconds() // 3600)
-    plans = _plans_by_region(responses)
+    recent = _jobs_in_window(responses, now, window)
     offenders = []
-    for region, data in responses.get("jobs", []):
-        jobs = _jobs_in_window(data, now, window)
-        if not jobs and plans.get(region):
-            offenders.append(_offender(BACKUP_ACCOUNT, region, reason=f"hay planes de AWS Backup y ningún job en las últimas {hours} horas"))
-        for resource, states in sorted(_resource_verdicts(jobs).items()):
-            failed = sorted(states & UNSUCCESSFUL_STATES)
-            if "COMPLETED" not in states and failed:
-                offenders.append(_offender(resource, region, states=failed, reason=f"ningún job completado en las últimas {hours} horas"))
+    for region, vault in _vaults(responses):
+        name, jobs = vault["BackupVaultName"], recent.get((region, vault["BackupVaultName"]), [])
+        if not jobs:
+            offenders.append(_offender(name, region, reason=f"la bóveda tiene puntos de recuperación y ningún job en las últimas {hours} horas")
+                             if vault.get("NumberOfRecoveryPoints") else _not_applicable(name, region))
+        elif failed := _failed_resources(jobs):
+            offenders.append(_offender(name, region, resources=failed, reason=f"hay recursos sin ningún job completado en las últimas {hours} horas"))
     return offenders
 
 
 FAILURE_EVENT = "BACKUP_JOB_FAILED"
-NOT_FOUND = "ResourceNotFoundException"
 
 
-def _vault_recovery_points(responses: dict) -> dict[tuple[str, str], int | None]:
-    return {(region, v["BackupVaultName"]): v.get("NumberOfRecoveryPoints")
-            for region, data in responses.get("vaults", []) for v in (data or {}).get("BackupVaultList", [])}
+def _recovery_points(responses: dict) -> dict[tuple[str, str], int | None]:
+    return {(region, v["BackupVaultName"]): v.get("NumberOfRecoveryPoints") for region, v in _vaults(responses)}
 
 
 @register("backup_vault_notifications")
 def backup_vault_notifications(responses: dict, params: dict) -> list[dict]:
-    """Drata 133: every vault that holds recovery points notifies BACKUP_JOB_FAILED to an SNS topic."""
-    recovery_points = _vault_recovery_points(responses)
+    """Drata 133: every vault that holds recovery points notifies BACKUP_JOB_FAILED to an SNS topic. Empty vaults are not applicable."""
+    recovery_points = _recovery_points(responses)
     offenders = []
     for vault, region, data in _for_each_pairs(responses, "notifications"):
-        if recovery_points.get((region, vault)) == 0:
-            continue
         error = (data or {}).get("__error__")
-        if error == NOT_FOUND:
+        if recovery_points.get((region, vault)) == 0:
+            offenders.append(_not_applicable(vault, region))
+        elif error == NOT_FOUND:
             offenders.append(_offender(vault, region, reason="la bóveda no tiene notificaciones configuradas"))
         elif error:
             offenders.append(_item_failure(vault, region, error, "get-backup-vault-notifications"))
@@ -226,22 +225,24 @@ def _qualifies(rule: dict, minimum: int) -> bool:
 
 @register("backup_plan_rules")
 def backup_plan_rules(responses: dict, params: dict) -> list[dict]:
-    """A backup plan has a daily rule whose retention is at least params["min_days"] (no expiry counts as kept).
-    No plan at all in the evaluated regions is reported once, as 'aws-backup'."""
+    """Account-level: at least one backup plan has a rule that runs daily (or more often) with retention of at least
+    params["min_days"] (no expiry counts as kept). Weekly or archive plans next to a qualifying one do not fail. When none
+    qualifies the check fails once, as 'aws-backup', listing the rules found; plans that could not be read make it unverified."""
     minimum = int(params.get("min_days", 7))
-    if not sum(_plans_by_region(responses).values()):
-        return [_offender(BACKUP_ACCOUNT, _first(responses, "plans")[0], reason="no hay ningún plan de AWS Backup en las regiones evaluadas")]
-    offenders = []
+    summaries, unreadable = {}, []
     for plan_id, region, data in _for_each_pairs(responses, "details"):
         error = (data or {}).get("__error__")
         if error == NOT_FOUND:
             continue
         if error or "BackupPlan" not in (data or {}):
-            offenders.append(_item_failure(plan_id, region, error or "ERROR", "get-backup-plan"))
+            unreadable.append(_item_failure(plan_id, region, error or "ERROR", "get-backup-plan"))
             continue
         plan = data["BackupPlan"]
-        rules = [_summarise_rule(rule) for rule in plan.get("Rules") or []]
-        if not any(_qualifies(rule, minimum) for rule in rules):
-            offenders.append(_offender(plan.get("BackupPlanName", plan_id), region, plan_id=plan_id, rules=rules,
-                                       reason=f"ninguna regla corre a diario con retención de al menos {minimum} días"))
-    return offenders
+        summaries[plan_id] = {"plan": plan.get("BackupPlanName", plan_id), "region": region, "rules": [_summarise_rule(r) for r in plan.get("Rules") or []]}
+    if any(_qualifies(rule, minimum) for found in summaries.values() for rule in found["rules"]):
+        return []
+    if unreadable:
+        return unreadable
+    region = _first(responses, "plans")[0]
+    reason = f"ningún plan de AWS Backup tiene una regla diaria con retención de al menos {minimum} días"
+    return [_offender(BACKUP_ACCOUNT, region, plans=list(summaries.values()), reason=reason)]

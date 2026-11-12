@@ -752,6 +752,7 @@ class InventorySpecTests(unittest.TestCase):
         "s3_bucket", "dynamodb_table", "efs", "elbv2", "asg", "launch_template", "lambda_function", "sqs_queue",
         "sns_topic", "kms_key", "log_group", "cloudtrail_trail", "iam_user", "iam_role", "eks_cluster",
         "elasticache_group", "ses_identity", "wafv2_web_acl", "acm_certificate", "secret",
+        "apigw_rest_api", "apigw_http_api", "cloudfront_distribution", "wafv2_web_acl_cloudfront", "backup_vault",
     }
 
     def setUp(self):

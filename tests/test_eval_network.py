@@ -85,7 +85,7 @@ class SgOpenPortTests(unittest.TestCase):
 
     def test_sg_open_port_fail_reports_offenders(self):
         found = evaluate("sg_open_port", sg_responses(), {"port": 22})
-        self.assertEqual(flags(found), [(S_BASTION, "offender"), (S_WIDE, "offender"), (S_SPARE, "not_applicable"), (S_RANGE, "offender")])
+        self.assertEqual(flags(found), [(S_BASTION, "offender"), (S_WIDE, "offender"), (S_SPARE, "offender"), (S_RANGE, "offender")])
         bastion = found[0]
         self.assertEqual(bastion["region"], REGION)
         self.assertEqual(bastion["detail"]["ip_permissions"], [{"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22,
@@ -94,8 +94,8 @@ class SgOpenPortTests(unittest.TestCase):
                          (["0.0.0.0/0", "::/0"], 22, "acme-notes-bastion"))
 
     def test_sg_open_port_rdp_and_http_use_the_same_logic(self):
-        self.assertEqual(ids(real(evaluate("sg_open_port", sg_responses(), {"port": 3389}))), [S_RDP, S_WIDE, S_RANGE])
-        self.assertEqual(ids(real(evaluate("sg_open_port", sg_responses(), {"port": 80}))), [S_WEB, S_WIDE, S_RANGE])
+        self.assertEqual(ids(real(evaluate("sg_open_port", sg_responses(), {"port": 3389}))), [S_RDP, S_WIDE, S_SPARE, S_RANGE])
+        self.assertEqual(ids(real(evaluate("sg_open_port", sg_responses(), {"port": 80}))), [S_WEB, S_WIDE, S_SPARE, S_RANGE])
 
     def test_all_protocols_rule_reports_the_exact_permission(self):
         wide = next(o for o in evaluate("sg_open_port", sg_responses(), {"port": 22}) if o["resource_id"] == S_WIDE)
@@ -129,14 +129,18 @@ class SgOpenPortTests(unittest.TestCase):
         responses = {**{"groups": [(REGION, {"SecurityGroups": [group("sg-1", tcp(22, 22, "0.0.0.0/1"))]})]}, **attached("sg-1")}
         self.assertEqual(evaluate("sg_open_port", responses, {"port": 22}), [])
 
-    def test_unattached_groups_are_not_applicable(self):
+    def test_an_unattached_open_group_in_a_region_with_active_interfaces_fails(self):
         found = evaluate("sg_open_port", sg_responses(), {"port": 22})
-        self.assertIn((S_SPARE, "not_applicable"), flags(found))
+        spare = next(o for o in found if o["resource_id"] == S_SPARE)
+        self.assertNotIn("not_applicable", spare)
+        self.assertEqual(spare["detail"]["sources"], ["0.0.0.0/0"])
 
-    def test_group_only_on_an_available_interface_is_not_attached(self):
-        responses = {"groups": [(REGION, {"SecurityGroups": [group("sg-1", tcp(22, 22))]})],
+    def test_groups_of_a_region_without_in_use_interfaces_are_not_applicable(self):
+        groups = {"SecurityGroups": [group("sg-1", tcp(22, 22))]}
+        self.assertEqual(flags(evaluate("sg_open_port", sg_responses(groups, "none"), {"port": 22})), [("sg-1", "not_applicable")])
+        available = {"groups": [(REGION, groups)],
                      "enis": [(REGION, {"NetworkInterfaces": [{"NetworkInterfaceId": "eni-1", "Status": "available", "Groups": [{"GroupId": "sg-1"}]}]})]}
-        self.assertEqual(flags(evaluate("sg_open_port", responses, {"port": 22})), [("sg-1", "not_applicable")])
+        self.assertEqual(flags(evaluate("sg_open_port", available, {"port": 22})), [("sg-1", "not_applicable")])
 
     def test_region_without_interface_answer_is_unverified_instead_of_passing(self):
         responses = {"groups": [(OTHER, {"SecurityGroups": [group("sg-1", tcp(22, 22))]})], "enis": [(REGION, {"NetworkInterfaces": []})]}
@@ -156,9 +160,10 @@ class SgAllTrafficTests(unittest.TestCase):
 
     def test_sg_all_traffic_fail_reports_offenders(self):
         found = evaluate("sg_all_traffic", sg_responses())
-        self.assertEqual(flags(found), [(S_WIDE, "offender"), (S_SPARE, "not_applicable"), (S_CIDR, "offender")])
+        self.assertEqual(flags(found), [(S_WIDE, "offender"), (S_SPARE, "offender"), (S_CIDR, "offender")])
         self.assertEqual(found[0]["detail"]["sources"], ["0.0.0.0/0"])
         self.assertEqual(found[0]["detail"]["ip_permissions"], [{"IpProtocol": "-1", "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}])
+        self.assertEqual(found[1]["detail"]["ip_permissions"], [{"IpProtocol": "-1", "IpRanges": [{"CidrIp": "0.0.0.0/0"}]}])
 
     def test_any_cidr_source_counts_not_only_the_whole_internet(self):
         office = next(o for o in evaluate("sg_all_traffic", sg_responses()) if o["resource_id"] == S_CIDR)
@@ -179,8 +184,9 @@ class SgAllTrafficTests(unittest.TestCase):
         responses = {**{"groups": [(REGION, {"SecurityGroups": [group("sg-1", tcp(0, 65535, "10.0.0.0/8"))]})]}, **attached("sg-1")}
         self.assertEqual(evaluate("sg_all_traffic", responses), [])
 
-    def test_unattached_groups_are_not_applicable_and_a_missing_answer_is_unverified(self):
-        self.assertIn((S_SPARE, "not_applicable"), flags(evaluate("sg_all_traffic", sg_responses())))
+    def test_regions_without_in_use_interfaces_are_not_applicable_and_a_missing_answer_is_unverified(self):
+        groups = {"SecurityGroups": [group("sg-1", {"IpProtocol": "-1", "IpRanges": [{"CidrIp": "10.0.0.0/8"}]})]}
+        self.assertEqual(flags(evaluate("sg_all_traffic", sg_responses(groups, "none"))), [("sg-1", "not_applicable")])
         responses = {"groups": [(OTHER, {"SecurityGroups": [group("sg-1", tcp(22, 22))]})], "enis": []}
         self.assertEqual(flags(evaluate("sg_all_traffic", responses)), [("sg-1", "unverified")])
 
@@ -330,12 +336,18 @@ class RdsNotPublicTests(unittest.TestCase):
 class WafAssociatedTests(unittest.TestCase):
     def responses(self, albs="elbv2-describe-load-balancers-mixed", acls="wafv2-list-web-acls-one", associated="wafv2-list-resources-for-web-acl-alb",
                   apis=None, stages=None, associated_apis="wafv2-list-resources-for-web-acl-empty", distributions="cloudfront-list-distributions-none"):
+        with_acls = bool(fx(acls)["WebACLs"])
         parts = [{"albs": [(REGION, fx(albs))], "acls": [(REGION, fx(acls))], "apis": [(REGION, apis if apis is not None else {"items": []})],
-                  "distributions": [(REGION, fx(distributions))]},
-                 for_each("acl_albs", [(ACL_ARN, fx(associated))] if fx(acls)["WebACLs"] else []),
-                 for_each("acl_apis", [(ACL_ARN, fx(associated_apis))] if fx(acls)["WebACLs"] else []),
-                 for_each("stages", [(api, data) for api, data in (stages or {}).items()])]
+                  "distributions": [(REGION, fx(distributions))], "cf_acls": [(REGION, fx("wafv2-list-web-acls-cloudfront"))]},
+                 for_each("acl_albs", [(ACL_ARN, fx(associated))] if with_acls else []),
+                 for_each("acl_apis", [(ACL_ARN, fx(associated_apis))] if with_acls else []),
+                 for_each("stages", list((stages or {}).items()))]
         return merge(*parts)
+
+    def apis_case(self, **kwargs):
+        stages = {"a1b2c3d4e5": fx("apigateway-get-stages-prod-dev"), "b2c3d4e5f6": fx("apigateway-get-stages-prod"),
+                  "c3d4e5f6a7": fx("apigateway-get-stages-prod")}
+        return self.responses(apis=fx("apigateway-get-rest-apis-mixed"), stages=stages, **kwargs)
 
     def test_waf_associated_pass(self):
         data = {"LoadBalancers": [lb for lb in fx("elbv2-describe-load-balancers-mixed")["LoadBalancers"] if lb["LoadBalancerName"] == "acme-notes-alb"]}
@@ -350,39 +362,46 @@ class WafAssociatedTests(unittest.TestCase):
         self.assertEqual((offender["resource_id"], offender["region"]), ("acme-notes-open", REGION))
         self.assertEqual(offender["detail"], {"kind": "alb", "arn": ALB_BARE, "reason": "el ALB público no tiene un web ACL de WAF asociado"})
 
-    def test_internal_balancers_and_network_load_balancers_are_not_applicable(self):
-        found = evaluate("waf_associated", self.responses())
-        self.assertEqual([(o["resource_id"]) for o in found if o.get("not_applicable")], ["acme-notes-internal", "acme-notes-nlb"])
-
     def test_region_without_web_acls_fails_every_public_alb(self):
         found = evaluate("waf_associated", self.responses(acls="wafv2-list-web-acls-none"))
         self.assertEqual(ids(real(found)), ["acme-notes-alb", "acme-notes-open"])
 
-    def test_rest_api_stages_must_be_associated(self):
-        apis = fx("apigateway-get-rest-apis-mixed")
-        stages = {"a1b2c3d4e5": fx("apigateway-get-stages-prod-dev"), "b2c3d4e5f6": fx("apigateway-get-stages-prod"),
-                  "c3d4e5f6a7": fx("apigateway-get-stages-prod")}
-        found = real(evaluate("waf_associated", self.responses(apis=apis, stages=stages, associated_apis="wafv2-list-resources-for-web-acl-api")))
-        stage_offenders = [o for o in found if o["detail"]["kind"] == "api_gateway_stage"]
-        self.assertEqual([o["resource_id"] for o in stage_offenders], [STAGE_DEV, STAGE_EDGE])
-        self.assertEqual(stage_offenders[0]["detail"], {"kind": "api_gateway_stage", "api": "acme-notes-api", "stage": "dev",
-                                                         "reason": "el stage público no tiene un web ACL de WAF asociado"})
+    def test_a_rest_api_fails_when_any_stage_has_no_web_acl(self):
+        found = evaluate("waf_associated", self.apis_case(associated_apis="wafv2-list-resources-for-web-acl-api"))
+        apis = [o for o in found if o["resource_id"] in ("a1b2c3d4e5", "b2c3d4e5f6", "c3d4e5f6a7")]
+        self.assertEqual(flags(apis), [("a1b2c3d4e5", "offender"), ("b2c3d4e5f6", "offender"), ("c3d4e5f6a7", "not_applicable")])
+        self.assertEqual(apis[0]["detail"], {"kind": "api_gateway", "api": "acme-notes-api", "stages": ["dev"],
+                                             "reason": "el API público tiene stages sin un web ACL de WAF asociado"})
+        self.assertEqual(apis[1]["detail"]["stages"], ["prod"])
 
-    def test_private_apis_and_apis_without_stages_are_ignored(self):
-        apis = fx("apigateway-get-rest-apis-mixed")
-        stages = {"a1b2c3d4e5": fx("apigateway-get-stages-none"), "b2c3d4e5f6": {"__error__": "NotFoundException"},
-                  "c3d4e5f6a7": fx("apigateway-get-stages-prod")}
-        found = real(evaluate("waf_associated", self.responses(apis=apis, stages=stages)))
-        self.assertEqual([o for o in found if o["detail"]["kind"] != "alb"], [])
+    def test_a_rest_api_with_every_stage_associated_passes(self):
+        stages = {"a1b2c3d4e5": fx("apigateway-get-stages-prod")}
+        apis = {"items": [fx("apigateway-get-rest-apis-mixed")["items"][0]]}
+        found = evaluate("waf_associated", self.responses(apis=apis, stages=stages, associated_apis="wafv2-list-resources-for-web-acl-api"))
+        self.assertEqual([o for o in found if o["resource_id"] == "a1b2c3d4e5"], [])
 
-    def test_cloudfront_distributions_need_a_web_acl_and_disabled_ones_are_ignored(self):
-        found = real(evaluate("waf_associated", self.responses(distributions="cloudfront-list-distributions-mixed")))
-        (cloudfront,) = [o for o in found if o["detail"]["kind"] == "cloudfront"]
-        self.assertEqual((cloudfront["resource_id"], cloudfront["region"]), ("E2B3C4D5E6F7A8", REGION))
-        self.assertEqual(cloudfront["detail"]["domain"], "d2b3c4d5e6f7a8.cloudfront.net")
+    def test_private_apis_apis_without_stages_and_deleted_apis_are_not_applicable(self):
+        stages = {"a1b2c3d4e5": fx("apigateway-get-stages-none"), "b2c3d4e5f6": {"__error__": "NotFoundException"}, "c3d4e5f6a7": fx("apigateway-get-stages-prod")}
+        found = evaluate("waf_associated", self.responses(apis=fx("apigateway-get-rest-apis-mixed"), stages=stages))
+        self.assertEqual([(o["resource_id"], bool(o.get("not_applicable"))) for o in found if o["resource_id"] in stages],
+                         [("a1b2c3d4e5", True), ("b2c3d4e5f6", True), ("c3d4e5f6a7", True)])
+
+    def test_an_api_without_a_stages_answer_is_unverified(self):
+        found = evaluate("waf_associated", self.responses(apis=fx("apigateway-get-rest-apis-mixed")))
+        self.assertEqual([flag for rid, flag in flags(found) if rid == "a1b2c3d4e5"], ["unverified"])
+
+    def test_cloudfront_distributions_need_a_web_acl_and_disabled_ones_are_not_applicable(self):
+        found = evaluate("waf_associated", self.responses(distributions="cloudfront-list-distributions-mixed"))
+        distributions = [(o["resource_id"], "not_applicable" if o.get("not_applicable") else "offender") for o in found if o["resource_id"].startswith("E")]
+        self.assertEqual(distributions, [("E2B3C4D5E6F7A8", "offender"), ("E3C4D5E6F7A8B9", "not_applicable")])
+        cloudfront = next(o for o in found if o["resource_id"] == "E2B3C4D5E6F7A8")
+        self.assertEqual((cloudfront["region"], cloudfront["detail"]["domain"], cloudfront["detail"]["available_web_acls"]),
+                         (REGION, "d2b3c4d5e6f7a8.cloudfront.net", ["acme-notes-edge-acl"]))
+        self.assertEqual(cloudfront["detail"]["kind"], "cloudfront")
 
     def test_missing_distribution_list_items_is_no_distributions(self):
-        self.assertEqual([o for o in real(evaluate("waf_associated", self.responses())) if o["detail"]["kind"] == "cloudfront"], [])
+        found = evaluate("waf_associated", self.responses())
+        self.assertEqual([o for o in found if o["resource_id"].startswith("E")], [])
 
 
 class NetworkCatalogTests(unittest.TestCase):
@@ -420,7 +439,7 @@ class NetworkCatalogTests(unittest.TestCase):
 
     def test_scopes_resource_types_and_regions(self):
         expected = {"NET-001": ["security_group"], "NET-002": ["security_group"], "NET-003": ["security_group"], "NET-004": ["security_group"],
-                    "NET-005": ["nacl"], "NET-006": ["vpc"], "NET-007": ["rds_instance"], "NET-008": ["elbv2"]}
+                    "NET-005": ["nacl"], "NET-006": ["vpc"], "NET-007": ["rds_instance"], "NET-008": ["elbv2", "apigw_rest_api", "cloudfront_distribution"]}
         self.assertEqual({c["id"]: c["resource_types"] for c in self.checks}, expected)
         self.assertTrue(all(c["scope"] == "resource" for c in self.checks))
         self.assertEqual({c["id"] for c in self.checks if c["all_regions"]}, {"NET-006"})
@@ -451,6 +470,8 @@ class NetworkCatalogTests(unittest.TestCase):
                              ("list-resources-for-web-acl", {"from": "acls", "path": "WebACLs[].ARN", "arg": "--web-acl-arn"}))
         self.assertEqual(calls["stages"]["for_each"], {"from": "apis", "path": "items[].id", "arg": "--rest-api-id"})
         self.assertEqual(calls["distributions"]["region"], "global")
+        self.assertEqual((calls["cf_acls"]["operation"], calls["cf_acls"]["args"], calls["cf_acls"]["region"]),
+                         ("list-web-acls", ["--scope", "CLOUDFRONT"], "global"))
 
     def test_steps_are_not_numbered_by_hand(self):
         for check in self.checks:
@@ -472,7 +493,7 @@ class NetworkCatalogTests(unittest.TestCase):
         for check in self.checks:
             rem = check["remediation"]
             for text in [*rem["commands"], rem["verify_after"]]:
-                script = text.replace("{region}", "us-east-1").replace("{account_id}", "111122223333").replace("{resource_id}", "acme-notes-x")
+                script = text.replace("{region}", "us-east-1").replace("{account_id}", "111122223333").replace("{resource_id}", "acme-notes-x").replace("{detail_json:ip_permissions}", "'[]'")
                 done = subprocess.run(["bash", "-n"], input=script, capture_output=True, text=True)
                 self.assertEqual(done.returncode, 0, f"{check['id']}: {done.stderr}\n{script}")
 
@@ -505,28 +526,23 @@ class NetworkCatalogTests(unittest.TestCase):
                     "NET-008": ([], [])}
         self.assertEqual({c["id"]: (c["mappings"]["security_hub"], c["mappings"]["cis_aws"]) for c in self.checks}, expected)
 
-    def test_security_group_revokes_target_the_exact_rule_and_never_revoke_everything(self):
+    def test_security_group_revokes_use_the_exact_rules_of_the_finding_and_never_revoke_everything(self):
         for check_id in ("NET-001", "NET-002", "NET-003", "NET-004"):
-            commands = catalog_check(check_id)["remediation"]["commands"]
-            revokes = [c for c in commands if "revoke-security-group-ingress" in c]
-            self.assertTrue(revokes, check_id)
-            for command in revokes:
-                self.assertIn("--ip-permissions", command, check_id)
-                self.assertNotIn("--protocol", command, check_id)
-                self.assertNotIn("--cidr", command, check_id)
+            rem = catalog_check(check_id)["remediation"]
+            self.assertEqual(len(rem["commands"]), 1, check_id)
+            (command,) = rem["commands"]
+            self.assertIn("revoke-security-group-ingress", command, check_id)
+            self.assertIn("--ip-permissions {detail_json:ip_permissions}", command, check_id)
+            self.assertNotIn("__COMPLETAR_IP_PERMISSIONS__", command, check_id)
+            self.assertNotIn("--protocol", command, check_id)
+            self.assertNotIn("--cidr", command, check_id)
+            self.assertIn("detail.ip_permissions", rem["notes"], check_id)
 
-    def test_port_specific_revokes_name_the_port_and_both_address_families(self):
-        for check_id, port in (("NET-001", 22), ("NET-002", 3389), ("NET-003", 80)):
-            text = "\n".join(catalog_check(check_id)["remediation"]["commands"])
-            self.assertIn(f'"IpProtocol":"tcp","FromPort":{port},"ToPort":{port},"IpRanges":[{{"CidrIp":"0.0.0.0/0"}}]', text, check_id)
-            self.assertIn(f'"IpProtocol":"tcp","FromPort":{port},"ToPort":{port},"Ipv6Ranges":[{{"CidrIpv6":"::/0"}}]', text, check_id)
-            self.assertIn("__COMPLETAR_IP_PERMISSIONS__", text, check_id)
-
-    def test_all_traffic_revoke_walks_the_cidrs_of_the_all_traffic_rules_only(self):
-        text = "\n".join(catalog_check("NET-004")["remediation"]["commands"])
-        self.assertIn("IpPermissions[?IpProtocol==`-1`].IpRanges[].CidrIp", text)
-        self.assertIn("IpPermissions[?IpProtocol==`-1`].Ipv6Ranges[].CidrIpv6", text)
-        self.assertIn('\\"IpProtocol\\":\\"-1\\",\\"IpRanges\\":[{\\"CidrIp\\":\\"$CIDR\\"}]', text)
+    def test_security_group_checks_follow_drata_and_evaluate_every_group_of_a_region_with_active_enis(self):
+        for check_id in ("NET-001", "NET-002", "NET-003", "NET-004"):
+            text = catalog_check(check_id)["verify"]["pass_when_text"]
+            self.assertRegex(text, r"(?i)esté o no adjunto", check_id)
+            self.assertRegex(text, r"(?i)región", check_id)
 
     def test_net_003_notes_say_that_an_alb_redirect_still_fails_drata_291(self):
         rem = catalog_check("NET-003")["remediation"]
@@ -549,6 +565,20 @@ class NetworkCatalogTests(unittest.TestCase):
         self.assertIn("--no-publicly-accessible", text)
         self.assertRegex(text, r"create-db-subnet-group [^\n]*&&[^\n]*modify-db-instance [^\n]*--db-subnet-group-name")
 
+    def test_net_005_never_gives_port_range_to_an_all_protocols_rule(self):
+        commands = catalog_check("NET-005")["remediation"]["commands"]
+        creates = [c for c in commands if "create-network-acl-entry" in c]
+        self.assertEqual(len(creates), 2)
+        for command in creates:
+            self.assertIn('PROTOCOL="tcp"', command)
+            self.assertNotIn("--protocol -1", command)
+            self.assertRegex(command, r'create-network-acl-entry [^\n]*"\$EXTRA_1"[^\n]*From=23,To=3388[^\n]*&&[^\n]*create-network-acl-entry [^\n]*"\$EXTRA_2"[^\n]*From=3390,To=65535[^\n]*&&[^\n]*replace-network-acl-entry [^\n]*From=1,To=21')
+        self.assertEqual(sum("--ipv6-cidr-block ::/0" in c for c in creates), 1)
+        for command in commands:
+            if "replace-network-acl-entry" in command:
+                self.assertNotRegex(command, r"--protocol (-1|all)\b")
+                self.assertRegex(command, r'--protocol "\$PROTOCOL"|--protocol tcp')
+
     def test_net_005_notes_warn_about_the_default_nacl_and_statelessness(self):
         notes = catalog_check("NET-005")["remediation"]["notes"]
         self.assertRegex(notes, r"(?i)por defecto")
@@ -558,12 +588,13 @@ class NetworkCatalogTests(unittest.TestCase):
         text = "\n".join(catalog_check("NET-008")["remediation"]["commands"])
         self.assertIn("create-web-acl", text)
         self.assertIn("associate-web-acl", text)
+        self.assertIn("/restapis/{resource_id}/stages/$STAGE", text)
 
 
 class NetworkCollectTests(unittest.TestCase):
     """The whole network catalog through collect.main with a fake AWS: wiring of calls, for_each and args."""
 
-    TYPES = ("security_group", "nacl", "vpc", "rds_instance", "elbv2")
+    TYPES = ("security_group", "nacl", "vpc", "rds_instance", "elbv2", "apigw_rest_api", "cloudfront_distribution")
 
     @classmethod
     def setUpClass(cls):
@@ -602,6 +633,7 @@ class NetworkCollectTests(unittest.TestCase):
             ("ec2", "describe-route-tables", None, "", net("ec2-describe-route-tables")),
             ("rds", "describe-db-instances", None, "", net("rds-describe-db-instances-exposure")),
             ("elbv2", "describe-load-balancers", None, "", net("elbv2-describe-load-balancers-mixed")),
+            ("wafv2", "list-web-acls", None, "CLOUDFRONT", net("wafv2-list-web-acls-cloudfront")),
             ("wafv2", "list-web-acls", None, "", net("wafv2-list-web-acls-one")),
             ("wafv2", "list-resources-for-web-acl", None, "APPLICATION_LOAD_BALANCER", net("wafv2-list-resources-for-web-acl-alb")),
             ("wafv2", "list-resources-for-web-acl", None, "API_GATEWAY", net("wafv2-list-resources-for-web-acl-api")),
@@ -621,12 +653,11 @@ class NetworkCollectTests(unittest.TestCase):
 
     def test_security_group_outcomes(self):
         ssh = self.rows("NET-001")
-        self.assertEqual([r for r in ssh if r[0] == "FAIL"], [("FAIL", S_BASTION, REGION), ("FAIL", S_RANGE, REGION), ("FAIL", S_WIDE, REGION)])
+        self.assertEqual([r for r in ssh if r[0] == "FAIL"], [("FAIL", S_BASTION, REGION), ("FAIL", S_RANGE, REGION), ("FAIL", S_WIDE, REGION), ("FAIL", S_SPARE, REGION)])
         self.assertEqual(sorted(r[1] for r in ssh if r[0] == "PASS"), sorted([S_WEB, S_DB, S_RDP, S_CIDR, S_UDP, S_PREFIX]))
-        self.assertNotIn(S_SPARE, [r[1] for r in ssh])
-        self.assertEqual([r[1] for r in self.rows("NET-002") if r[0] == "FAIL"], [S_RANGE, S_RDP, S_WIDE])
-        self.assertEqual([r[1] for r in self.rows("NET-003") if r[0] == "FAIL"], [S_RANGE, S_WEB, S_WIDE])
-        self.assertEqual([r[1] for r in self.rows("NET-004") if r[0] == "FAIL"], [S_CIDR, S_WIDE])
+        self.assertEqual([r[1] for r in self.rows("NET-002") if r[0] == "FAIL"], [S_RANGE, S_RDP, S_WIDE, S_SPARE])
+        self.assertEqual([r[1] for r in self.rows("NET-003") if r[0] == "FAIL"], [S_RANGE, S_WEB, S_WIDE, S_SPARE])
+        self.assertEqual([r[1] for r in self.rows("NET-004") if r[0] == "FAIL"], [S_CIDR, S_WIDE, S_SPARE])
 
     def test_nacl_outcomes(self):
         self.assertEqual([r for r in self.rows("NET-005") if r[0] == "FAIL"],
@@ -644,16 +675,45 @@ class NetworkCollectTests(unittest.TestCase):
         self.assertEqual([r[1] for r in found if r[0] == "PASS"], ["acme-notes-db"])
 
     def test_waf_outcomes(self):
-        found = self.rows("NET-008")
-        self.assertEqual([r for r in found if r[1] in ("acme-notes-alb", "acme-notes-open")], [("PASS", "acme-notes-alb", REGION), ("FAIL", "acme-notes-open", REGION)])
-        self.assertEqual(sorted(r[1] for r in found if r[0] == "FAIL"), sorted(["acme-notes-open", STAGE_DEV, STAGE_EDGE, "E2B3C4D5E6F7A8"]))
-        self.assertNotIn("acme-notes-internal", [r[1] for r in found])
-        self.assertNotIn("acme-notes-nlb", [r[1] for r in found])
+        self.assertEqual(self.rows("NET-008"), [("PASS", "E1A2B3C4D5E6F7", REGION), ("FAIL", "E2B3C4D5E6F7A8", REGION), ("FAIL", "a1b2c3d4e5", REGION),
+                                                ("PASS", "acme-notes-alb", REGION), ("FAIL", "acme-notes-open", REGION), ("FAIL", "b2c3d4e5f6", REGION)])
 
     def test_waf_associations_are_asked_once_per_web_acl_and_resource_type(self):
         asked = [c for c in self.runner.calls if c[2] == "list-resources-for-web-acl"]
         self.assertEqual(sorted(c[c.index("--resource-type") + 1] for c in asked), ["API_GATEWAY", "APPLICATION_LOAD_BALANCER"])
         self.assertTrue(all(ACL_ARN in c for c in asked))
+
+    def test_cloudfront_web_acls_are_read_in_us_east_1_with_their_scope(self):
+        (argv,) = [c for c in self.runner.calls if c[2] == "list-web-acls" and "CLOUDFRONT" in c]
+        self.assertEqual(argv[argv.index("--region") + 1], "us-east-1")
+
+
+class WafWithoutBalancersTests(unittest.TestCase):
+    """An account with only CloudFront (no ALB) still gets a verdict per distribution."""
+
+    def test_cloudfront_only_account_gets_pass_and_fail_rows_and_nothing_is_na(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / "checks").mkdir()
+        shutil.copy(NETWORK_JSON, tmp / "checks" / "network.json")
+        specs = json.loads((REFS / "inventory.json").read_text(encoding="utf-8"))
+        (tmp / "inventory.json").write_text(json.dumps({t: specs[t] for t in ("cloudfront_distribution",)}), encoding="utf-8")
+        scope = {"platform": "Acme Notes", "mode": "full", "target": None, "regions": [REGION], "profile": None, "resources": [], "domains": None}
+        (tmp / "scope.json").write_text(json.dumps(scope), encoding="utf-8")
+        core = lambda name: ok(load_fixture(f"aws/core/{name}.json"))
+        runner = RuleRunner([
+            ("sts", "get-caller-identity", None, "", core("sts-get-caller-identity")), ("ec2", "describe-regions", None, "", core("ec2-describe-regions")),
+            ("iam", "list-attached-user-policies", None, "", ok({"AttachedPolicies": []})),
+            ("cloudfront", "list-distributions", None, "", ok(fx("cloudfront-list-distributions-mixed"))),
+            ("wafv2", "list-web-acls", None, "CLOUDFRONT", ok(fx("wafv2-list-web-acls-cloudfront"))),
+            ("wafv2", "list-web-acls", None, "", ok(fx("wafv2-list-web-acls-none"))),
+            ("elbv2", "describe-load-balancers", None, "", ok({"LoadBalancers": []})), ("apigateway", "get-rest-apis", None, "", ok({"items": []}))])
+        with contextlib.redirect_stdout(io.StringIO()):
+            collect.main(["--scope", str(tmp / "scope.json"), "--out", str(tmp / "out"), "--checks-dir", str(tmp / "checks"),
+                          "--inventory", str(tmp / "inventory.json")], runner=runner, sleep=lambda s: None, which=lambda name: None)
+        results = json.loads((tmp / "out" / "checks-result.json").read_text(encoding="utf-8"))["results"]
+        self.assertEqual([(r["status"], r["resource_id"]) for r in results if r["check_id"] == "NET-008"],
+                         [("PASS", "E1A2B3C4D5E6F7"), ("FAIL", "E2B3C4D5E6F7A8")])
 
 
 if __name__ == "__main__":

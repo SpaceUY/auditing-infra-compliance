@@ -540,8 +540,10 @@
     {
       "id": "DAT-008",
       "title": "Los jobs de AWS Backup de las últimas 24 horas terminaron bien",
-      "scope": "account",
-      "resource_types": [],
+      "scope": "resource",
+      "resource_types": [
+        "backup_vault"
+      ],
       "all_regions": false,
       "severity": "high",
       "not_enabled_means": "not_verified",
@@ -555,9 +557,9 @@
             "region": "each"
           },
           {
-            "name": "plans",
+            "name": "vaults",
             "service": "backup",
-            "operation": "list-backup-plans",
+            "operation": "list-backup-vaults",
             "args": [],
             "region": "each"
           }
@@ -566,10 +568,10 @@
         "params": {
           "window_hours": 24
         },
-        "pass_when_text": "Cada recurso con jobs de AWS Backup creados en las últimas 24 horas (ventana móvil, no el día calendario) tiene al menos uno COMPLETED; los jobs en curso no cuentan como fallo. Una región con planes de backup y ningún job en esa ventana también falla. Sin AWS Backup en uso no hay nada que evaluar y este chequeo pasa sin comprobar nada (DAT-010 reporta la falta de plan). Test 132 de Drata.",
+        "pass_when_text": "Un veredicto por bóveda de AWS Backup: cada recurso con jobs creados en las últimas 24 horas (ventana móvil, no el día calendario) tiene al menos uno COMPLETED; los jobs en curso no cuentan como fallo. Una bóveda con puntos de recuperación y ningún job en esa ventana también falla. Una bóveda vacía sin jobs no aplica. Sin ninguna bóveda de AWS Backup, el chequeo es N/A. Test 132 de Drata.",
         "needs": [
           "backup:ListBackupJobs",
-          "backup:ListBackupPlans"
+          "backup:ListBackupVaults"
         ]
       },
       "vault_signals": [
@@ -598,16 +600,16 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Revisar por qué fallaron los jobs del recurso {resource_id} (primer bloque, solo lectura): StatusMessage suele indicar un problema de permisos del rol, de la bóveda o del recurso.",
-          "Corregir la causa (rol de AWS Backup, política de la bóveda, estado del recurso) y volver a lanzar un backup a pedido (segundo bloque).",
+          "Revisar por qué fallaron los jobs de la bóveda {resource_id} (primer bloque, solo lectura; detail.resources lista los recursos afectados): StatusMessage suele indicar un problema de permisos del rol, de la bóveda o del recurso.",
+          "Corregir la causa (rol de AWS Backup, política de la bóveda, estado del recurso) y volver a lanzar un backup a pedido del recurso afectado (segundo bloque).",
           "Verificar que el nuevo job termina en COMPLETED y que el plan lo repite cada día."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRESOURCE_ARN=\"{resource_id}\"\n# solo lectura: jobs del recurso que no terminaron bien\naws backup list-backup-jobs --by-resource-arn \"$RESOURCE_ARN\" --region \"$REGION\" --query 'BackupJobs[?State!=`COMPLETED`].[BackupJobId,State,StatusMessage,CreationDate]' --output table",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"__COMPLETAR_NOMBRE_VAULT__\"\nROLE_ARN=\"__COMPLETAR_ARN_ROL_BACKUP__\"\naws backup start-backup-job --backup-vault-name \"$VAULT_NAME\" --resource-arn \"{resource_id}\" --iam-role-arn \"$ROLE_ARN\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\n# solo lectura: jobs de la bóveda que no terminaron bien\naws backup list-backup-jobs --by-backup-vault-name \"$VAULT_NAME\" --region \"$REGION\" --query 'BackupJobs[?State!=`COMPLETED`].[BackupJobId,ResourceArn,State,StatusMessage,CreationDate]' --output table",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\nRESOURCE_ARN=\"__COMPLETAR_ARN_RECURSO__\"\nROLE_ARN=\"__COMPLETAR_ARN_ROL_BACKUP__\"\naws backup start-backup-job --backup-vault-name \"$VAULT_NAME\" --resource-arn \"$RESOURCE_ARN\" --iam-role-arn \"$ROLE_ARN\" --region \"$REGION\""
         ],
-        "verify_after": "aws backup list-backup-jobs --by-resource-arn \"{resource_id}\" --by-state COMPLETED --region \"{region}\" --query 'BackupJobs[0].[BackupJobId,State,CreationDate]'",
-        "notes": "Cuando resource_id es aws-backup, la región tiene planes pero ningún job en las últimas 24 horas: revisar que los planes tengan una regla diaria (DAT-010) y que el recurso esté asignado al plan (backup selection). Un backup a pedido consume almacenamiento y puede cargar el recurso (RDS, EFS): hacerlo fuera de horario pico. Drata necesita backup:ListRecoveryPointsByResource y backup:ListBackupJobs inline en el rol DrataAutopilotRole; sin ellos el test da AccessDenied. El test 134 de Drata exige además relanzar un backup fallido dentro de las 24 horas."
+        "verify_after": "aws backup list-backup-jobs --by-backup-vault-name \"{resource_id}\" --by-state COMPLETED --region \"{region}\" --query 'BackupJobs[0].[BackupJobId,State,CreationDate]'",
+        "notes": "Si el hallazgo dice que la bóveda no tuvo ningún job, revisar que los planes tengan una regla diaria que use esta bóveda (DAT-010) y que los recursos estén asignados al plan (backup selection). Un backup a pedido consume almacenamiento y puede cargar el recurso (RDS, EFS): hacerlo fuera de horario pico. Drata necesita backup:ListRecoveryPointsByResource y backup:ListBackupJobs inline en el rol DrataAutopilotRole; sin ellos el test da AccessDenied. El test 134 de Drata exige además relanzar un backup fallido dentro de las 24 horas."
       },
       "sources": [
         "https://help.drata.com/en/articles/9999495",
@@ -617,8 +619,10 @@
     {
       "id": "DAT-009",
       "title": "Las bóvedas de AWS Backup envían alertas de fallo de backup a un tópico de SNS",
-      "scope": "account",
-      "resource_types": [],
+      "scope": "resource",
+      "resource_types": [
+        "backup_vault"
+      ],
       "all_regions": false,
       "severity": "high",
       "not_enabled_means": "not_verified",
@@ -638,8 +642,8 @@
             "args": [],
             "region": "each",
             "for_each": {
-              "from": "vaults",
-              "path": "BackupVaultList[].BackupVaultName",
+              "from": "__inventory__",
+              "path": "id",
               "arg": "--backup-vault-name"
             },
             "ok_errors": [
@@ -649,7 +653,7 @@
           }
         ],
         "evaluator": "python:backup_vault_notifications",
-        "pass_when_text": "Cada bóveda con puntos de recuperación tiene configuradas notificaciones con un tópico de SNS y el evento BACKUP_JOB_FAILED. Una bóveda sin notificaciones falla; las bóvedas vacías (sin puntos de recuperación) no se evalúan. Sin bóvedas con datos el chequeo pasa sin comprobar nada. Test 133 de Drata.",
+        "pass_when_text": "Cada bóveda con puntos de recuperación tiene configuradas notificaciones con un tópico de SNS y el evento BACKUP_JOB_FAILED. Una bóveda sin notificaciones falla; las bóvedas vacías (sin puntos de recuperación) no aplican. Sin ninguna bóveda de AWS Backup (o con todas vacías), el chequeo es N/A. Test 133 de Drata.",
         "needs": [
           "backup:ListBackupVaults",
           "backup:GetBackupVaultNotifications"
@@ -701,7 +705,7 @@
     },
     {
       "id": "DAT-010",
-      "title": "Existe un plan de AWS Backup con una regla diaria y retención de al menos 7 días",
+      "title": "Al menos un plan de AWS Backup tiene una regla diaria con retención de al menos 7 días",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -737,7 +741,7 @@
         "params": {
           "min_days": 7
         },
-        "pass_when_text": "Cada plan de AWS Backup tiene al menos una regla con ScheduleExpression diaria (cron con día del mes, mes y día de la semana sin restricción) y retención (Lifecycle.DeleteAfterDays) de 7 días o más; sin expiración se considera retención indefinida. Sin ningún plan en las regiones evaluadas falla una vez, con el recurso aws-backup. Las expresiones que no se modelan (rate(), semanas parciales) no cuentan. Los 7 días son un criterio de diseño del catálogo.",
+        "pass_when_text": "A nivel de cuenta: al menos un plan de AWS Backup, en cualquier región evaluada, tiene una regla con ScheduleExpression diaria o más frecuente (cron con día del mes, mes y día de la semana sin restricción) y retención (Lifecycle.DeleteAfterDays) de 7 días o más; sin expiración se considera retención indefinida. Los planes semanales o de archivo no fallan mientras exista un plan diario que cumpla. Si ningún plan cumple (o no hay ninguno) falla una sola vez, con el recurso aws-backup. Las expresiones que no se modelan (rate(), semanas parciales) no cuentan. Los 7 días son un criterio de diseño del catálogo.",
         "needs": [
           "backup:ListBackupPlans",
           "backup:GetBackupPlan"
@@ -769,12 +773,12 @@
         "steps": [
           "Decidir el alcance: qué recursos protege el plan (por tag o por ARN), la bóveda destino, el rol de AWS Backup y la retención (35 días es un valor habitual).",
           "Si no hay ningún plan, crearlo con una regla diaria y asignarle los recursos (primer bloque).",
-          "Si el plan {resource_id} existe pero no tiene una regla diaria, ver sus reglas (segundo bloque) y agregar una regla diaria con update-backup-plan (tercer bloque).",
+          "Si ya hay planes pero ninguno tiene una regla diaria que cumpla (detail.plans), ver las reglas del plan elegido (segundo bloque) y agregar una regla diaria con update-backup-plan (tercer bloque).",
           "Verificar con get-backup-plan que existe la regla diaria con la retención elegida."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__COMPLETAR_NOMBRE_PLAN__\"\nVAULT_NAME=\"__COMPLETAR_NOMBRE_VAULT__\"\nROLE_ARN=\"__COMPLETAR_ARN_ROL_BACKUP__\"\nRESOURCE_ARN=\"__COMPLETAR_ARN_RECURSO__\"\nPLAN_ID=$(aws backup create-backup-plan --backup-plan \"{\\\"BackupPlanName\\\":\\\"$PLAN_NAME\\\",\\\"Rules\\\":[{\\\"RuleName\\\":\\\"diario\\\",\\\"TargetBackupVaultName\\\":\\\"$VAULT_NAME\\\",\\\"ScheduleExpression\\\":\\\"cron(0 5 ? * * *)\\\",\\\"Lifecycle\\\":{\\\"DeleteAfterDays\\\":35}}]}\" --region \"$REGION\" --query 'BackupPlanId' --output text) && aws backup create-backup-selection --backup-plan-id \"$PLAN_ID\" --backup-selection \"{\\\"SelectionName\\\":\\\"$PLAN_NAME-recursos\\\",\\\"IamRoleArn\\\":\\\"$ROLE_ARN\\\",\\\"Resources\\\":[\\\"$RESOURCE_ARN\\\"]}\" --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# solo lectura: reglas actuales del plan\nPLAN_ID=$(aws backup list-backup-plans --region \"$REGION\" --query \"BackupPlansList[?BackupPlanName=='{resource_id}'].BackupPlanId | [0]\" --output text) && aws backup get-backup-plan --backup-plan-id \"$PLAN_ID\" --region \"$REGION\" --query 'BackupPlan.Rules'",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__COMPLETAR_NOMBRE_PLAN__\"\n# solo lectura: reglas actuales del plan\nPLAN_ID=$(aws backup list-backup-plans --region \"$REGION\" --query \"BackupPlansList[?BackupPlanName=='$PLAN_NAME'].BackupPlanId | [0]\" --output text) && aws backup get-backup-plan --backup-plan-id \"$PLAN_ID\" --region \"$REGION\" --query 'BackupPlan.Rules'",
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_ID=\"__COMPLETAR_ID_PLAN__\"\n# update-backup-plan REEMPLAZA todo el plan: el JSON debe traer las reglas actuales más la nueva regla diaria\nPLAN_JSON='__COMPLETAR_PLAN_JSON__'\naws backup update-backup-plan --backup-plan-id \"$PLAN_ID\" --backup-plan \"$PLAN_JSON\" --region \"$REGION\""
         ],
         "verify_after": "aws backup list-backup-plans --region \"{region}\" --query 'BackupPlansList[].[BackupPlanName,BackupPlanId]'",
@@ -840,15 +844,16 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Agregar al menos una réplica al replication group {resource_id}, que queda en otra zona de disponibilidad, y esperar a que esté disponible.",
-          "Habilitar el failover automático y Multi-AZ en el grupo (el mismo comando encadenado).",
+          "Si el replication group {resource_id} no tiene réplicas, agregar al menos una (primer bloque), que queda en otra zona de disponibilidad, y esperar a que esté disponible.",
+          "Habilitar el failover automático y Multi-AZ en el grupo: el primer bloque ya lo encadena; si el grupo ya tenía réplicas, usar solo el segundo bloque.",
           "Verificar que MultiAZ y AutomaticFailover figuran enabled."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRG_ID=\"{resource_id}\"\naws elasticache increase-replica-count --replication-group-id \"$RG_ID\" --new-replica-count 1 --apply-immediately --region \"$REGION\" && aws elasticache wait replication-group-available --replication-group-id \"$RG_ID\" --region \"$REGION\" && aws elasticache modify-replication-group --replication-group-id \"$RG_ID\" --automatic-failover-enabled --multi-az-enabled --apply-immediately --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRG_ID=\"{resource_id}\"\naws elasticache increase-replica-count --replication-group-id \"$RG_ID\" --new-replica-count 1 --apply-immediately --region \"$REGION\" && aws elasticache wait replication-group-available --replication-group-id \"$RG_ID\" --region \"$REGION\" && aws elasticache modify-replication-group --replication-group-id \"$RG_ID\" --automatic-failover-enabled --multi-az-enabled --apply-immediately --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRG_ID=\"{resource_id}\"\n# solo para un grupo que ya tiene al menos una réplica: no agrega nodos\naws elasticache modify-replication-group --replication-group-id \"$RG_ID\" --automatic-failover-enabled --multi-az-enabled --apply-immediately --region \"$REGION\""
         ],
         "verify_after": "aws elasticache describe-replication-groups --replication-group-id \"{resource_id}\" --region \"{region}\" --query 'ReplicationGroups[0].[MultiAZ,AutomaticFailover]'",
-        "notes": "Costo: cada réplica es un nodo más con la misma clase que el primario. Si el grupo ya tiene réplicas, increase-replica-count falla porque --new-replica-count debe superar la cantidad actual: omitir ese paso y usar solo el modify-replication-group. La réplica nueva se sincroniza copiando el dataset (impacto de rendimiento en el primario, más en cachés grandes). Hacerlo fuera de horario pico. Los clusters con cluster mode habilitado agregan la réplica en cada shard. Multi-AZ aplica a Redis/Valkey; Memcached no tiene replication group."
+        "notes": "Costo: cada réplica es un nodo más con la misma clase que el primario. Si el grupo ya tiene réplicas, increase-replica-count falla porque --new-replica-count debe superar la cantidad actual: usar solo el segundo bloque (modify-replication-group). La réplica nueva se sincroniza copiando el dataset (impacto de rendimiento en el primario, más en cachés grandes). Hacerlo fuera de horario pico. Los clusters con cluster mode habilitado agregan la réplica en cada shard. Multi-AZ aplica a Redis/Valkey; Memcached no tiene replication group."
       },
       "sources": [
         "https://help.drata.com/en/articles/4776928",

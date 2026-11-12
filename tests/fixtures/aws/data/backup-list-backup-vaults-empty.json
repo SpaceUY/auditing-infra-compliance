@@ -1,0 +1,8 @@
+{
+  "BackupVaultList": [
+    {
+      "BackupVaultName": "Default",
+      "NumberOfRecoveryPoints": 0
+    }
+  ]
+}

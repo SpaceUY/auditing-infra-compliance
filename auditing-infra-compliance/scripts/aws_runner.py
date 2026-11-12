@@ -83,6 +83,8 @@ SCRUB: dict[tuple[str, str], frozenset[str]] = {
     ("lambda", "list-functions"): frozenset({"Environment"}),
     ("lambda", "get-function-configuration"): frozenset({"Environment"}),
     ("ecs", "describe-task-definition"): frozenset({"environment", "secrets"}),
+    ("apigateway", "get-stages"): frozenset({"variables"}),
+    ("apigatewayv2", "get-stages"): frozenset({"StageVariables"}),
 }
 
 TIMEOUT_SECONDS = 120

@@ -317,5 +317,63 @@
     "name_path": "Name",
     "tags_path": "Tags[]",
     "arn_path": "ARN"
+  },
+  "apigw_rest_api": {
+    "service": "apigateway",
+    "operation": "get-rest-apis",
+    "args": [],
+    "region": "each",
+    "items_path": "items[]",
+    "id_path": "id",
+    "name_path": "name",
+    "tags_path": "tags",
+    "arn_path": ""
+  },
+  "apigw_http_api": {
+    "service": "apigatewayv2",
+    "operation": "get-apis",
+    "args": [],
+    "region": "each",
+    "items_path": "Items[]",
+    "id_path": "ApiId",
+    "name_path": "Name",
+    "tags_path": "Tags",
+    "arn_path": ""
+  },
+  "cloudfront_distribution": {
+    "service": "cloudfront",
+    "operation": "list-distributions",
+    "args": [],
+    "region": "global",
+    "items_path": "DistributionList.Items[]",
+    "id_path": "Id",
+    "name_path": "DomainName",
+    "tags_path": "",
+    "arn_path": "ARN"
+  },
+  "wafv2_web_acl_cloudfront": {
+    "service": "wafv2",
+    "operation": "list-web-acls",
+    "args": [
+      "--scope",
+      "CLOUDFRONT"
+    ],
+    "region": "global",
+    "items_path": "WebACLs[]",
+    "id_path": "Name",
+    "name_path": "Name",
+    "tags_path": "",
+    "arn_path": "ARN"
+  },
+  "backup_vault": {
+    "service": "backup",
+    "operation": "list-backup-vaults",
+    "args": [],
+    "region": "each",
+    "items_path": "BackupVaultList[]",
+    "id_path": "BackupVaultName",
+    "name_path": "BackupVaultName",
+    "tags_path": "",
+    "arn_path": "BackupVaultArn"
   }
 }

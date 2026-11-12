@@ -51,21 +51,21 @@ def _is_all_traffic(permission: dict) -> bool:
     return str(permission.get("IpProtocol")) == "-1"
 
 
-def _attached_groups(responses: dict) -> tuple[set[tuple[str, str]], set[str]]:
-    """({(region, group id)} used by an active (in-use) network interface, {regions with an answer})."""
-    attached, answered = set(), set()
+def _eni_regions(responses: dict) -> tuple[set[str], set[str]]:
+    """({regions with at least one in-use network interface}, {regions with an answer})."""
+    active, answered = set(), set()
     for region, data in responses.get("enis", []):
         answered.add(region)
-        for eni in (data or {}).get("NetworkInterfaces", []):
-            if str(eni.get("Status", "in-use")).lower() == "in-use":
-                attached.update((region, g["GroupId"]) for g in eni.get("Groups") or [])
-    return attached, answered
+        if any(str(eni.get("Status", "in-use")).lower() == "in-use" for eni in (data or {}).get("NetworkInterfaces", [])):
+            active.add(region)
+    return active, answered
 
 
 def _group_findings(responses: dict, matches, only_any_address: bool, **extra) -> list[dict]:
-    """One entry per security group: offender (a matching rule open to a CIDR), not applicable (not attached to an active
-    interface; Drata only counts regions with active ENIs) or unverified (the region's interfaces could not be read)."""
-    attached, answered = _attached_groups(responses)
+    """One entry per security group, attached or not (like Drata, which evaluates every group of a region with active ENIs):
+    offender (a matching rule open to a CIDR), not applicable (the region has no in-use interface) or unverified (the
+    region's interfaces could not be read)."""
+    active, answered = _eni_regions(responses)
     found = []
     for region, data in responses.get("groups", []):
         for sg in (data or {}).get("SecurityGroups", []):
@@ -73,7 +73,7 @@ def _group_findings(responses: dict, matches, only_any_address: bool, **extra) -
             if region not in answered:
                 found.append(_unverified(gid, region, reason="sin respuesta de describe-network-interfaces"))
                 continue
-            if (region, gid) not in attached:
+            if region not in active:
                 found.append(_not_applicable(gid, region))
                 continue
             exposed = [e for p in sg.get("IpPermissions") or [] if matches(p) and (e := _exact_permission(p, only_any_address))]
@@ -87,14 +87,16 @@ def _group_findings(responses: dict, matches, only_any_address: bool, **extra) -
 @register("sg_open_port")
 def sg_open_port(responses: dict, params: dict) -> list[dict]:
     """Drata 102 / 228 / 291 and Vanta #33-#34: no ingress rule from 0.0.0.0/0 or ::/0 whose protocol is tcp or all (-1) and
-    whose port range contains params["port"]. Source security groups, specific CIDRs and prefix lists pass."""
+    whose port range contains params["port"], in any security group of a region with in-use ENIs. Source security groups,
+    specific CIDRs and prefix lists pass. detail.ip_permissions is the exact JSON of the offending rules (stable key)."""
     port = int(params["port"])
     return _group_findings(responses, lambda p: _covers_port(p, port), True, port=port)
 
 
 @register("sg_all_traffic")
 def sg_all_traffic(responses: dict, params: dict) -> list[dict]:
-    """Drata 119: no ingress rule of type ALL traffic (protocol -1) from a CIDR source (any CIDR; security group sources pass)."""
+    """Drata 119: no ingress rule of type ALL traffic (protocol -1) from a CIDR source (any CIDR; security group sources pass).
+    detail.ip_permissions is the exact JSON of the offending rules (stable key)."""
     return _group_findings(responses, _is_all_traffic, False)
 
 
@@ -210,31 +212,47 @@ def _alb_findings(responses: dict, associated: set[tuple[str, str]]) -> list[dic
     return found
 
 
-def _stage_findings(responses: dict, associated: set[tuple[str, str]]) -> list[dict]:
+def _api_findings(responses: dict, associated: set[tuple[str, str]]) -> list[dict]:
+    """REST APIs: one entry per API. Private APIs and APIs without a deployed stage are not applicable; an API fails when any of
+    its stages has no web ACL."""
     stages = {(region, api_id): data for api_id, region, data in _for_each_pairs(responses, "stages")}
     found = []
     for region, data in responses.get("apis", []):
         for api in (data or {}).get("items", []):
-            if "PRIVATE" in [str(t).upper() for t in (api.get("endpointConfiguration") or {}).get("types") or []]:
+            api_id = api["id"]
+            answer = stages.get((region, api_id))
+            if answer is None:
+                found.append(_unverified(api_id, region, reason="sin respuesta de get-stages"))
                 continue
-            for stage in ((stages.get((region, api["id"])) or {}).get("item") or []):
-                arn = f"arn:aws:apigateway:{region}::/restapis/{api['id']}/stages/{stage['stageName']}"
-                if (region, arn) not in associated:
-                    found.append(_offender(arn, region, kind="api_gateway_stage", api=api.get("name", api["id"]), stage=stage["stageName"],
-                                           reason="el stage público no tiene un web ACL de WAF asociado"))
+            names = [stage["stageName"] for stage in answer.get("item") or []]
+            private = "PRIVATE" in [str(t).upper() for t in (api.get("endpointConfiguration") or {}).get("types") or []]
+            if private or "__error__" in answer or not names:
+                found.append(_not_applicable(api_id, region))
+                continue
+            bare = [n for n in names if (region, f"arn:aws:apigateway:{region}::/restapis/{api_id}/stages/{n}") not in associated]
+            if bare:
+                found.append(_offender(api_id, region, kind="api_gateway", api=api.get("name", api_id), stages=bare,
+                                       reason="el API público tiene stages sin un web ACL de WAF asociado"))
     return found
 
 
 def _distribution_findings(responses: dict) -> list[dict]:
-    return [_offender(d["Id"], region, kind="cloudfront", domain=d.get("DomainName"), reason="la distribución no tiene un web ACL de WAF asociado")
-            for region, data in responses.get("distributions", [])
-            for d in ((data or {}).get("DistributionList") or {}).get("Items") or []
-            if d.get("Enabled", True) and not d.get("WebACLId")]
+    available = sorted({acl["Name"] for _, data in responses.get("cf_acls", []) for acl in (data or {}).get("WebACLs", [])})
+    found = []
+    for region, data in responses.get("distributions", []):
+        for dist in ((data or {}).get("DistributionList") or {}).get("Items") or []:
+            if not dist.get("Enabled", True):
+                found.append(_not_applicable(dist["Id"], region))
+            elif not dist.get("WebACLId"):
+                found.append(_offender(dist["Id"], region, kind="cloudfront", domain=dist.get("DomainName"), available_web_acls=available,
+                                       reason="la distribución no tiene un web ACL de WAF asociado"))
+    return found
 
 
 @register("waf_associated")
 def waf_associated(responses: dict, params: dict) -> list[dict]:
-    """Drata 122: public ALBs, REST API stages and enabled CloudFront distributions have a WAF web ACL associated.
-    The inventory only lists ALBs, so API Gateway and CloudFront are reported as extra offenders and get no PASS row."""
-    return (_alb_findings(responses, _associated(responses, "acl_albs")) + _stage_findings(responses, _associated(responses, "acl_apis"))
+    """Drata 122: public ALBs, REST APIs (every stage) and enabled CloudFront distributions have a WAF web ACL associated.
+    Internal ALBs, NLBs, private APIs, APIs without stages and disabled distributions are not applicable. HTTP APIs are not
+    evaluated: WAF cannot be associated with them."""
+    return (_alb_findings(responses, _associated(responses, "acl_albs")) + _api_findings(responses, _associated(responses, "acl_apis"))
             + _distribution_findings(responses))

@@ -3,7 +3,7 @@
   "checks": [
     {
       "id": "NET-001",
-      "title": "Ningún security group adjunto a una interfaz de red activa abre SSH (puerto 22) a 0.0.0.0/0 ni a ::/0",
+      "title": "Ningún security group de una región con interfaces de red activas abre SSH (puerto 22) a 0.0.0.0/0 ni a ::/0",
       "scope": "resource",
       "resource_types": [
         "security_group"
@@ -35,7 +35,7 @@
         "params": {
           "port": 22
         },
-        "pass_when_text": "Ninguna regla de entrada de un security group adjunto a una interfaz de red activa (ENI en uso) abre el puerto 22 a 0.0.0.0/0 ni a ::/0. Cuenta una regla tcp cuyo rango de puertos contiene el 22 y una regla con protocolo -1 (todo el tráfico). Un security group como origen, un CIDR concreto o una prefix list (no se expande) no cuentan. Los security groups sin ENI activa no aplican: Drata evalúa solo las regiones con interfaces activas.",
+        "pass_when_text": "Ninguna regla de entrada de un security group de una región con al menos una interfaz de red en uso (ENI activa) abre el puerto 22 a 0.0.0.0/0 ni a ::/0, esté o no adjunto el grupo a una interfaz: Drata evalúa todos los security groups de las regiones con ENIs activas. Cuenta una regla tcp cuyo rango de puertos contiene el 22 y una regla con protocolo -1 (todo el tráfico). Un security group como origen, un CIDR concreto o una prefix list (no se expande) no cuentan. Los security groups de una región sin ninguna ENI en uso no aplican.",
         "needs": [
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeNetworkInterfaces"
@@ -84,16 +84,14 @@
         "downtime": false,
         "steps": [
           "Identificar quién entra hoy por SSH al security group {resource_id} (detail.ip_permissions del hallazgo y los VPC Flow Logs) y habilitar antes un acceso alternativo: Session Manager, o una regla con un CIDR fijo (la IP de la oficina o de la VPN) o con otro security group como origen.",
-          "Revocar solo la regla que abre el puerto al mundo: el bloque IPv4 y el bloque IPv6 para la regla habitual, o el tercer bloque con el JSON exacto de detail.ip_permissions si la regla es un rango de puertos o 'todo el tráfico'.",
+          "Revocar las reglas ofensoras con el comando: usa el JSON exacto de detail.ip_permissions de este hallazgo (protocolo, puertos y solo los CIDR ofensores), así que no toca ninguna otra regla del grupo.",
           "Verificar con describe-security-groups que ya no queda ninguna regla de entrada abierta a 0.0.0.0/0 ni a ::/0 sobre el puerto."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# regla IPv4 habitual (tcp, solo el puerto 22, desde 0.0.0.0/0)\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# regla IPv6 habitual (tcp, solo el puerto 22, desde ::/0)\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"Ipv6Ranges\":[{\"CidrIpv6\":\"::/0\"}]}]'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# pegar el JSON de detail.ip_permissions del hallazgo, tal cual: es la regla exacta (rango de puertos, protocolo -1 o ambas familias)\nIP_PERMISSIONS='__COMPLETAR_IP_PERMISSIONS__'\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions \"$IP_PERMISSIONS\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# detail.ip_permissions: solo las reglas ofensoras de este hallazgo, con su protocolo, puertos y CIDR exactos\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions {detail_json:ip_permissions}"
         ],
         "verify_after": "aws ec2 describe-security-groups --group-ids \"{resource_id}\" --region \"{region}\" --query 'SecurityGroups[0].IpPermissions[?contains(IpRanges[].CidrIp, `0.0.0.0/0`) || contains(Ipv6Ranges[].CidrIpv6, `::/0`)]'",
-        "notes": "Revocar es inmediato y reversible con authorize-security-group-ingress. Riesgo: cortar el acceso de quien hoy entra desde internet; abrir antes el acceso alternativo. Los comandos usan revoke-security-group-ingress con --ip-permissions exacto: si la regla no coincide, AWS responde InvalidPermission.NotFound y no toca nada, y nunca se revocan las demás reglas del grupo. Una regla con un rango (por ejemplo 0-65535) o con el protocolo -1 también abre otros puertos: al revocarla se cierran todos, revisar detail.ip_permissions. Las prefix lists no se expanden: si una prefix list contiene 0.0.0.0/0, este chequeo no la ve. El artículo de Drata indica que un CIDR concreto no cuenta como pass para el test 102: si sigue fallando con CIDRs concretos, preferir Session Manager o un security group como origen."
+        "notes": "Revocar es inmediato y reversible con authorize-security-group-ingress. Riesgo: cortar el acceso de quien hoy entra desde internet; abrir antes el acceso alternativo. El comando usa revoke-security-group-ingress con --ip-permissions {detail_json:ip_permissions}, que se completa con el JSON exacto de las reglas ofensoras (clave estable detail.ip_permissions: IpProtocol, FromPort, ToPort y solo los CIDR ofensores): si una regla no coincide, AWS responde InvalidPermission.NotFound y no toca nada, y nunca se revocan las demás reglas del grupo. Una regla con un rango (por ejemplo 0-65535) o con el protocolo -1 también abre otros puertos: al revocarla se cierran todos, revisar detail.ip_permissions. Las prefix lists no se expanden: si una prefix list contiene 0.0.0.0/0, este chequeo no la ve. El artículo de Drata indica que un CIDR concreto no cuenta como pass para el test 102: si sigue fallando con CIDRs concretos, preferir Session Manager o un security group como origen."
       },
       "sources": [
         "https://help.drata.com/en/articles/4776976",
@@ -104,7 +102,7 @@
     },
     {
       "id": "NET-002",
-      "title": "Ningún security group adjunto a una interfaz de red activa abre RDP (puerto 3389) a 0.0.0.0/0 ni a ::/0",
+      "title": "Ningún security group de una región con interfaces de red activas abre RDP (puerto 3389) a 0.0.0.0/0 ni a ::/0",
       "scope": "resource",
       "resource_types": [
         "security_group"
@@ -136,7 +134,7 @@
         "params": {
           "port": 3389
         },
-        "pass_when_text": "Ninguna regla de entrada de un security group adjunto a una interfaz de red activa (ENI en uso) abre el puerto 3389 a 0.0.0.0/0 ni a ::/0. Cuenta una regla tcp cuyo rango de puertos contiene el 3389 y una regla con protocolo -1 (todo el tráfico). Un security group como origen, un CIDR concreto o una prefix list (no se expande) no cuentan. Los security groups sin ENI activa no aplican: Drata evalúa solo las regiones con interfaces activas.",
+        "pass_when_text": "Ninguna regla de entrada de un security group de una región con al menos una interfaz de red en uso (ENI activa) abre el puerto 3389 a 0.0.0.0/0 ni a ::/0, esté o no adjunto el grupo a una interfaz: Drata evalúa todos los security groups de las regiones con ENIs activas. Cuenta una regla tcp cuyo rango de puertos contiene el 3389 y una regla con protocolo -1 (todo el tráfico). Un security group como origen, un CIDR concreto o una prefix list (no se expande) no cuentan. Los security groups de una región sin ninguna ENI en uso no aplican.",
         "needs": [
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeNetworkInterfaces"
@@ -185,16 +183,14 @@
         "downtime": false,
         "steps": [
           "Identificar quién entra hoy por RDP al security group {resource_id} (detail.ip_permissions del hallazgo y los VPC Flow Logs) y habilitar antes un acceso alternativo: Session Manager (Fleet Manager para RDP), o una regla con un CIDR fijo (la IP de la oficina o de la VPN) o con otro security group como origen.",
-          "Revocar solo la regla que abre el puerto al mundo: el bloque IPv4 y el bloque IPv6 para la regla habitual, o el tercer bloque con el JSON exacto de detail.ip_permissions si la regla es un rango de puertos o 'todo el tráfico'.",
+          "Revocar las reglas ofensoras con el comando: usa el JSON exacto de detail.ip_permissions de este hallazgo (protocolo, puertos y solo los CIDR ofensores), así que no toca ninguna otra regla del grupo.",
           "Verificar con describe-security-groups que ya no queda ninguna regla de entrada abierta a 0.0.0.0/0 ni a ::/0 sobre el puerto."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# regla IPv4 habitual (tcp, solo el puerto 3389, desde 0.0.0.0/0)\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":3389,\"ToPort\":3389,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# regla IPv6 habitual (tcp, solo el puerto 3389, desde ::/0)\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":3389,\"ToPort\":3389,\"Ipv6Ranges\":[{\"CidrIpv6\":\"::/0\"}]}]'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# pegar el JSON de detail.ip_permissions del hallazgo, tal cual: es la regla exacta (rango de puertos, protocolo -1 o ambas familias)\nIP_PERMISSIONS='__COMPLETAR_IP_PERMISSIONS__'\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions \"$IP_PERMISSIONS\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# detail.ip_permissions: solo las reglas ofensoras de este hallazgo, con su protocolo, puertos y CIDR exactos\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions {detail_json:ip_permissions}"
         ],
         "verify_after": "aws ec2 describe-security-groups --group-ids \"{resource_id}\" --region \"{region}\" --query 'SecurityGroups[0].IpPermissions[?contains(IpRanges[].CidrIp, `0.0.0.0/0`) || contains(Ipv6Ranges[].CidrIpv6, `::/0`)]'",
-        "notes": "Revocar es inmediato y reversible con authorize-security-group-ingress. Riesgo: cortar el acceso de quien hoy entra desde internet; abrir antes el acceso alternativo. Los comandos usan revoke-security-group-ingress con --ip-permissions exacto: si la regla no coincide, AWS responde InvalidPermission.NotFound y no toca nada, y nunca se revocan las demás reglas del grupo. Una regla con un rango (por ejemplo 0-65535) o con el protocolo -1 también abre otros puertos: al revocarla se cierran todos, revisar detail.ip_permissions. Las prefix lists no se expanden: si una prefix list contiene 0.0.0.0/0, este chequeo no la ve."
+        "notes": "Revocar es inmediato y reversible con authorize-security-group-ingress. Riesgo: cortar el acceso de quien hoy entra desde internet; abrir antes el acceso alternativo. El comando usa revoke-security-group-ingress con --ip-permissions {detail_json:ip_permissions}, que se completa con el JSON exacto de las reglas ofensoras (clave estable detail.ip_permissions: IpProtocol, FromPort, ToPort y solo los CIDR ofensores): si una regla no coincide, AWS responde InvalidPermission.NotFound y no toca nada, y nunca se revocan las demás reglas del grupo. Una regla con un rango (por ejemplo 0-65535) o con el protocolo -1 también abre otros puertos: al revocarla se cierran todos, revisar detail.ip_permissions. Las prefix lists no se expanden: si una prefix list contiene 0.0.0.0/0, este chequeo no la ve."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828740",
@@ -205,7 +201,7 @@
     },
     {
       "id": "NET-003",
-      "title": "Ningún security group adjunto a una interfaz de red activa abre HTTP (puerto 80) a 0.0.0.0/0 ni a ::/0",
+      "title": "Ningún security group de una región con interfaces de red activas abre HTTP (puerto 80) a 0.0.0.0/0 ni a ::/0",
       "scope": "resource",
       "resource_types": [
         "security_group"
@@ -237,7 +233,7 @@
         "params": {
           "port": 80
         },
-        "pass_when_text": "Ninguna regla de entrada de un security group adjunto a una interfaz de red activa (ENI en uso) abre el puerto 80 a 0.0.0.0/0 ni a ::/0. Cuenta una regla tcp cuyo rango de puertos contiene el 80 y una regla con protocolo -1 (todo el tráfico). Un security group como origen, un CIDR concreto o una prefix list (no se expande) no cuentan. Los security groups sin ENI activa no aplican: Drata evalúa solo las regiones con interfaces activas.",
+        "pass_when_text": "Ninguna regla de entrada de un security group de una región con al menos una interfaz de red en uso (ENI activa) abre el puerto 80 a 0.0.0.0/0 ni a ::/0, esté o no adjunto el grupo a una interfaz: Drata evalúa todos los security groups de las regiones con ENIs activas. Cuenta una regla tcp cuyo rango de puertos contiene el 80 y una regla con protocolo -1 (todo el tráfico). Un security group como origen, un CIDR concreto o una prefix list (no se expande) no cuentan. Los security groups de una región sin ninguna ENI en uso no aplican.",
         "needs": [
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeNetworkInterfaces"
@@ -271,17 +267,15 @@
         "downtime": false,
         "steps": [
           "Decidir qué hacer con el puerto 80 del security group {resource_id}: (a) cerrarlo y atender solo el 443, que es lo que pide el test 291 de Drata, o (b) mantenerlo en un ALB que solo redirige a HTTPS.",
-          "Opción (a): confirmar que el puerto 443 está abierto y que ningún cliente depende de HTTP plano, y revocar la regla exacta (bloque IPv4, bloque IPv6 o el bloque con detail.ip_permissions).",
+          "Opción (a): confirmar que el puerto 443 está abierto y que ningún cliente depende de HTTP plano, y revocar las reglas ofensoras con el comando (JSON exacto de detail.ip_permissions).",
           "Opción (b): dejar la regla y excluir el recurso en Drata con la justificación de que el balanceador solo redirige HTTP a HTTPS (ver TLS-002).",
           "Verificar con describe-security-groups el estado final de las reglas de entrada."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# regla IPv4 habitual (tcp, solo el puerto 80, desde 0.0.0.0/0)\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":80,\"ToPort\":80,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# regla IPv6 habitual (tcp, solo el puerto 80, desde ::/0)\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":80,\"ToPort\":80,\"Ipv6Ranges\":[{\"CidrIpv6\":\"::/0\"}]}]'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# pegar el JSON de detail.ip_permissions del hallazgo, tal cual: es la regla exacta (rango de puertos, protocolo -1 o ambas familias)\nIP_PERMISSIONS='__COMPLETAR_IP_PERMISSIONS__'\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions \"$IP_PERMISSIONS\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# detail.ip_permissions: solo las reglas ofensoras de este hallazgo, con su protocolo, puertos y CIDR exactos\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions {detail_json:ip_permissions}"
         ],
         "verify_after": "aws ec2 describe-security-groups --group-ids \"{resource_id}\" --region \"{region}\" --query 'SecurityGroups[0].IpPermissions[?contains(IpRanges[].CidrIp, `0.0.0.0/0`) || contains(Ipv6Ranges[].CidrIpv6, `::/0`)]'",
-        "notes": "Un ALB cuyo listener del puerto 80 solo redirige a HTTPS sigue fallando el test 291 de Drata: el test mira la regla del security group, no la acción del listener. Las dos salidas son exponer solo el 443 (cerrar el 80) o excluir el recurso en Drata con justificación. Si se cierra el 80, quien escribe http:// deja de conectar en lugar de ser redirigido. Revocar es inmediato y reversible con authorize-security-group-ingress. Riesgo: cortar el acceso de quien hoy entra desde internet; abrir antes el acceso alternativo. Los comandos usan revoke-security-group-ingress con --ip-permissions exacto: si la regla no coincide, AWS responde InvalidPermission.NotFound y no toca nada, y nunca se revocan las demás reglas del grupo. Una regla con un rango (por ejemplo 0-65535) o con el protocolo -1 también abre otros puertos: al revocarla se cierran todos, revisar detail.ip_permissions. Las prefix lists no se expanden: si una prefix list contiene 0.0.0.0/0, este chequeo no la ve."
+        "notes": "Un ALB cuyo listener del puerto 80 solo redirige a HTTPS sigue fallando el test 291 de Drata: el test mira la regla del security group, no la acción del listener. Las dos salidas son exponer solo el 443 (cerrar el 80) o excluir el recurso en Drata con justificación. Si se cierra el 80, quien escribe http:// deja de conectar en lugar de ser redirigido. Revocar es inmediato y reversible con authorize-security-group-ingress. Riesgo: cortar el acceso de quien hoy entra desde internet; abrir antes el acceso alternativo. El comando usa revoke-security-group-ingress con --ip-permissions {detail_json:ip_permissions}, que se completa con el JSON exacto de las reglas ofensoras (clave estable detail.ip_permissions: IpProtocol, FromPort, ToPort y solo los CIDR ofensores): si una regla no coincide, AWS responde InvalidPermission.NotFound y no toca nada, y nunca se revocan las demás reglas del grupo. Una regla con un rango (por ejemplo 0-65535) o con el protocolo -1 también abre otros puertos: al revocarla se cierran todos, revisar detail.ip_permissions. Las prefix lists no se expanden: si una prefix list contiene 0.0.0.0/0, este chequeo no la ve."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828797",
@@ -291,7 +285,7 @@
     },
     {
       "id": "NET-004",
-      "title": "Ningún security group adjunto a una interfaz de red activa tiene una regla de entrada 'todo el tráfico' desde un CIDR",
+      "title": "Ningún security group de una región con interfaces de red activas tiene una regla de entrada 'todo el tráfico' desde un CIDR",
       "scope": "resource",
       "resource_types": [
         "security_group"
@@ -320,7 +314,7 @@
           }
         ],
         "evaluator": "python:sg_all_traffic",
-        "pass_when_text": "Ninguna regla de entrada de un security group adjunto a una interfaz de red activa tiene el protocolo -1 (todo el tráfico) con un CIDR como origen, sea cual sea el CIDR (según el artículo del test 119 de Drata, un CIDR no cuenta como pass). Un security group como origen pasa. Los security groups sin ENI activa no aplican.",
+        "pass_when_text": "Ninguna regla de entrada de un security group de una región con al menos una interfaz de red en uso tiene el protocolo -1 (todo el tráfico) con un CIDR como origen, sea cual sea el CIDR (según el artículo del test 119 de Drata, un CIDR no cuenta como pass), esté o no adjunto el grupo a una interfaz. Un security group como origen pasa. Los security groups de una región sin ninguna ENI en uso no aplican.",
         "needs": [
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeNetworkInterfaces"
@@ -354,15 +348,14 @@
         "downtime": false,
         "steps": [
           "Decidir qué puertos, protocolos y orígenes necesita el security group {resource_id} y abrir primero esas reglas específicas con authorize-security-group-ingress, para no cortar el tráfico legítimo.",
-          "Revocar las reglas 'todo el tráfico' de CIDR (comando IPv4 y comando IPv6): cada vuelta del bucle revoca exactamente una regla de ese tipo.",
+          "Revocar las reglas 'todo el tráfico' desde CIDR con el comando: usa el JSON exacto de detail.ip_permissions de este hallazgo, así que no toca ninguna otra regla del grupo.",
           "Verificar que el grupo ya no tiene reglas de entrada con el protocolo -1 desde un CIDR."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# cada CIDR de las reglas 'todo el tráfico' del grupo, una regla por vuelta: no toca las demás reglas\nfor CIDR in $(aws ec2 describe-security-groups --group-ids \"$SG_ID\" --region \"$REGION\" --query 'SecurityGroups[0].IpPermissions[?IpProtocol==`-1`].IpRanges[].CidrIp' --output text); do aws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions \"[{\\\"IpProtocol\\\":\\\"-1\\\",\\\"IpRanges\\\":[{\\\"CidrIp\\\":\\\"$CIDR\\\"}]}]\"; done",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# cada CIDR de las reglas 'todo el tráfico' del grupo, una regla por vuelta: no toca las demás reglas\nfor CIDR in $(aws ec2 describe-security-groups --group-ids \"$SG_ID\" --region \"$REGION\" --query 'SecurityGroups[0].IpPermissions[?IpProtocol==`-1`].Ipv6Ranges[].CidrIpv6' --output text); do aws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions \"[{\\\"IpProtocol\\\":\\\"-1\\\",\\\"Ipv6Ranges\\\":[{\\\"CidrIpv6\\\":\\\"$CIDR\\\"}]}]\"; done"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nSG_ID=\"{resource_id}\"\n# detail.ip_permissions: solo las reglas ofensoras de este hallazgo, con su protocolo, puertos y CIDR exactos\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions {detail_json:ip_permissions}"
         ],
         "verify_after": "aws ec2 describe-security-groups --group-ids \"{resource_id}\" --region \"{region}\" --query 'SecurityGroups[0].IpPermissions[?IpProtocol==`-1`]'",
-        "notes": "Es la regla 'todo el tráfico': al revocarla se corta todo lo que dependía de ella, así que primero hay que abrir las reglas específicas, por ejemplo: aws ec2 authorize-security-group-ingress --group-id <sg> --protocol tcp --port 443 --cidr <rango> --region <región>. Los bucles revocan solo las reglas con el protocolo -1 de este grupo, una a la vez y con el JSON exacto; las reglas con otro protocolo o con un security group de origen no se tocan. Revocar es reversible con authorize-security-group-ingress."
+        "notes": "Es la regla 'todo el tráfico': al revocarla se corta todo lo que dependía de ella, así que primero hay que abrir las reglas específicas, por ejemplo: aws ec2 authorize-security-group-ingress --group-id <sg> --protocol tcp --port 443 --cidr <rango> --region <región>. El comando usa --ip-permissions {detail_json:ip_permissions}, que se completa con el JSON exacto de las reglas -1 con CIDR de este grupo (clave estable detail.ip_permissions); las reglas con otro protocolo o con un security group de origen no se tocan, y si una regla no coincide AWS responde InvalidPermission.NotFound sin tocar nada. Revocar es reversible con authorize-security-group-ingress."
       },
       "sources": [
         "https://help.drata.com/en/articles/4777002",
@@ -432,17 +425,19 @@
         "downtime": false,
         "steps": [
           "Ver las reglas de entrada que permiten tráfico desde cualquier origen en el NACL {resource_id} (primer bloque, solo lectura) y anotar los números de regla afectados (detail.entries).",
-          "Decidir para cada regla: acotarla a un CIDR de administración (reemplazo, segundo bloque) o eliminarla (tercer bloque). Si la regla abre un rango amplio de puertos, reemplazarla por reglas que excluyan el 22 y el 3389.",
+          "Decidir para cada regla: partirla en rangos que excluyan el 22 y el 3389 (segundo bloque para IPv4, tercero para IPv6), acotar una regla tcp o udp de administración a un CIDR (cuarto bloque) o eliminarla (quinto bloque).",
           "Como los NACL no tienen estado, comprobar que el tráfico de retorno (puertos efímeros) sigue permitido en ambos sentidos.",
           "Verificar que ninguna regla de entrada allow desde 0.0.0.0/0 o ::/0 cubre el 22 ni el 3389."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\n# solo lectura: reglas de entrada allow desde cualquier origen\naws ec2 describe-network-acls --network-acl-ids \"$NACL_ID\" --region \"$REGION\" --query 'NetworkAcls[0].Entries[?Egress==`false` && RuleAction==`allow` && (CidrBlock==`0.0.0.0/0` || Ipv6CidrBlock==`::/0`)].[RuleNumber,Protocol,PortRange.From,PortRange.To,CidrBlock,Ipv6CidrBlock]' --output table",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\nPROTOCOL=\"__COMPLETAR_PROTOCOLO__\"\nPORT_FROM=\"__COMPLETAR_PUERTO_DESDE__\"\nPORT_TO=\"__COMPLETAR_PUERTO_HASTA__\"\nADMIN_CIDR=\"__COMPLETAR_CIDR_ADMIN__\"\n# acota la regla a un CIDR de administración; para una regla IPv6 usar --ipv6-cidr-block en lugar de --cidr-block\naws ec2 replace-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --protocol \"$PROTOCOL\" --port-range From=\"$PORT_FROM\",To=\"$PORT_TO\" --cidr-block \"$ADMIN_CIDR\" --rule-action allow --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\nEXTRA_1=\"__COMPLETAR_NUMERO_LIBRE_1__\"\nEXTRA_2=\"__COMPLETAR_NUMERO_LIBRE_2__\"\nPROTOCOL=\"tcp\"\n# regla IPv4 que abre el 22 o el 3389: una regla con protocolo -1 no admite --port-range, por eso se reemplaza por tcp. Primero se crean los rangos nuevos (sin el 22 ni el 3389) y solo si salen bien se reemplaza la regla original por el primer rango; tcp y los puertos 23-3388 y 3390-65535 quedan abiertos, udp e icmp hay que recrearlos si se usan\naws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_1\" --protocol \"$PROTOCOL\" --port-range From=23,To=3388 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_2\" --protocol \"$PROTOCOL\" --port-range From=3390,To=65535 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\" && aws ec2 replace-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --protocol \"$PROTOCOL\" --port-range From=1,To=21 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\nEXTRA_1=\"__COMPLETAR_NUMERO_LIBRE_1__\"\nEXTRA_2=\"__COMPLETAR_NUMERO_LIBRE_2__\"\nPROTOCOL=\"tcp\"\n# regla IPv6 que abre el 22 o el 3389: una regla con protocolo -1 no admite --port-range, por eso se reemplaza por tcp. Primero se crean los rangos nuevos (sin el 22 ni el 3389) y solo si salen bien se reemplaza la regla original por el primer rango; tcp y los puertos 23-3388 y 3390-65535 quedan abiertos, udp e icmp hay que recrearlos si se usan\naws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_1\" --protocol \"$PROTOCOL\" --port-range From=23,To=3388 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_2\" --protocol \"$PROTOCOL\" --port-range From=3390,To=65535 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\" && aws ec2 replace-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --protocol \"$PROTOCOL\" --port-range From=1,To=21 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\nPROTOCOL=\"__COMPLETAR_PROTOCOLO_TCP_O_UDP__\"\nPORT_FROM=\"__COMPLETAR_PUERTO_DESDE__\"\nPORT_TO=\"__COMPLETAR_PUERTO_HASTA__\"\nADMIN_CIDR=\"__COMPLETAR_CIDR_ADMIN__\"\n# solo para una regla tcp o udp de administración (una regla con protocolo -1 no admite --port-range: usar el bloque anterior); para IPv6 usar --ipv6-cidr-block\naws ec2 replace-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --protocol \"$PROTOCOL\" --port-range From=\"$PORT_FROM\",To=\"$PORT_TO\" --cidr-block \"$ADMIN_CIDR\" --rule-action allow --region \"$REGION\"",
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\naws ec2 delete-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --region \"$REGION\""
         ],
         "verify_after": "aws ec2 describe-network-acls --network-acl-ids \"{resource_id}\" --region \"{region}\" --query 'NetworkAcls[0].Entries[?Egress==`false` && RuleAction==`allow`].[RuleNumber,Protocol,PortRange.From,PortRange.To,CidrBlock,Ipv6CidrBlock]'",
-        "notes": "El NACL por defecto de cada VPC trae la regla 100 que permite todo el tráfico de entrada desde 0.0.0.0/0, así que lo reportan Drata 227 y CIS 5.2 en toda cuenta: hay que reemplazar esa regla por reglas que excluyan el 22 y el 3389 (por ejemplo tcp 1-21, 23-3388 y 3390-65535), o asociar las subnets a un NACL propio. Un rango efímero típico (1024-65535) contiene el 3389 y también se reporta: dividirlo en 1024-3388 y 3390-65535. Los NACL son stateless (no tienen estado) y se evalúan por número de regla: borrar o acotar una regla puede cortar el tráfico de toda la subnet (incluido el de retorno), así que probar primero en una subnet de staging. Las reglas de salida no se tocan."
+        "notes": "El NACL por defecto de cada VPC trae la regla 100 que permite todo el tráfico de entrada desde 0.0.0.0/0, así que lo reportan Drata 227 y CIS 5.2 en toda cuenta: hay que reemplazar esa regla por reglas que excluyan el 22 y el 3389 (los bloques de partir hacen tcp 1-21, 23-3388 y 3390-65535; si la regla era de todos los protocolos, udp e icmp se pierden y hay que recrearlos con --protocol udp o --protocol 1 --icmp-type-code), o asociar las subnets a un NACL propio. Un rango efímero típico (1024-65535) contiene el 3389 y también se reporta: dividirlo en 1024-3388 y 3390-65535. Los NACL son stateless (no tienen estado) y se evalúan por número de regla: borrar o acotar una regla puede cortar el tráfico de toda la subnet (incluido el de retorno), así que probar primero en una subnet de staging. Las reglas de salida no se tocan."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828735",
@@ -627,10 +622,12 @@
     },
     {
       "id": "NET-008",
-      "title": "Los ALB públicos, stages de API Gateway y distribuciones de CloudFront tienen un web ACL de WAF asociado",
+      "title": "Los ALB públicos, REST APIs de API Gateway y distribuciones de CloudFront tienen un web ACL de WAF asociado",
       "scope": "resource",
       "resource_types": [
-        "elbv2"
+        "elbv2",
+        "apigw_rest_api",
+        "cloudfront_distribution"
       ],
       "all_regions": false,
       "severity": "high",
@@ -712,10 +709,20 @@
             "operation": "list-distributions",
             "args": [],
             "region": "global"
+          },
+          {
+            "name": "cf_acls",
+            "service": "wafv2",
+            "operation": "list-web-acls",
+            "args": [
+              "--scope",
+              "CLOUDFRONT"
+            ],
+            "region": "global"
           }
         ],
         "evaluator": "python:waf_associated",
-        "pass_when_text": "Cada ALB internet-facing, cada stage de un REST API no privado y cada distribución de CloudFront habilitada tiene un web ACL de WAFv2 asociado. Los balanceadores internos y los NLB no aplican. El inventario solo lista ALB: los stages de API Gateway y las distribuciones de CloudFront se reportan cuando fallan, pero no generan una fila de PASS, y si la cuenta no tiene ningún balanceador este chequeo queda sin recursos (N/A). Los REST APIs y los web ACL se leen en las regiones con recursos.",
+        "pass_when_text": "Cada ALB internet-facing, cada REST API no privado (con todos sus stages) y cada distribución de CloudFront habilitada tiene un web ACL de WAFv2 asociado; hay una fila por recurso. Los ALB internos, los NLB, los APIs privados, los APIs sin stages desplegados y las distribuciones deshabilitadas no aplican. Los HTTP APIs (apigatewayv2) no se evalúan porque WAF no se puede asociar a ellos. Los web ACL de ámbito CLOUDFRONT se leen en us-east-1 solo para sugerir uno existente en el hallazgo (detail.available_web_acls).",
         "needs": [
           "elasticloadbalancing:DescribeLoadBalancers",
           "wafv2:ListWebACLs",
@@ -752,17 +759,17 @@
         "downtime": false,
         "steps": [
           "Decidir el web ACL: reutilizar uno existente de la región o crear uno con reglas administradas de AWS (AWSManagedRulesCommonRuleSet), empezando en modo Count para observar antes de bloquear.",
-          "Crear el web ACL regional (primer bloque) y asociarlo al ALB (segundo bloque) o al stage de API Gateway (tercer bloque: en ese caso resource_id es el ARN del stage).",
+          "Crear el web ACL regional (primer bloque) y asociarlo al ALB (segundo bloque) o a cada stage del REST API (tercer bloque, uno por cada stage de detail.stages; resource_id es el ID del API).",
           "Para una distribución de CloudFront, crear un web ACL con scope CLOUDFRONT en us-east-1 y asociarlo desde la consola (Distribución, Security, Web ACL).",
           "Verificar que el web ACL existe y que el recurso aparece asociado (list-resources-for-web-acl)."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nACL_NAME=\"__COMPLETAR_NOMBRE_WEB_ACL__\"\n# empieza en Count (solo cuenta, no bloquea) para observar el tráfico antes de bloquear; imprime el ARN del web ACL\naws wafv2 create-web-acl --name \"$ACL_NAME\" --scope REGIONAL --default-action Allow={} --visibility-config SampledRequestsEnabled=true,CloudWatchMetricsEnabled=true,MetricName=\"$ACL_NAME\" --rules '[{\"Name\":\"AWSManagedRulesCommonRuleSet\",\"Priority\":0,\"Statement\":{\"ManagedRuleGroupStatement\":{\"VendorName\":\"AWS\",\"Name\":\"AWSManagedRulesCommonRuleSet\"}},\"OverrideAction\":{\"Count\":{}},\"VisibilityConfig\":{\"SampledRequestsEnabled\":true,\"CloudWatchMetricsEnabled\":true,\"MetricName\":\"common-rule-set\"}}]' --region \"$REGION\" --query 'Summary.ARN' --output text",
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nACL_ARN=\"__COMPLETAR_ARN_WEB_ACL__\"\nLB_ARN=$(aws elbv2 describe-load-balancers --names \"{resource_id}\" --region \"$REGION\" --query 'LoadBalancers[0].LoadBalancerArn' --output text) && aws wafv2 associate-web-acl --web-acl-arn \"$ACL_ARN\" --resource-arn \"$LB_ARN\" --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nACL_ARN=\"__COMPLETAR_ARN_WEB_ACL__\"\n# solo para un stage de API Gateway: resource_id es el ARN del stage\naws wafv2 associate-web-acl --web-acl-arn \"$ACL_ARN\" --resource-arn \"{resource_id}\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nACL_ARN=\"__COMPLETAR_ARN_WEB_ACL__\"\nSTAGE=\"__COMPLETAR_STAGE__\"\n# solo para un REST API (resource_id es el ID del API): repetir por cada stage de detail.stages\naws wafv2 associate-web-acl --web-acl-arn \"$ACL_ARN\" --resource-arn \"arn:aws:apigateway:$REGION::/restapis/{resource_id}/stages/$STAGE\" --region \"$REGION\""
         ],
         "verify_after": "aws wafv2 list-web-acls --scope REGIONAL --region \"{region}\" --query 'WebACLs[].[Name,ARN]'",
-        "notes": "El test 122 de Drata solo exige que el web ACL esté asociado, pero con la regla en Count no protege: pasar a Block las reglas que no den falsos positivos tras revisar los logs. Costo: WAF cobra por web ACL, por regla y por millón de requests. Un web ACL regional sirve ALB y API Gateway de su región; CloudFront necesita uno propio de scope CLOUDFRONT en us-east-1. Una distribución de CloudFront se asocia con update-distribution (hay que reenviar toda la configuración con su ETag), por eso es más seguro hacerlo desde la consola. Habilitar el logging del web ACL es un chequeo aparte."
+        "notes": "El test 122 de Drata solo exige que el web ACL esté asociado, pero con la regla en Count no protege: pasar a Block las reglas que no den falsos positivos tras revisar los logs. Costo: WAF cobra por web ACL, por regla y por millón de requests. Un web ACL regional sirve ALB y API Gateway de su región; CloudFront necesita uno propio de scope CLOUDFRONT en us-east-1. Una distribución de CloudFront (resource_id es su ID) se asocia con update-distribution (hay que reenviar toda la configuración con su ETag), por eso es más seguro hacerlo desde la consola; detail.available_web_acls lista los web ACL de ámbito CLOUDFRONT que ya existen. Habilitar el logging del web ACL es un chequeo aparte."
       },
       "sources": [
         "https://help.drata.com/en/articles/4777003",

@@ -229,6 +229,20 @@ class RunAwsTest(unittest.TestCase):
         )
         self.assertEqual(result.data, {"taskDefinition": {"containerDefinitions": [{"name": "c"}]}})
 
+    def test_scrubs_api_gateway_stage_variables(self):
+        rest = {"item": [{"stageName": "prod", "variables": {"DB_URL": "x"}, "methodSettings": {}}]}
+        result, _, _ = run(
+            {("apigateway", "get-stages", "us-east-1"): {"stdout": json.dumps(rest), "returncode": 0}},
+            "apigateway", "get-stages",
+        )
+        self.assertEqual(result.data, {"item": [{"stageName": "prod", "methodSettings": {}}]})
+        http = {"Items": [{"StageName": "$default", "StageVariables": {"TOKEN": "x"}, "AutoDeploy": True}]}
+        result, _, _ = run(
+            {("apigatewayv2", "get-stages", "us-east-1"): {"stdout": json.dumps(http), "returncode": 0}},
+            "apigatewayv2", "get-stages",
+        )
+        self.assertEqual(result.data, {"Items": [{"StageName": "$default", "AutoDeploy": True}]})
+
     def test_no_scrub_for_other_operations(self):
         payload = {"Environment": "keep"}
         result, _, _ = run(

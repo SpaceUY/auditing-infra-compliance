@@ -214,71 +214,81 @@ class BackupJobsRecentTests(unittest.TestCase):
     PARAMS = {"window_hours": 24, "now": NOW}
 
     @staticmethod
-    def responses(jobs="backup-list-backup-jobs-mixed", plans="backup-list-backup-plans-one", region=REGION):
+    def responses(jobs="backup-list-backup-jobs-mixed", vaults="backup-list-backup-vaults", region=REGION):
         data = fx(jobs) if isinstance(jobs, str) else jobs
-        return {"jobs": [(region, data)], "plans": [(region, fx(plans))]}
+        return {"jobs": [(region, data)], "vaults": [(region, fx(vaults) if isinstance(vaults, str) else vaults)]}
 
     @staticmethod
     def at(delta):
         return (datetime.fromisoformat(NOW) - delta).isoformat()
 
-    def one_job(self, state, delta):
-        job = {"BackupJobId": "j", "ResourceArn": R_DB, "State": state, "CreationDate": self.at(delta)}
-        return {"BackupJobs": [job]}
+    def one_job(self, state, delta, vault="acme-notes-vault"):
+        return {"BackupJobs": [{"BackupJobId": "j", "ResourceArn": R_DB, "State": state, "CreationDate": self.at(delta), "BackupVaultName": vault}]}
+
+    @staticmethod
+    def one_vault(points=12):
+        return {"BackupVaultList": [{"BackupVaultName": "acme-notes-vault", "NumberOfRecoveryPoints": points}]}
 
     def test_backup_jobs_recent_pass(self):
-        data = {"BackupJobs": [j for j in fx("backup-list-backup-jobs-mixed")["BackupJobs"] if j["ResourceArn"] in (R_DB, R_TABLE) and j["BackupJobId"] != "1f"]}
-        self.assertEqual(evaluate("backup_jobs_recent", self.responses(data), self.PARAMS), [])
+        data = {"BackupJobs": [j for j in fx("backup-list-backup-jobs-mixed")["BackupJobs"] if j["BackupVaultName"] == "acme-notes-vault"]}
+        self.assertEqual(evaluate("backup_jobs_recent", self.responses(data, self.one_vault()), self.PARAMS), [])
 
     def test_backup_jobs_recent_fail_reports_offenders(self):
-        (offender,) = evaluate("backup_jobs_recent", self.responses(), self.PARAMS)
-        self.assertEqual((offender["resource_id"], offender["region"]), (R_EFS, REGION))
-        self.assertEqual(offender["detail"]["states"], ["EXPIRED", "FAILED"])
-        self.assertEqual(offender["detail"]["reason"], "ningún job completado en las últimas 24 horas")
+        found = evaluate("backup_jobs_recent", self.responses(), self.PARAMS)
+        self.assertEqual(flags(found), [("acme-notes-quiet", "offender"), ("Default", "not_applicable")])
+        self.assertEqual((found[0]["resource_id"], found[0]["region"]), ("acme-notes-quiet", REGION))
+        self.assertEqual(found[0]["detail"], {"resources": [{"arn": R_EFS, "states": ["EXPIRED", "FAILED"]}],
+                                              "reason": "hay recursos sin ningún job completado en las últimas 24 horas"})
 
     def test_a_retry_that_completed_clears_the_failure(self):
         found = evaluate("backup_jobs_recent", self.responses(), self.PARAMS)
-        self.assertNotIn(R_TABLE, ids(found))
+        self.assertNotIn("acme-notes-vault", ids(found))
 
     def test_jobs_older_than_the_window_are_ignored(self):
-        self.assertNotIn(R_DB, ids(evaluate("backup_jobs_recent", self.responses(), self.PARAMS)))
+        data = {"BackupJobs": [dict(j, State="FAILED") for j in fx("backup-list-backup-jobs-mixed")["BackupJobs"] if j["BackupJobId"] == "1f"]}
+        found = evaluate("backup_jobs_recent", self.responses(data, self.one_vault()), self.PARAMS)
+        self.assertEqual(found[0]["detail"]["reason"], "la bóveda tiene puntos de recuperación y ningún job en las últimas 24 horas")
 
     def test_window_boundaries_use_total_seconds(self):
         def outcome(delta):
-            return ids(evaluate("backup_jobs_recent", self.responses(self.one_job("FAILED", delta)), self.PARAMS))
-        self.assertEqual(outcome(timedelta(hours=24)), [R_DB])
-        self.assertEqual(outcome(timedelta(hours=23, minutes=59, seconds=59)), [R_DB])
-        self.assertEqual(outcome(timedelta(hours=24, seconds=1)), ["aws-backup"])
-        self.assertEqual(outcome(timedelta(days=1, minutes=1)), ["aws-backup"])
-        self.assertEqual(outcome(timedelta(seconds=-1)), ["aws-backup"])
+            (found,) = evaluate("backup_jobs_recent", self.responses(self.one_job("FAILED", delta), self.one_vault()), self.PARAMS)
+            return "failed" if "resources" in found["detail"] else "no job"
+        self.assertEqual(outcome(timedelta(hours=24)), "failed")
+        self.assertEqual(outcome(timedelta(hours=23, minutes=59, seconds=59)), "failed")
+        self.assertEqual(outcome(timedelta(hours=24, seconds=1)), "no job")
+        self.assertEqual(outcome(timedelta(days=1, minutes=1)), "no job")
+        self.assertEqual(outcome(timedelta(seconds=-1)), "no job")
 
     def test_jobs_still_running_are_neither_a_failure_nor_a_success(self):
         for state in ("CREATED", "PENDING", "RUNNING", "ABORTING"):
-            self.assertEqual(evaluate("backup_jobs_recent", self.responses(self.one_job(state, timedelta(hours=1))), self.PARAMS), [], state)
+            self.assertEqual(evaluate("backup_jobs_recent", self.responses(self.one_job(state, timedelta(hours=1)), self.one_vault()), self.PARAMS), [], state)
 
     def test_unsuccessful_terminal_states_fail(self):
         for state in ("FAILED", "EXPIRED", "ABORTED", "PARTIAL", "COMPLETED_WITH_ISSUES"):
-            self.assertEqual(ids(evaluate("backup_jobs_recent", self.responses(self.one_job(state, timedelta(hours=1))), self.PARAMS)), [R_DB], state)
+            (found,) = evaluate("backup_jobs_recent", self.responses(self.one_job(state, timedelta(hours=1)), self.one_vault()), self.PARAMS)
+            self.assertEqual(found["detail"]["resources"], [{"arn": R_DB, "states": [state]}], state)
 
     def test_states_are_compared_ignoring_case(self):
-        self.assertEqual(evaluate("backup_jobs_recent", self.responses(self.one_job("completed", timedelta(hours=1))), self.PARAMS), [])
+        self.assertEqual(evaluate("backup_jobs_recent", self.responses(self.one_job("completed", timedelta(hours=1)), self.one_vault()), self.PARAMS), [])
 
-    def test_a_region_with_plans_and_no_job_in_the_window_fails(self):
-        (offender,) = evaluate("backup_jobs_recent", self.responses("backup-list-backup-jobs-old"), self.PARAMS)
-        self.assertEqual((offender["resource_id"], offender["region"]), ("aws-backup", REGION))
-        self.assertEqual(offender["detail"]["reason"], "hay planes de AWS Backup y ningún job en las últimas 24 horas")
+    def test_a_vault_with_recovery_points_and_no_job_in_the_window_fails_but_an_empty_one_is_not_applicable(self):
+        jobs = "backup-list-backup-jobs-none"
+        (offender,) = evaluate("backup_jobs_recent", self.responses(jobs, self.one_vault()), self.PARAMS)
+        self.assertEqual((offender["resource_id"], offender["region"]), ("acme-notes-vault", REGION))
+        self.assertEqual(flags(evaluate("backup_jobs_recent", self.responses(jobs, self.one_vault(0)), self.PARAMS)), [("acme-notes-vault", "not_applicable")])
 
-    def test_without_plans_and_jobs_there_is_nothing_to_report(self):
-        self.assertEqual(evaluate("backup_jobs_recent", self.responses("backup-list-backup-jobs-none", "backup-list-backup-plans-none"), self.PARAMS), [])
+    def test_without_vaults_there_is_nothing_to_report(self):
+        self.assertEqual(evaluate("backup_jobs_recent", self.responses("backup-list-backup-jobs-none", {"BackupVaultList": []}), self.PARAMS), [])
 
-    def test_regions_are_judged_separately(self):
-        responses = {"jobs": [(REGION, fx("backup-list-backup-jobs-none")), (OTHER, fx("backup-list-backup-jobs-none"))],
-                     "plans": [(REGION, fx("backup-list-backup-plans-none")), (OTHER, fx("backup-list-backup-plans-one"))]}
-        self.assertEqual([(o["resource_id"], o["region"]) for o in evaluate("backup_jobs_recent", responses, self.PARAMS)], [("aws-backup", OTHER)])
+    def test_jobs_are_matched_to_the_vault_of_their_own_region(self):
+        responses = {"jobs": [(REGION, self.one_job("COMPLETED", timedelta(hours=1))), (OTHER, fx("backup-list-backup-jobs-none"))],
+                     "vaults": [(REGION, self.one_vault()), (OTHER, self.one_vault())]}
+        self.assertEqual([(o["resource_id"], o["region"]) for o in evaluate("backup_jobs_recent", responses, self.PARAMS)], [("acme-notes-vault", OTHER)])
 
     def test_the_clock_is_injectable_and_the_window_is_a_param(self):
         data = self.one_job("FAILED", timedelta(hours=30))
-        self.assertEqual(ids(evaluate("backup_jobs_recent", self.responses(data), {"window_hours": 48, "now": NOW})), [R_DB])
+        (found,) = evaluate("backup_jobs_recent", self.responses(data, self.one_vault()), {"window_hours": 48, "now": NOW})
+        self.assertIn("resources", found["detail"])
 
 
 class BackupVaultNotificationsTests(unittest.TestCase):
@@ -288,7 +298,7 @@ class BackupVaultNotificationsTests(unittest.TestCase):
 
     def test_backup_vault_notifications_pass(self):
         responses = self.responses(**{"acme-notes-vault": fx("backup-get-backup-vault-notifications-failed"), "Default": {"__error__": "ResourceNotFoundException"}})
-        self.assertEqual(evaluate("backup_vault_notifications", responses), [])
+        self.assertEqual(real(evaluate("backup_vault_notifications", responses)), [])
 
     def test_backup_vault_notifications_fail_reports_offenders(self):
         responses = self.responses(**{"acme-notes-vault": fx("backup-get-backup-vault-notifications-failed"),
@@ -307,8 +317,9 @@ class BackupVaultNotificationsTests(unittest.TestCase):
         self.assertEqual(ids(evaluate("backup_vault_notifications", self.responses(**{"acme-notes-vault": {**data, "SNSTopicArn": ""}}))), ["acme-notes-vault"])
         self.assertEqual(evaluate("backup_vault_notifications", self.responses(**{"acme-notes-vault": {**data, "BackupVaultEvents": ["backup_job_failed"]}})), [])
 
-    def test_vaults_without_recovery_points_are_not_evaluated(self):
-        self.assertEqual(evaluate("backup_vault_notifications", self.responses(Default={"__error__": "ResourceNotFoundException"})), [])
+    def test_vaults_without_recovery_points_are_not_applicable(self):
+        found = evaluate("backup_vault_notifications", self.responses(Default={"__error__": "ResourceNotFoundException"}))
+        self.assertEqual(flags(found), [("Default", "not_applicable")])
 
     def test_a_blocked_vault_is_unverified_and_does_not_hide_the_others(self):
         found = evaluate("backup_vault_notifications", self.responses(**{"acme-notes-vault": {"__error__": "ACCESS_DENIED"},
@@ -343,12 +354,22 @@ class BackupPlanRulesTests(unittest.TestCase):
         self.assertEqual(evaluate("backup_plan_rules", self.responses(**{PLAN_ID: fx("backup-get-backup-plan-daily")}), self.PARAMS), [])
 
     def test_backup_plan_rules_fail_reports_offenders(self):
+        (offender,) = evaluate("backup_plan_rules", self.responses("backup-list-backup-plans-one", **{WEEKLY_ID: fx("backup-get-backup-plan-weekly")}), self.PARAMS)
+        self.assertEqual((offender["resource_id"], offender["region"]), ("aws-backup", REGION))
+        self.assertEqual(offender["detail"]["plans"], [{"plan": "acme-notes-weekly", "region": REGION,
+                                                        "rules": [{"name": "weekly", "schedule": "cron(0 5 ? * SUN *)", "daily": False, "retention_days": 35}]}])
+        self.assertEqual(offender["detail"]["reason"], "ningún plan de AWS Backup tiene una regla diaria con retención de al menos 7 días")
+
+    def test_weekly_or_archive_plans_do_not_fail_when_a_qualifying_daily_plan_exists(self):
         responses = self.responses("backup-list-backup-plans-two", **{PLAN_ID: fx("backup-get-backup-plan-daily"), WEEKLY_ID: fx("backup-get-backup-plan-weekly")})
+        self.assertEqual(evaluate("backup_plan_rules", responses, self.PARAMS), [])
+        reverse = self.responses("backup-list-backup-plans-two", **{WEEKLY_ID: fx("backup-get-backup-plan-weekly"), PLAN_ID: fx("backup-get-backup-plan-daily")})
+        self.assertEqual(evaluate("backup_plan_rules", reverse, self.PARAMS), [])
+
+    def test_no_plan_qualifies_when_the_daily_one_keeps_too_little_and_the_other_is_weekly(self):
+        responses = self.responses("backup-list-backup-plans-two", **{PLAN_ID: fx("backup-get-backup-plan-short"), WEEKLY_ID: fx("backup-get-backup-plan-weekly")})
         (offender,) = evaluate("backup_plan_rules", responses, self.PARAMS)
-        self.assertEqual((offender["resource_id"], offender["region"]), ("acme-notes-weekly", REGION))
-        self.assertEqual(offender["detail"]["plan_id"], WEEKLY_ID)
-        self.assertEqual(offender["detail"]["rules"], [{"name": "weekly", "schedule": "cron(0 5 ? * SUN *)", "daily": False, "retention_days": 35}])
-        self.assertEqual(offender["detail"]["reason"], "ninguna regla corre a diario con retención de al menos 7 días")
+        self.assertEqual([p["plan"] for p in offender["detail"]["plans"]], ["acme-notes-short", "acme-notes-weekly"])
 
     def test_retention_boundaries(self):
         def passes(days):
@@ -369,28 +390,30 @@ class BackupPlanRulesTests(unittest.TestCase):
         for schedule in ("cron(0 5 ? * SUN *)", "cron(0 5 ? * MON-FRI *)", "cron(0 5 1 * ? *)", "cron(0 5 ? 1 * *)", "cron(0 5 ? * * 2026)",
                          "rate(1 day)", "cron(0 5 ? * *)", "", "not a schedule"):
             self.assertEqual(ids(evaluate("backup_plan_rules", self.responses(**{PLAN_ID: self.plan(self.rule(schedule))}), self.PARAMS)),
-                             ["acme-notes-daily"], schedule)
+                             ["aws-backup"], schedule)
 
     def test_the_daily_rule_must_be_the_one_with_enough_retention(self):
         plan = self.plan(self.rule("cron(0 5 ? * * *)", 3), self.rule("cron(0 5 ? * SUN *)", 90))
-        self.assertEqual(ids(evaluate("backup_plan_rules", self.responses(**{PLAN_ID: plan}), self.PARAMS)), ["acme-notes-daily"])
+        self.assertEqual(ids(evaluate("backup_plan_rules", self.responses(**{PLAN_ID: plan}), self.PARAMS)), ["aws-backup"])
         plan = self.plan(self.rule("cron(0 5 ? * * *)", 3), self.rule("cron(0 6 ? * * *)", 30))
         self.assertEqual(evaluate("backup_plan_rules", self.responses(**{PLAN_ID: plan}), self.PARAMS), [])
 
     def test_plan_without_rules_fails(self):
-        self.assertEqual(ids(evaluate("backup_plan_rules", self.responses(**{PLAN_ID: self.plan()}), self.PARAMS)), ["acme-notes-daily"])
+        self.assertEqual(ids(evaluate("backup_plan_rules", self.responses(**{PLAN_ID: self.plan()}), self.PARAMS)), ["aws-backup"])
 
     def test_no_plan_in_any_region_fails_once(self):
         found = evaluate("backup_plan_rules", {**self.responses("backup-list-backup-plans-none"), "plans": [(REGION, fx("backup-list-backup-plans-none")),
                                                                                                           (OTHER, fx("backup-list-backup-plans-none"))]}, self.PARAMS)
         self.assertEqual([(o["resource_id"], o["region"]) for o in found], [("aws-backup", REGION)])
-        self.assertEqual(found[0]["detail"]["reason"], "no hay ningún plan de AWS Backup en las regiones evaluadas")
+        self.assertEqual(found[0]["detail"]["plans"], [])
 
-    def test_deleted_plan_is_skipped_and_a_blocked_plan_is_unverified(self):
+    def test_deleted_plan_is_skipped_and_a_blocked_plan_is_unverified_unless_another_plan_qualifies(self):
         responses = self.responses("backup-list-backup-plans-two", **{PLAN_ID: {"__error__": "ResourceNotFoundException"}, WEEKLY_ID: {"__error__": "ACCESS_DENIED"}})
         found = evaluate("backup_plan_rules", responses, self.PARAMS)
         self.assertEqual(flags(found), [(WEEKLY_ID, "unverified")])
         self.assertEqual(found[0]["detail"]["error_code"], "ACCESS_DENIED")
+        qualifying = self.responses("backup-list-backup-plans-two", **{PLAN_ID: fx("backup-get-backup-plan-daily"), WEEKLY_ID: {"__error__": "ACCESS_DENIED"}})
+        self.assertEqual(evaluate("backup_plan_rules", qualifying, self.PARAMS), [])
 
 
 class DataCatalogTests(unittest.TestCase):
@@ -457,9 +480,10 @@ class DataCatalogTests(unittest.TestCase):
 
     def test_scopes_resource_types_and_regions(self):
         expected = {"DAT-001": ["rds_instance"], "DAT-002": ["rds_instance"], "DAT-003": ["rds_instance"], "DAT-004": ["rds_instance"],
-                    "DAT-005": ["dynamodb_table"], "DAT-006": ["s3_bucket"], "DAT-007": ["s3_bucket"], "DAT-011": ["elasticache_group"]}
+                    "DAT-005": ["dynamodb_table"], "DAT-006": ["s3_bucket"], "DAT-007": ["s3_bucket"], "DAT-008": ["backup_vault"],
+                    "DAT-009": ["backup_vault"], "DAT-011": ["elasticache_group"]}
         self.assertEqual({c["id"]: c["resource_types"] for c in self.checks if c["scope"] == "resource"}, expected)
-        self.assertEqual({c["id"] for c in self.checks if c["scope"] == "account"}, {"DAT-008", "DAT-009", "DAT-010"})
+        self.assertEqual({c["id"] for c in self.checks if c["scope"] == "account"}, {"DAT-010"})
         self.assertFalse([c["id"] for c in self.checks if c["all_regions"]])
 
     def test_per_item_reads_declare_the_errors_the_evaluator_handles(self):
@@ -478,13 +502,31 @@ class DataCatalogTests(unittest.TestCase):
     def test_backup_checks_read_the_right_operations_and_declare_item_errors(self):
         calls = {c["name"]: c for c in catalog_check("DAT-009")["verify"]["calls"]}
         self.assertEqual((calls["vaults"]["operation"], calls["notifications"]["operation"]), ("list-backup-vaults", "get-backup-vault-notifications"))
-        self.assertEqual(calls["notifications"]["for_each"], {"from": "vaults", "path": "BackupVaultList[].BackupVaultName", "arg": "--backup-vault-name"})
+        self.assertEqual(calls["notifications"]["for_each"], {"from": "__inventory__", "path": "id", "arg": "--backup-vault-name"})
         self.assertEqual((calls["notifications"]["ok_errors"], calls["notifications"]["item_errors"]), (["ResourceNotFoundException"], "evaluator"))
         calls = {c["name"]: c for c in catalog_check("DAT-010")["verify"]["calls"]}
         self.assertEqual(calls["details"]["for_each"], {"from": "plans", "path": "BackupPlansList[].BackupPlanId", "arg": "--backup-plan-id"})
         self.assertEqual((calls["details"]["ok_errors"], calls["details"]["item_errors"]), (["ResourceNotFoundException"], "evaluator"))
         calls = {c["name"]: c["operation"] for c in catalog_check("DAT-008")["verify"]["calls"]}
-        self.assertEqual(calls, {"jobs": "list-backup-jobs", "plans": "list-backup-plans"})
+        self.assertEqual(calls, {"jobs": "list-backup-jobs", "vaults": "list-backup-vaults"})
+
+    def test_backup_jobs_and_notifications_are_never_a_vacuous_pass(self):
+        for check_id in ("DAT-008", "DAT-009"):
+            check = catalog_check(check_id)
+            self.assertEqual((check["scope"], check["resource_types"]), ("resource", ["backup_vault"]), check_id)
+            self.assertRegex(check["verify"]["pass_when_text"], r"N/A", check_id)
+
+    def test_dat_010_is_account_level_and_says_so(self):
+        check = catalog_check("DAT-010")
+        self.assertEqual(check["scope"], "account")
+        self.assertRegex(check["title"], r"(?i)al menos un plan")
+        self.assertRegex(check["verify"]["pass_when_text"], r"semanales o de archivo no fallan")
+
+    def test_dat_011_has_a_standalone_block_for_groups_that_already_have_a_replica(self):
+        commands = catalog_check("DAT-011")["remediation"]["commands"]
+        standalone = [c for c in commands if "increase-replica-count" not in c]
+        self.assertEqual(len(standalone), 1)
+        self.assertIn("modify-replication-group --replication-group-id \"$RG_ID\" --automatic-failover-enabled --multi-az-enabled", standalone[0])
 
     def test_thresholds_are_params(self):
         self.assertEqual(catalog_check("DAT-001")["verify"]["params"], {"min_days": 7})
@@ -588,7 +630,7 @@ class DataCatalogTests(unittest.TestCase):
 class DataCollectTests(unittest.TestCase):
     """The whole data catalog through collect.main with a fake AWS: wiring of calls, for_each, ok_errors, item_errors and args."""
 
-    TYPES = ("rds_instance", "dynamodb_table", "s3_bucket", "elasticache_group")
+    TYPES = ("rds_instance", "dynamodb_table", "s3_bucket", "elasticache_group", "backup_vault")
     TABLES = ("acme-notes-sessions", "acme-notes-audit", "acme-notes-gone", "acme-notes-denied")
 
     @classmethod
@@ -693,15 +735,54 @@ class DataCollectTests(unittest.TestCase):
         self.assertEqual(self.rows("DAT-011"), [("PASS", "acme-notes-cache", REGION), ("FAIL", "acme-notes-queue", REGION), ("FAIL", "acme-notes-sessions", REGION)])
 
     def test_backup_outcomes(self):
-        self.assertEqual(self.rows("DAT-008"), [("FAIL", R_EFS, REGION)])
-        self.assertEqual(self.rows("DAT-009"), [("FAIL", "acme-notes-quiet", REGION)])
-        self.assertEqual(self.rows("DAT-010"), [("FAIL", "acme-notes-weekly", REGION)])
+        self.assertEqual(self.rows("DAT-008"), [("FAIL", "acme-notes-quiet", REGION), ("PASS", "acme-notes-vault", REGION)])
+        self.assertEqual(self.rows("DAT-009"), [("FAIL", "acme-notes-quiet", REGION), ("PASS", "acme-notes-vault", REGION)])
+        self.assertEqual(self.rows("DAT-010"), [("PASS", "account", None)])
 
     def test_every_dynamodb_table_and_bucket_is_read_once(self):
         tables = [c[c.index("--table-name") + 1] for c in self.runner.calls if c[2] == "describe-continuous-backups"]
         self.assertEqual(sorted(tables), sorted(self.TABLES))
         buckets = sorted(c[c.index("--bucket") + 1] for c in self.runner.calls if c[2] == "get-public-access-block")
         self.assertEqual(buckets, ["acme-notes-data", "acme-notes-logs"])
+
+
+class DataBackupVacuousTests(unittest.TestCase):
+    """Accounts without AWS Backup: DAT-008 and DAT-009 are N/A (vacuous), never PASS."""
+
+    def run_collect(self, vaults, jobs):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        (tmp / "checks").mkdir()
+        shutil.copy(DATA_JSON, tmp / "checks" / "data.json")
+        specs = json.loads((REFS / "inventory.json").read_text(encoding="utf-8"))
+        (tmp / "inventory.json").write_text(json.dumps({"backup_vault": specs["backup_vault"]}), encoding="utf-8")
+        scope = {"platform": "Acme Notes", "mode": "full", "target": None, "regions": [REGION], "profile": None, "resources": [], "domains": None}
+        (tmp / "scope.json").write_text(json.dumps(scope), encoding="utf-8")
+        core = lambda name: ok(load_fixture(f"aws/core/{name}.json"))
+        runner = RuleRunner([
+            ("sts", "get-caller-identity", None, "", core("sts-get-caller-identity")), ("ec2", "describe-regions", None, "", core("ec2-describe-regions")),
+            ("iam", "list-attached-user-policies", None, "", ok({"AttachedPolicies": []})),
+            ("backup", "list-backup-vaults", None, "", ok(vaults)), ("backup", "list-backup-jobs", None, "", ok(jobs)),
+            ("backup", "list-backup-plans", None, "", ok({"BackupPlansList": []})),
+            ("backup", "get-backup-vault-notifications", None, "", err("An error occurred (ResourceNotFoundException) when calling the GetBackupVaultNotifications operation"))])
+        with contextlib.redirect_stdout(io.StringIO()):
+            collect.main(["--scope", str(tmp / "scope.json"), "--out", str(tmp / "out"), "--checks-dir", str(tmp / "checks"),
+                          "--inventory", str(tmp / "inventory.json")], runner=runner, sleep=lambda s: None, which=lambda name: None)
+        results = json.loads((tmp / "out" / "checks-result.json").read_text(encoding="utf-8"))["results"]
+        return {c: [(r["status"], r["vacuous"]) for r in results if r["check_id"] == c] for c in ("DAT-008", "DAT-009", "DAT-010")}
+
+    def test_no_vaults_means_na_vacuous(self):
+        rows = self.run_collect({"BackupVaultList": []}, {"BackupJobs": []})
+        self.assertEqual(rows["DAT-008"], [("N/A", True)])
+        self.assertEqual(rows["DAT-009"], [("N/A", True)])
+
+    def test_only_empty_vaults_mean_na_too(self):
+        rows = self.run_collect(fx("backup-list-backup-vaults-empty"), {"BackupJobs": []})
+        self.assertEqual(rows["DAT-008"], [("N/A", True)])
+        self.assertEqual(rows["DAT-009"], [("N/A", True)])
+
+    def test_dat_010_still_fails_once_when_there_is_no_plan(self):
+        self.assertEqual(self.run_collect({"BackupVaultList": []}, {"BackupJobs": []})["DAT-010"], [("FAIL", False)])
 
 
 if __name__ == "__main__":
