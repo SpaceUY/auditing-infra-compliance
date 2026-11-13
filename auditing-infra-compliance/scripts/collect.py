@@ -5,7 +5,9 @@ and prints a bounded summary; one progress line per finished check goes to stder
 silences it). inventory.json is written as soon as the inventory is known and checks-result.json is refreshed while the
 run progresses, flagged "partial": true with "pending_checks" until the end, so a killed run (Ctrl-C/SIGTERM exit 130, or
 an exception) keeps what it collected. Identical AWS calls (service, operation, args, region, query) run once per run.
-A malformed scope (unknown mode or domain, malformed resources, bad regions) exits 2 with a message before any AWS call. A well-formed
+A malformed scope (unknown mode or domain, malformed resources, bad regions, an account_id that is not null or 12 digits) exits 2 with a
+message before any AWS call. When scope.account_id is set and the credentials belong to another account, the run exits 2 right after its
+own get-caller-identity, before any other call and before anything is written. A well-formed
 scope that no catalog check covers (types such as sns_topic or subnet) exits 0 with no results and the warning "no catalog check
 applies to: <types>"; its components then come out as unverified scope in the assembled report.
 Only (service, operation) pairs of the loaded catalog, the inventory spec and the preflight are ever executed.
@@ -242,6 +244,10 @@ def _scope_problem(scope, checks):
     if profile is not None and not (isinstance(profile, str) and _PROFILE_NAME.fullmatch(profile)):
         return ("scope.profile must be null or an AWS profile name (letters, digits and . _ @ + = , -; up to 128 characters, "
                 f"not starting with -); received {_oneline(json.dumps(profile, ensure_ascii=False), 40)}")
+    account_id = scope.get("account_id")
+    if account_id is not None and not (isinstance(account_id, str) and re.fullmatch(r"[0-9]{12}", account_id)):
+        return ("scope.account_id must be null or a 12-digit AWS account id; "
+                f"received {_oneline(json.dumps(account_id, ensure_ascii=False), 40)}")
     if scope["mode"] != "full" and (problem := _resource_problem(scope.get("resources"))):
         return problem
     return None
@@ -403,7 +409,7 @@ def _jmespath_offenders(collected, call_name):
 def _python_offenders(ctx, check, name, collected, items):
     fn = evaluators.EVALUATORS.get(name)
     if fn is None:
-        raise LookupError(f"evaluador python '{name}' no registrado")
+        raise LookupError(f"python evaluator '{name}' is not registered")
     responses = {**collected["responses"], "__for_each__": collected["values"], "__inventory__": items,
                  "__inventory_errors__": set(ctx.inventory_errors)}
     return [{"resource_id": str(o["resource_id"]), "region": o.get("region"), "detail": o.get("detail") or {},
@@ -802,12 +808,18 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
         return _scope_failure(problem)
     specs = json.loads(Path(args.inventory).read_text(encoding="utf-8"))
     out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
     ctx = Ctx(runner=runner, sleep=sleep, which=which, out=out, profile=scope.get("profile"),
               allowed=allowed_operations(checks, specs), specs=specs)
     warnings = []
 
     identity = _aws(ctx, "sts", "get-caller-identity", [], DEFAULT_REGION)
+    expected = scope.get("account_id")
+    if identity.ok and expected is not None and (identity.data or {}).get("Account") != expected:
+        actual = _oneline(str((identity.data or {}).get("Account")), 40)
+        print(redact.mask(f"error: the credentials belong to account {actual}, not the account confirmed in scope.json ({expected}). "
+                          "Fix the profile or scope.json and retry."))
+        return 2  # before anything is written or any other call is made
+    out.mkdir(parents=True, exist_ok=True)
     if not identity.ok:
         message = f"no valid AWS credentials ({identity.error_kind})"
         _write_json(out / "checks-result.json", {"aws": None, "results": [], "warnings": [message]})
