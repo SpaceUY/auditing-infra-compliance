@@ -69,6 +69,42 @@ def status(result, fid):
 SAFE = "aws s3api get-bucket-versioning --bucket acme-notes-uploads"
 
 
+class StatusCoverageTests(unittest.TestCase):
+    """R61: every finding that carries commands is evaluated, not only FAIL; verify-only findings are not."""
+
+    def test_documented_gap_with_commands_gets_a_status_count_pending_and_order(self):
+        pending = 'REGION="us-east-1"\nKEY="__COMPLETAR_KMS_KEY_ID__"\naws s3api get-bucket-versioning --bucket b'
+        gap = finding(1, "DAT-007", [pending], status="DOCUMENTED_GAP", domain="data")
+        fail = finding(2, "NET-001", [HEADER + SAFE])
+        result = run(gap, fail)
+        self.assertEqual(set(result["per_finding"]), {"F-0001", "F-0002"})
+        self.assertEqual(status(result, "F-0001"), "REVISAR")
+        self.assertIn("requiere_completar", kinds(result, "F-0001"))
+        self.assertEqual(result["completar_pendientes"], 1)
+        self.assertEqual(set(result["apply_order"]), {"F-0001", "F-0002"})
+        self.assertEqual(sum(result["summary"].values()), 2)
+
+    def test_conflict_rules_cover_documented_gap_findings(self):
+        gap = finding(1, "CMP-001", [HEADER + SAFE], status="DOCUMENTED_GAP", domain="compute", rtype="ec2_instance")
+        self.assertIn("conflicto_regla", kinds(run(gap), "F-0001"))
+
+    def test_verify_only_findings_are_not_evaluated(self):
+        only = finding(1, "ENC-003", [], status="DOCUMENTED_ONLY", domain="encryption", rtype="rds_instance")
+        only["remediation"].update(steps=[], note_status="no verificado: no aplicar sin confirmar")
+        passed = finding(2, "DAT-007", [], status="PASS", domain="data")
+        result = run(only, passed, finding(3, "NET-001", [HEADER + SAFE]))
+        self.assertEqual(set(result["per_finding"]), {"F-0003"})
+        self.assertEqual(result["apply_order"], ["F-0003"])
+        self.assertEqual(sum(result["summary"].values()), 1)
+
+    def test_summary_matches_the_findings_the_html_shows_a_badge_for(self):
+        gap = finding(1, "DAT-007", [HEADER + SAFE], status="DOCUMENTED_GAP")
+        result = run(gap, finding(2, "NET-001", [HEADER + SAFE]))
+        html = render_report.render(doc(gap, finding(2, "NET-001", [HEADER + SAFE])), TEMPLATE, result)
+        self.assertIn('"F-0001"', html)
+        self.assertEqual(sum(result["summary"].values()), len(result["per_finding"]))
+
+
 class AutomaticChecksTests(unittest.TestCase):
     def test_syntax_error_is_conflict(self):
         broken = 'aws s3api put-x --bucket "a'
@@ -530,7 +566,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_validate_catalog_cli_checks_rules(self):
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(validate_catalog.main(), 0)
+            self.assertEqual(validate_catalog.main([]), 0)
 
 
 class RenderTests(unittest.TestCase):

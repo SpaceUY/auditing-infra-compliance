@@ -286,8 +286,6 @@ class Round1Tests(AssembleCase):
         self.assertIn('REGION="us-east-1"', bucket["remediation"]["commands"][0])
         account = self.one(self.assemble(), "LOG-001")
         self.assertIn('REGION="us-east-1"', account["remediation"]["commands"][0])
-        iam_root = self.one(self.assemble(), "DET-001")
-        self.assertIn('REGION="us-east-1"', iam_root["remediation"]["commands"][0])
 
 
 class DependencyTests(AssembleCase):
@@ -461,7 +459,7 @@ class NoAwsTests(AssembleCase):
         self.assertIn("sin credenciales AWS válidas", out["warnings"])
         self.assertTrue(any("IAM-013" in w for w in out["warnings"]))  # EVAL claim with nothing to resolve
         self.assertEqual(out["dependencies"], [])
-        remediation = self.one(out, "NET-001", SG2)["remediation"]
+        remediation = self.one(out, "LOG-001")["remediation"]
         self.assertIn('ACCOUNT_ID="__COMPLETAR_ACCOUNT_ID__"', remediation["commands"][0])
 
     def test_missing_checks_result_file(self):
@@ -470,6 +468,76 @@ class NoAwsTests(AssembleCase):
         out = self.assemble()
         self.assertIsNone(out["meta"]["aws"])
         self.assertTrue(out["findings"])
+
+
+class RemediationByStatusTests(AssembleCase):
+    """R61 / R62: only FAIL, DOCUMENTED_GAP and a DRIFT whose actual fails keep the fix; the rest only verify."""
+
+    NO_FIX = {"steps": [], "commands": [], "notes": ""}
+
+    def claim(self, kind, check, **extra):
+        return {"kind": kind, "check_id": check, "resource": {"type": "rds_instance", "id": "acme-notes-db",
+                                                              "region": "us-east-1"}, **extra}
+
+    def assert_verify_only(self, finding):
+        rem = finding["remediation"]
+        self.assertEqual({k: rem[k] for k in self.NO_FIX}, self.NO_FIX)
+        self.assertEqual(rem["note_status"], "no verificado: no aplicar sin confirmar")
+        self.assertTrue(rem["verify_after"].strip())
+
+    def test_documented_only_destructive_fix_is_not_carried(self):
+        out = self.assemble([self.claim("DOCUMENTED_ONLY", "ENC-003", vault_claim="La base está cifrada con CMK")])
+        finding = self.one(out, "ENC-003", "acme-notes-db")
+        self.assertEqual(finding["status"], "DOCUMENTED_ONLY")
+        self.assert_verify_only(finding)
+        self.assertNotIn("create-db-snapshot", json.dumps(finding["remediation"]))
+        self.assertIn("us-east-1", finding["remediation"]["verify_after"])  # placeholders of verify_after are filled
+
+    def test_documented_gap_keeps_the_full_fix(self):
+        out = self.assemble([self.claim("DOCUMENTED_GAP", "ENC-003")])
+        rem = self.one(out, "ENC-003", "acme-notes-db")["remediation"]
+        self.assertTrue(rem["commands"] and rem["steps"])
+        self.assertNotIn("note_status", rem)
+
+    def test_drift_keeps_the_fix_only_when_its_actual_fails(self):
+        keep = self.one(self.assemble([self.claim("DRIFT", "ENC-003", actual_status="FAIL")]), "ENC-003", "acme-notes-db")
+        self.assertTrue(keep["remediation"]["commands"])
+        for extra in ({}, {"actual_status": "PASS"}, {"breaks_tests": [{"tool": "drata", "test": 30}]}):
+            found = self.one(self.assemble([self.claim("DRIFT", "ENC-003", **extra)]), "ENC-003", "acme-notes-db")
+            self.assertEqual(found["status"], "DRIFT")
+            self.assert_verify_only(found)
+
+    def test_pass_na_and_not_verified_rows_carry_only_verify_after(self):
+        out = self.assemble()
+        for check_id, resource, status in (("DET-001", "account", "PASS"), ("LOG-002", "account", "N/A"),
+                                           ("DAT-001", "account", "NO_VERIFICADO")):
+            finding = self.one(out, check_id, resource, status)
+            self.assert_verify_only(finding)
+        fail = self.one(out, "NET-001", SG, "FAIL")
+        self.assertTrue(fail["remediation"]["commands"])
+
+    def test_eval_claims_follow_their_status(self):
+        out = self.assemble()  # fixture EVAL IAM-013 is PASS
+        self.assert_verify_only(self.one(out, "IAM-013"))
+        claims = [{"kind": "EVAL", "check_id": "IAM-013", "status": "FAIL", "detail": {"reason": "iam:* sin acotar"}}]
+        self.assertTrue(self.one(self.assemble(claims), "IAM-013")["remediation"]["commands"])
+
+    def test_documented_only_is_low_with_the_catalog_severity_kept_in_evidence(self):
+        claim = self.claim("DOCUMENTED_ONLY", "ENC-003", severity="critical")
+        finding = self.one(self.assemble([claim]), "ENC-003", "acme-notes-db")
+        check = next(c for c in catalog.load_checks(SKILL_DIR / "references" / "checks") if c["id"] == "ENC-003")
+        self.assertEqual(finding["severity"], "low")
+        self.assertEqual(finding["evidence"]["catalog_severity"], check["severity"])
+        self.assertEqual(finding["evidence"]["note"], "no verificada")
+        nocheck = {"kind": "DOCUMENTED_ONLY", "check_id": None, "resource": None}
+        found = [f for f in self.assemble([nocheck])["findings"] if f["status"] == "DOCUMENTED_ONLY" and f["check_id"] is None]
+        self.assertEqual((found[0]["severity"], found[0]["evidence"]["catalog_severity"]), ("low", None))
+
+    def test_stripped_remediation_does_not_raise_unsafe_value_warnings(self):
+        claim = self.claim("DOCUMENTED_ONLY", "ENC-003")
+        claim["resource"]["id"] = "bad id; rm"
+        out = self.assemble([claim])
+        self.assertFalse([w for w in out["warnings"] if "no seguros" in w or "inseguro" in w])
 
 
 class NoPercentageTests(AssembleCase):

@@ -65,6 +65,20 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("el('mark'", TEMPLATE)
         self.assertIn("COMPLETAR", TEMPLATE)
 
+    def test_verify_only_remediation_and_catalog_severity_are_rendered(self):
+        block = i18n_block(TEMPLATE)
+        self.assertIn("verifyWith: 'Verificar con'", block)
+        self.assertIn("catalogSeverity: 'severidad del chequeo'", block)
+        self.assertIn("notVerified: 'no verificada'", block)
+        script = TEMPLATE.split("/*i18n:end*/", 1)[1]
+        # a remediation with note_status shows the note and only the verify command, never steps or commands
+        branch = script.split("if (rem.note_status) {", 1)[1].split("return box;", 1)[0]
+        self.assertIn("rem.note_status", branch)
+        self.assertIn("rem.verify_after", branch)
+        self.assertNotIn("rem.commands", branch)
+        self.assertNotIn("rem.steps", branch)
+        self.assertIn("f.evidence.catalog_severity", script)
+
     def test_theme_print_and_mobile_support(self):
         self.assertIn(":root", TEMPLATE)
         self.assertIn("prefers-color-scheme: dark", TEMPLATE)

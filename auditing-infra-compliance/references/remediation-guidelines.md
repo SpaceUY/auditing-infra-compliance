@@ -8,6 +8,8 @@ Se carga al revisar los arreglos (paso 9), al explicarle al usuario cómo aplica
 - No ofrecer "aplicarlo si me das acceso", "preparar un PR", "generar el Terraform/CDK" ni pedir un perfil de escritura. La respuesta a "arreglalo vos" es: no ejecuto cambios; el reporte trae cada arreglo con botón Copy, el sello de verificación y el orden sugerido.
 - Si falta un arreglo (hallazgo `FAIL` sin comandos, `gaps` de la verificación), se informa como faltante. No se inventa uno con `aws` ad hoc.
 
+**Solo lo verificado lleva arreglo.** `FAIL`, `DOCUMENTED_GAP`, `UNDOCUMENTED` y un `DRIFT` con `actual_status: FAIL` conservan pasos y comandos. En `DOCUMENTED_ONLY`, `PASS`, `N/A`, `NO_VERIFICADO` y los demás `DRIFT` el ensamblador deja `steps: []` y `commands: []`, deja solo `verify_after` (el HTML lo presenta como "Verificar con") y agrega `note_status`: "no verificado: no aplicar sin confirmar". Por ejemplo, un `DOCUMENTED_ONLY` de cifrado de RDS no muestra la migración con downtime. Claude no reconstruye esos comandos ni los menciona como algo para aplicar. La verificación (paso 9) evalúa todo hallazgo con comandos, `DOCUMENTED_GAP` incluido, por eso los `__COMPLETAR_*__`, los sellos y el orden de aplicación los cubren.
+
 ## 2. Los cuatro `kind`
 
 | `kind` | Qué es | Qué hace Claude |

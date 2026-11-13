@@ -62,11 +62,12 @@ Lista de objetos. Todos los campos salvo `kind` pueden ser `null` u omitirse.
 |---|---|
 | `kind` | `DRIFT` \| `UNDOCUMENTED` \| `DOCUMENTED_ONLY` \| `DOCUMENTED_GAP` \| `EVAL`. Otro valor se ignora con advertencia. |
 | `check_id` | Id del catálogo (`DAT-007`) o `null` para una observación fuera del catálogo. Un id inexistente genera advertencia. |
-| `resource` | `{type, id, region}` o `null`. Una región ausente en un recurso regional queda `__COMPLETAR_REGION__`; en cuenta/global es `us-east-1`. |
+| `resource` | `{type, id, region}` o `null`. Si la región de un recurso regional no se conoce, dejar `region: null` (no adivinar): queda `__COMPLETAR_REGION__` y se menciona en la respuesta; en cuenta/global es `us-east-1`. |
 | `vault_note` | Ruta de la nota (o del archivo de evidencia) de donde sale la afirmación. |
 | `vault_claim` | Lo que dice el vault, textual o parafraseado corto. |
 | `actual` | Lo observado en la cuenta (o "no verificado: sin credenciales"). |
 | `severity` | `critical` \| `high` \| `medium` \| `low` o `null`. Prioridad: `detail.severity_override` > `severity` del claim > severidad del catálogo (`low` para `UNDOCUMENTED` y claims sin chequeo). |
+| `actual_status` | Solo en `DRIFT`: `"FAIL"` si lo real incumple el chequeo; entonces el hallazgo conserva el arreglo completo. Sin este campo (o con otro valor) un `DRIFT` no trae comandos ni pasos. |
 | `breaks_tests` | `[{"tool": "drata", "test": 30}]` o `[{"tool": "vanta", "test": "<nombre>"}]` si una recomendación del vault rompería esos tests. Convierte el claim en `DRIFT` de severidad al menos `high`. |
 | `status`, `detail` | Solo en `EVAL`: `status` es un estado válido (`PASS`, `FAIL`, `N/A`, `NO_VERIFICADO`), `detail.reason` la justificación. |
 
@@ -82,6 +83,8 @@ Claves de primer nivel: `meta`, `summary`, `findings`, `dependencies`, `coverage
 - `meta`: plataforma, modo, target, fecha, `lang`, `catalog_checks`, `vault` (`path`, `kind`), `aws` (`account_id`, `identity_arn`, `regions`; `null` sin credenciales).
 - `summary`: `by_status`, `by_severity_fail`, `drata_tests_failing`, `vanta_tests_failing`, `not_verified`. **Nunca hay porcentaje.**
 - `findings[]`: `id` (`F-0001`…), `check_id`, `title`, `domain`, `status`, `severity`, `resource` (`type`, `id`, `region`, `name`), `evidence`, `vault_claim`, `vault_note`, `mappings`, `remediation`, `evaluated_by` (`script` \| `claude`), `vacuous`, `breaks_tests`, `missing` (permisos que faltan), `depends_on_me` (tests que dependen del recurso).
+- **Arreglo según el estado:** `FAIL`, `DOCUMENTED_GAP`, `UNDOCUMENTED` y un `DRIFT` con `actual_status: "FAIL"` llevan el arreglo completo. `DOCUMENTED_ONLY`, `PASS`, `N/A`, `NO_VERIFICADO` y los demás `DRIFT` llevan `remediation.steps: []`, `commands: []`, `notes: ""`, solo `verify_after` (el HTML lo muestra como "Verificar con") y `remediation.note_status` = "no verificado: no aplicar sin confirmar".
+- **`DOCUMENTED_ONLY`:** severidad `low` siempre; la del chequeo queda en `evidence.catalog_severity` junto con `evidence.note: "no verificada"` y el HTML dice "severidad del chequeo: alta, no verificada".
 - `mappings`: `drata` (`test`, `name`, `source`), `vanta`, `tsc` y `iso27001_2022` (`id`, `sourced`), `security_hub`, `cis_aws`.
   - `sourced: "drata-dcf-2026-11-12"` = mapeo autoritativo tomado del catálogo DCF de Drata.
   - `sourced: false` = **inferido**; el HTML lo marca "inferido".
@@ -116,7 +119,7 @@ Para quien lee o extiende el catálogo: la expresión `verify.offenders` de un c
 
 ## 6. `verification.json` (salida de `verify_remediation.py`)
 
-- `per_finding` (solo `FAIL` con remediación): `{"F-0005": {"status": "OK|REVISAR|CONFLICTO", "issues": [{"kind", "message", "source", "rule_id"}]}}`.
+- `per_finding` (todo hallazgo que lleva arreglo: `FAIL`, incluidos los de solo consola, y cualquier otro con comandos, como `DOCUMENTED_GAP`; los que solo traen "Verificar con" no entran): `{"F-0005": {"status": "OK|REVISAR|CONFLICTO", "issues": [{"kind", "message", "source", "rule_id"}]}}`.
 - `conflicts`: conflictos entre arreglos (reglas de `references/conflict-rules.json`).
 - `gaps`: faltantes (`FAIL` sin comandos que no es `console_only`, `NO_VERIFICADO` con permiso faltante, recursos del inventario sin chequeo, arreglos sin `verify_after`).
 - `apply_order`: ids de hallazgos en el orden sugerido de aplicación (identidad, logging y detección, claves KMS, cifrado, red, datos y backups, monitoreo, tags e integración; por severidad dentro de cada grupo y `planned_change` al final; una regla "A antes que B" gana).

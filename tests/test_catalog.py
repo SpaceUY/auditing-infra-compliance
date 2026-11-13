@@ -294,3 +294,55 @@ class ValidateTests(CatalogTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ListCliTests(unittest.TestCase):
+    """R63: validate_catalog.py --list [--type T] [--grep TEXT]."""
+
+    @staticmethod
+    def run_cli(*argv):
+        import contextlib
+        import io
+        import validate_catalog
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = validate_catalog.main(list(argv))
+        return code, out.getvalue().splitlines()
+
+    def test_list_prints_every_check_as_four_columns(self):
+        code, lines = self.run_cli("--list")
+        self.assertEqual(code, 0)
+        checks = catalog.load_checks(REFS / "checks")
+        self.assertEqual(len(lines), len(checks))
+        for line, check in zip(lines, checks):
+            columns = line.split(" | ")
+            self.assertEqual(len(columns), 4, line)
+            self.assertEqual((columns[0], columns[1], columns[3]), (check["id"], check["title"], check["severity"]))
+            self.assertEqual(columns[2], ",".join(check["resource_types"]) or "account")
+
+    def test_type_filter_includes_resource_checks_and_account_context_checks(self):
+        _, lines = self.run_cli("--list", "--type", "rds_instance")
+        ids = {line.split(" | ")[0] for line in lines}
+        self.assertIn("ENC-003", ids)
+        self.assertIn("DET-001", ids)  # account check that declares rds_instance in account_context_for
+        self.assertNotIn("ENC-002", ids)  # EBS volumes only
+
+    def test_grep_filter_is_case_insensitive_and_combines_with_type(self):
+        _, lines = self.run_cli("--list", "--grep", "cifrado")
+        self.assertTrue(lines and all("cifrado" in line.lower() for line in lines))
+        _, both = self.run_cli("--list", "--type", "rds_instance", "--grep", "CIFRADO")
+        self.assertTrue({l.split(" | ")[0] for l in both} <= {l.split(" | ")[0] for l in lines})
+        self.assertIn("ENC-003", {l.split(" | ")[0] for l in both})
+        self.assertEqual(self.run_cli("--list", "--grep", "zzz-no-existe"), (0, []))
+
+    def test_filters_without_list_are_rejected_and_plain_run_still_validates(self):
+        import contextlib
+        import io
+        import validate_catalog
+
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            validate_catalog.main(["--type", "rds_instance"])
+        code, lines = self.run_cli()
+        self.assertEqual(code, 0)
+        self.assertTrue(lines[-1].startswith("OK:"))

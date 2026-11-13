@@ -47,7 +47,7 @@ Cada regla existe porque, sin el skill, un agente la rompió con la racionalizac
 | `references/report-format.md` | Antes de escribir `scope.json`, `vault-claims.json` o `verification-claims.json`; al leer `findings.json` o `verification.json`. |
 | `references/remediation-guidelines.md` | Al revisar los arreglos (paso 9), al explicarle al usuario cómo aplicarlos o si pide "arreglalo vos". |
 | `references/drata-vanta.md` | Preguntas sobre roles, permisos, tags de Vanta, "pasa por vacío", mapeos documentados vs inferidos, o si hay un MCP de Drata/Vanta conectado. |
-| `references/checks/<dominio>.json` | Solo para consultar un chequeo puntual (ids, umbrales). No volcarlo entero al contexto. |
+| `references/checks/<dominio>.json` | Solo para consultar un chequeo puntual (umbrales, remediación). Para elegir `check_id` de un claim usar `validate_catalog.py --list` (paso 6); no volcar el catálogo al contexto. |
 
 ## Flujo
 
@@ -69,8 +69,8 @@ Deducir del pedido lo que se pueda y preguntar **en un solo mensaje** lo que fal
 
 ### 2. Preflight
 
-1. Si hay credenciales: `aws sts get-caller-identity [--profile <p>]`. Es el único `aws` que corrés vos y solo confirma que hay credenciales. La advertencia de permisos amplios (`AdministratorAccess`, `*:*`) la emite `collect.py` en una línea `AVISO` de su resumen (paso 5): leerla y repetirla en una línea con la sugerencia de un rol `SecurityAudit` + `ViewOnlyAccess`; no bloquea.
-2. Si falla o no hay credenciales: seguir en modo solo-vault (todo queda `DOCUMENTED_*` o `NO_VERIFICADO`) si hay vault; si no hay vault, volver al paso 1.
+1. Si hay credenciales: `aws sts get-caller-identity [--profile <p>]`. Es el único `aws` que corrés vos y solo confirma que hay credenciales. La advertencia de permisos amplios la emite `collect.py` (solo detecta la política administrada `AdministratorAccess` adjunta a la identidad) como línea `AVISO` (paso 5): repetirla en una línea con la sugerencia de un rol `SecurityAudit` + `ViewOnlyAccess`; no bloquea.
+2. Si el `sts` falla, distinguir el error y preguntar en consecuencia: **"The config profile (x) could not be found"** = el perfil no existe en esta máquina → pedir el nombre correcto de `AWS_PROFILE`; **credenciales vencidas o inválidas** (`ExpiredToken`, `InvalidClientTokenId`, `SignatureDoesNotMatch`) = pedir que las renueven (por ejemplo `aws sso login --profile <p>`), nunca que peguen claves. Si no hay credenciales y no se resuelve: seguir en modo solo-vault (todo queda `DOCUMENTED_*` o `NO_VERIFICADO`) si hay vault; si no hay vault, volver al paso 1.
 3. Crear la carpeta de corrida **fuera del vault**:
    `RUN="./compliance-reports/<plataforma>-<alcance>-<YYYY-MM-DD-HHMM>"` (plataforma y alcance en minúsculas con guiones: `acme-notes-full-2026-11-12-1030`, `acme-notes-feature-email-…`, `acme-notes-resource-i-0abc…-…`) y `mkdir -p "$RUN"`.
 
@@ -89,8 +89,8 @@ Imprime una línea: tipo (`typed` o `free`), notas, links rotos y secretos detec
 ### 4. Resolver el alcance y escribir `scope.json`
 
 - **`full`**: sin recursos; `scope.json` con `mode: "full"`.
-- **`feature`**: `python3 "$SKILL_DIR/scripts/vault_index.py" feature "$RUN/vault-index.json" "<texto>"` (JSON por stdout). Si hay varias candidatas, preguntar; si no hay ninguna, decir que la feature no está documentada y, con credenciales, ofrecer buscar en el inventario (**sin llamar a AWS**: `collect.py` con `"domains": ["inventory"]` y búsqueda en `inventory.json` por tags y nombre, `references/vault-reading.md` sección 4bis), marcando todo lo hallado así como **inferido**. **Mostrar los componentes** (título, tipo AWS, estado del vault, si es inferido), los `constraints` y si hay PII, y **esperar confirmación** antes de seguir.
-- **`resource`**: el tipo sale del prefijo o del ARN y se audita el recurso y su contexto inmediato (tabla en `references/vault-reading.md`). Sin credenciales solo se reporta lo que el vault dice de ese ID.
+- **`feature`**: `python3 "$SKILL_DIR/scripts/vault_index.py" feature "$RUN/vault-index.json" "<texto>"` (JSON por stdout). Si hay varias candidatas, preguntar; si no hay ninguna, **reintentar antes de rendirse** con los sustantivos clave y su traducción (el título puede estar en inglés: "envío de email" → "email", "mail", "delivery"); si sigue sin aparecer, decir que la feature no está documentada y, con credenciales, ofrecer buscar en el inventario (**sin llamar a AWS**: `collect.py` con `"domains": ["inventory"]` y búsqueda en `inventory.json` por tags y nombre, `references/vault-reading.md` sección 4bis), marcando todo lo hallado así como **inferido**. **Mostrar los componentes** (título, tipo AWS, estado del vault, si es inferido), los `constraints` y si hay PII, y **esperar confirmación** antes de seguir. Los recursos de contexto (security groups, VPC, roles que rodean a la feature pero no son sus componentes) van en una lista aparte rotulada "contexto".
+- **`resource`**: el tipo sale del prefijo o del ARN y se audita el recurso y su contexto inmediato (tabla en `references/vault-reading.md`). Sin credenciales solo se reporta lo que el vault dice de ese ID, y **hay que decirlo de entrada**: sin la cuenta no se puede saber si Drata o Vanta van a alertar sobre ese recurso.
 
 Esquema de `scope.json` y mapeo ids → tipos de inventario: `references/report-format.md`.
 
@@ -100,14 +100,16 @@ Esquema de `scope.json` y mapeo ids → tipos de inventario: `references/report-
 python3 "$SKILL_DIR/scripts/collect.py" --scope "$RUN/scope.json" --out "$RUN"
 ```
 
-Leer **solo el resumen de stdout** (≤ 40 líneas); el detalle está en `$RUN/checks-result.json`, `$RUN/inventory.json` y `$RUN/raw/`. Exit `2` = sin credenciales válidas: queda `checks-result.json` con `aws: null` y un `inventory.json` vacío; seguir en modo solo-vault. Si aparece una línea `AVISO` por identidad con permisos de escritura amplios, repetirla. Las filas `NO_VERIFICADO` traen el permiso que falta: se informan, no se "adivinan".
+Leer **solo el resumen de stdout** (≤ 40 líneas); el detalle está en `$RUN/checks-result.json`, `$RUN/inventory.json` y `$RUN/raw/`. El resumen imprime solo los primeros 5 `AVISO`: leer también `warnings` de `checks-result.json` (por ejemplo con un `python3 -c` de lectura) y repetir los relevantes, en especial el de la identidad con `AdministratorAccess`. Exit `2` = sin credenciales válidas: queda `checks-result.json` con `aws: null` y un `inventory.json` vacío; seguir en modo solo-vault. Las filas `NO_VERIFICADO` traen el permiso que falta: se informan, no se "adivinan".
 
 ### 6. Trabajo de Claude: EVAL, drift y claims
 
 Escribir `$RUN/vault-claims.json` (esquema en `references/report-format.md`):
 
 1. **EVAL.** Por cada fila `PENDING_CLAUDE` de `checks-result.json`, leer los datos crudos en `$RUN/raw/<CHECK_ID>/` y escribir un claim `EVAL` con `status` y `detail.reason`. Sin claim, la fila queda `NO_VERIFICADO`.
-2. **Drift.** Comparar lo que afirma el vault con `inventory.json` y `checks-result.json`: `DRIFT` (afirma algo distinto), `UNDOCUMENTED` (existe y el vault no lo menciona), `DOCUMENTED_ONLY` / `DOCUMENTED_GAP` (solo vault, sin credenciales o recurso no hallado). Reglas por `status` del vault en `references/vault-reading.md`.
+2. **Drift.** Comparar lo que afirma el vault con `inventory.json` y `checks-result.json`: `DRIFT` (afirma algo distinto; agregar `"actual_status": "FAIL"` solo si lo real incumple el chequeo, y entonces conserva el arreglo), `UNDOCUMENTED` (existe y el vault no lo menciona), `DOCUMENTED_ONLY` / `DOCUMENTED_GAP` (solo vault, sin credenciales o recurso no hallado). Reglas por `status` del vault en `references/vault-reading.md`. **Qué arreglo lleva cada estado:** `FAIL`, `DOCUMENTED_GAP` y un `DRIFT` con `actual_status: FAIL` conservan el arreglo completo; `DOCUMENTED_ONLY`, `PASS`, `N/A`, `NO_VERIFICADO` y los demás `DRIFT` no traen comandos ni pasos, solo "Verificar con" y la nota "no verificado: no aplicar sin confirmar". Un `DOCUMENTED_ONLY` sale con severidad `low` y la del chequeo queda en `evidence.catalog_severity`.
+   - **Elegir el `check_id`** sin abrir el catálogo: `python3 "$SKILL_DIR/scripts/validate_catalog.py" --list --type rds_instance --grep cifrado` (una línea por chequeo: `id | título | tipos de recurso | severidad`; sin filtros lista todo, así que filtrá). Un id que no sale de ahí no se usa.
+   - **Región desconocida** de un recurso regional: dejar `region: null` (el ensamblador pone `__COMPLETAR_REGION__`) y mencionarlo en la respuesta; no adivinarla.
 3. **Recomendaciones del vault que romperían tests** (apagar Multi-AZ, borrar Flow Logs, borrar el bucket de access logs de CloudTrail…): claim con `breaks_tests` (`[{"tool": "drata", "test": 30}]`); el ensamblador las eleva a `DRIFT` de severidad al menos `high`.
 4. **Credenciales en texto plano:** no se escribe ningún claim. Los secretos dentro de notas `.md` (`secrets_detected`) y los archivos `.env*`, `*.pem`, `*.key` o `*credentials*` del vault (`sensitive_files`, solo por nombre, nunca abiertos) salen solos como `FAIL` `critical` en `assemble_findings.py`; mencionarlos entre los más graves. Un archivo así en la carpeta de evidencia extra no entra al índice: nombrarlo en el chat como advertencia, sin abrirlo.
 5. **Observaciones fuera del catálogo:** solo claims con `check_id: null`, redactadas como "observación de Claude, fuera del catálogo".
@@ -133,7 +135,7 @@ Escribe `$RUN/report.html` (autocontenido, sin recursos externos). No abrir el H
 ### 9. Verificar los arreglos (nada se ejecuta en AWS)
 
 1. `python3 "$SKILL_DIR/scripts/verify_remediation.py" --run-dir "$RUN" --check-cli` (`--check-cli` solo si hay AWS CLI local; sin CLI avisa y sigue). Escribe `$RUN/verification.json`: sintaxis, placeholders, destructivos sin aviso, reglas de conflicto, impacto en tests que hoy pasan, faltantes y `apply_order`.
-2. **Revisión de Claude con el vault.** Para cada hallazgo `FAIL` con estado `REVISAR` o `CONFLICTO` en `verification.json` y para todo arreglo con `remediation.risk` `medium` o `high`, cruzar con el vault y el inventario **qué depende del recurso** ("la clave `…MNOP` la usa la Lambda de envío según `systems/Mailer Lambda.md`"). Escribir `$RUN/verification-claims.json`: `[{"finding_id", "status": "OK|REVISAR|CONFLICTO", "message", "vault_note"}]`. **Nunca bajar** un `CONFLICTO` del script: gana el más severo.
+2. **Revisión de Claude con el vault.** Para cada hallazgo con arreglo (`FAIL`, `DOCUMENTED_GAP`…) con estado `REVISAR` o `CONFLICTO` en `verification.json` y para todo arreglo con `remediation.risk` `medium` o `high`, cruzar con el vault y el inventario **qué depende del recurso** ("la clave `…MNOP` la usa la Lambda de envío según `systems/Mailer Lambda.md`"). Escribir `$RUN/verification-claims.json`: `[{"finding_id", "status": "OK|REVISAR|CONFLICTO", "message", "vault_note"}]`. **Nunca bajar** un `CONFLICTO` del script: gana el más severo.
 3. Repetir con los claims y re-renderizar con la verificación:
 
 ```bash
@@ -152,6 +154,9 @@ Corto y en el idioma del pedido. Incluir, en este orden:
 3. **Los 3–5 hallazgos más graves**, una línea cada uno (severidad, qué falla, recurso).
 4. **Lo no verificado**: `NO_VERIFICADO` con el permiso faltante, regiones omitidas, "vault no tipado", sin credenciales.
 5. **Verificación**: conflictos entre arreglos, faltantes (`gaps`), cantidad de `__COMPLETAR_*__` pendientes y que los arreglos los aplica una persona en CloudShell, en el orden sugerido.
+6. Regiones desconocidas dejadas como `__COMPLETAR_REGION__`, si las hay.
+
+**Sin `FAIL` verificables** (sin credenciales, todo `DOCUMENTED_*` o `NO_VERIFICADO`): decir con claridad que los "problemas con su comando de arreglo" que pidió el usuario no se pueden producir y por qué (sin la cuenta nada se verifica; lo documentado no es lo real), qué trae el reporte en su lugar (brechas del vault, verificaciones para correr cuando haya credenciales) y qué hace falta (un perfil de solo lectura).
 
 Si piden "arreglalo vos", la respuesta es no (regla dura), más la ruta al bloque Copy correspondiente.
 
@@ -162,4 +167,5 @@ Si piden "arreglalo vos", la respuesta es no (regla dura), más la ruta al bloqu
 - Tratar un `proposed` como control vigente: es "documentado como pendiente".
 - Pegar el contenido de `checks-result.json` o `raw/` en el chat: resumir; el detalle está en disco.
 - Olvidar el segundo `verify_remediation.py` con `--claims` o el `--verification` del render final: el HTML saldría sin la revisión de Claude.
-- Mencionar la fase 2 (MCP de Drata/Vanta) si no hay uno conectado: no se menciona.
+- Mencionar la fase 2 (MCP de Drata/Vanta) si no hay uno conectado: no se menciona. Una herramienta MCP diferida o sin autenticar no cuenta como conectada.
+- Presentar el arreglo de un `DOCUMENTED_ONLY`/`PASS`/`NO_VERIFICADO` como algo para aplicar: solo traen "Verificar con".

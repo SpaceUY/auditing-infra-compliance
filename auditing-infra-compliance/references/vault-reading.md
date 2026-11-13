@@ -45,7 +45,7 @@ Notas escritas a mano, sin frontmatter, estructura hub-and-spoke. Avisar siempre
 
 `vault_index.py feature <vault-index.json> "<texto>"` devuelve JSON con `candidates` (rutas), `chosen`, `components` (`path`, `title`, `via`, `depth`, `aws_ids`, `status`), `constraints`, `pii` y `confidence` (`typed` | `inferred`).
 
-1. **Una nota candidata:** seguir. **Varias:** preguntar cuál. **Ninguna:** decir "esta feature no está documentada en el vault". Nunca inventar componentes. Con credenciales, ofrecer la búsqueda en el inventario (sección 4bis).
+1. **Una nota candidata:** seguir. **Varias:** preguntar cuál. **Ninguna:** antes de rendirse, reintentar con los sustantivos clave y su traducción (el título puede estar en inglés: "envío de email" → "email", "mail", "delivery"). El indexador ya prueba, tras el título, el H1 y el cuerpo, un nivel por palabras (de 4 o más letras, sin acentos y sin palabras vacías como "de", "para", "the"), pero no traduce. Si tampoco aparece, decir "esta feature no está documentada en el vault". Nunca inventar componentes. Con credenciales, ofrecer la búsqueda en el inventario (sección 4bis).
 2. Tipado: se recorren las aristas salientes `depends on`, `requires` y `enables` y las entrantes `is part of` (profundidad máxima 3), solo nodos de `systems/`. Libre: wikilinks salientes con profundidad 2, filtrados a notas que describen recursos AWS.
 3. `pii: true` (la feature o sus componentes tocan datos de usuarios): decirlo en la confirmación y priorizar en el resumen los hallazgos de confidencialidad (cifrado, logging de acceso, retención) de los recursos del alcance.
 4. **Mostrar al usuario y esperar confirmación**, con este formato:
@@ -63,11 +63,17 @@ Requisitos declarados: constraints/PII handling.md (hay datos personales)
 
 Los `proposed`/`todo`/`draft` se muestran pero **no se auditan como recursos vivos**: se reportan como `DOCUMENTED_GAP`.
 
+Los recursos de **contexto** (security groups, VPC, subnets, roles que rodean a la feature pero no son componentes de `systems/`) se listan aparte, bajo un rótulo "contexto", para que el usuario confirme también si entran al alcance:
+
+```
+Contexto: sg-0123456789abcdef0 (de Mailer Lambda), vpc-0a1b2c3d4e5f60718
+```
+
 ## 4bis. Feature no documentada, con credenciales: buscar en el inventario
 
 Claude **no** llama a AWS (ni `resourcegroupstaggingapi` ni nada parecido). El camino permitido es dejar que `collect.py` arme el inventario completo y buscar en `inventory.json`:
 
-1. Escribir un alcance de descubrimiento, por ejemplo `$RUN/scope-discovery.json`: `{"platform": "<plataforma>", "mode": "full", "target": null, "regions": "auto", "profile": null, "resources": [], "domains": ["inventory"]}` (solo corre los chequeos de inventario; el inventario se arma igual, sin llamadas extra de Claude).
+1. Escribir un alcance de descubrimiento, por ejemplo `$RUN/scope-discovery.json`: `{"platform": "<plataforma>", "mode": "full", "target": null, "regions": "auto", "profile": "<el mismo que en scope.json>", "resources": [], "domains": ["inventory"]}` (solo corre los chequeos de inventario; el inventario se arma igual, sin llamadas extra de Claude).
 2. `python3 "$SKILL_DIR/scripts/collect.py" --scope "$RUN/scope-discovery.json" --out "$RUN/discovery"`.
 3. Buscar en `$RUN/discovery/inventory.json` por tags (`Project`, `Feature`, `Name`) y por nombre:
 
@@ -119,7 +125,7 @@ El prefijo o el ARN determinan el tipo. Se audita el recurso y su contexto inmed
 | RDS | Subnet group, SGs, clave KMS, backups, parameter group (forzar SSL) |
 | Bucket S3 | Políticas, Block Public Access, cifrado, versionado, logging |
 
-Para el contexto, agregar al `resources` del alcance los SG, volúmenes y rol que salgan del propio recurso o de la nota del vault. Sin credenciales, solo se reporta lo que el vault diga de ese ID.
+Para el contexto, agregar al `resources` del alcance los SG, volúmenes y rol que salgan del propio recurso o de la nota del vault. Sin credenciales, solo se reporta lo que el vault diga de ese ID, y hay que avisarlo de entrada: sin la cuenta no se puede saber si Drata o Vanta van a alertar sobre ese recurso.
 
 **Si el pedido es un ID sin vault ni credenciales:** parar. Decir en un mensaje corto que hace falta al menos una fuente y ofrecer las dos opciones: (a) la ruta de un vault con notas de ese recurso, o (b) un perfil AWS de solo lectura (`AWS_PROFILE`, idealmente con `SecurityAudit` + `ViewOnlyAccess`). No dar una lista especulativa de "qué se revisaría" ni un HTML de ejemplo.
 

@@ -50,7 +50,7 @@ Tags organizacionales por defecto: `Project`, `Environment`, `Owner` (INV-004). 
 
 ## 6. Fase 2 (opcional): MCP de Drata o Vanta conectado
 
-Solo si el usuario lo pide **y** hay un MCP conectado en la sesión. Si no hay conexión, la fase 2 no se menciona ni aparece en el reporte.
+Solo si el usuario lo pide **y** hay un MCP realmente conectado en la sesión: una herramienta que aparece como diferida, o que pide autenticarse (`authenticate`), no está conectada. Si no hay conexión, la fase 2 no se menciona ni aparece en el reporte.
 
 - **Drata (solo lecturas):** `Drata_searchMonitoringTests` y `Drata_getMonitoringTestFindings` para traer tests fallando y cruzar ("coincide", "solo Drata", "solo el skill"); `Drata_searchControls` y `Drata_listRequirements` para el mapeo vivo de esa cuenta. **Nunca** `retest`, `exclude`, `create` ni ninguna escritura.
 - Con conexión viva, si un chequeo falla y su test de Drata está `UNUSED`/`DISABLED`, se puede decir "Drata hoy no lo monitorea; un auditor o Vanta sí". Sin conexión, nada.

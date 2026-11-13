@@ -185,10 +185,11 @@ const I18N = {
           button: 'Copiar arreglos de bajo riesgo', empty: 'sin comandos', header: 'Hallazgos' },
   findings: { title: 'Hallazgos', empty: 'Ningún hallazgo coincide con los filtros.', noResource: 'Sin recurso asociado', account: 'Cuenta AWS',
               region: 'región', mappings: 'Mapeos', inferred: 'inferido', inferredHint: 'Mapeo inferido por el catálogo, sin fuente oficial.',
+              catalogSeverity: 'severidad del chequeo', notVerified: 'no verificada',
               evidence: 'Evidencia', vault: 'Lo que afirma el vault', vaultNote: 'Nota', breaks: 'Esta recomendación del vault rompería',
               dependsOnMe: 'Tests que dependen de este recurso', missing: 'Permisos que faltan', byClaude: 'evaluado por Claude',
               vacuous: 'pasa por vacío: no hay recursos de este tipo en el alcance', checkId: 'Chequeo' },
-  rem: { title: 'Remediación', steps: 'Pasos', commands: 'Comandos para CloudShell', verify: 'Verificar después', notes: 'Notas',
+  rem: { title: 'Remediación', steps: 'Pasos', commands: 'Comandos para CloudShell', verify: 'Verificar después', verifyWith: 'Verificar con', notes: 'Notas',
          copy: 'Copiar', copyAll: 'Copiar todo', copied: 'Copiado', copyCmdAria: 'Copiar comando', copyAllAria: 'Copiar todos los comandos', copyVerifyAria: 'Copiar comando de verificación', of: 'de', ofN: 'de', copyFail: 'No se pudo copiar: seleccionar y copiar a mano',
          placeholders: 'Completar los valores resaltados (__COMPLETAR_…__) antes de pegar.',
          planned: 'Cambio planificado: no ejecutar sin revisión del equipo y una ventana acordada. Los comandos de abajo solo leen o preparan la decisión.',
@@ -575,6 +576,11 @@ function renderRemediation(f) {
   if (!rem) return null;
   const box = el('div');
   box.appendChild(el('h3', { text: I18N.rem.title }));
+  if (rem.note_status) {
+    box.appendChild(el('div', { cls: 'alert', text: rem.note_status, attrs: { role: 'alert' } }));
+    if (rem.verify_after) box.appendChild(section(I18N.rem.verifyWith, commandBlock(rem.verify_after, I18N.rem.copyVerifyAria + ' ' + I18N.rem.of + ' ' + f.id)));
+    return box;
+  }
   const tags = el('div', { cls: 'row' });
   tags.appendChild(badge(I18N.rem.kind[rem.kind] || rem.kind, ''));
   tags.appendChild(badge(I18N.rem.risk[rem.risk] || rem.risk, rem.risk === 'high' ? 'sev-critical' : rem.risk === 'medium' ? 'sev-medium' : 'sev-low'));
@@ -644,6 +650,9 @@ function cardBody(f) {
     if (f.vault_claim) v.appendChild(el('p', { text: f.vault_claim }));
     if (f.vault_note) v.appendChild(el('p', { cls: 'muted', text: I18N.findings.vaultNote + ': ' + f.vault_note }));
     body.appendChild(section(I18N.findings.vault, v));
+  }
+  if (f.status === 'DOCUMENTED_ONLY' && f.evidence && f.evidence.catalog_severity) {
+    body.appendChild(el('p', { cls: 'muted', text: I18N.findings.catalogSeverity + ': ' + (I18N.severity[f.evidence.catalog_severity] || f.evidence.catalog_severity).toLowerCase() + ', ' + I18N.findings.notVerified }));
   }
   if (arr(f.breaks_tests).length) {
     body.appendChild(el('div', { cls: 'alert', text: I18N.findings.breaks + ': ' + arr(f.breaks_tests).map(testLabel).join('; ') }));

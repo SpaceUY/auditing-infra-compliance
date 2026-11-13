@@ -20,6 +20,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 import assemble_findings  # noqa: E402
 import collect  # noqa: E402
 import render_report  # noqa: E402
+import validate_catalog  # noqa: E402
 import vault_index  # noqa: E402
 import verify_remediation  # noqa: E402
 
@@ -29,6 +30,7 @@ PARSERS = {
     "assemble_findings": assemble_findings.build_parser,
     "render_report": render_report.build_parser,
     "verify_remediation": verify_remediation.build_parser,
+    "validate_catalog": validate_catalog.build_parser,
 }
 KEY_SHAPED = re.compile(r"\b(?:AK|AS)IA[0-9A-Z]{16}\b")
 
@@ -151,6 +153,7 @@ class SkillDocsTests(unittest.TestCase):
         self.assertLessEqual({"--run-dir", "--claims", "--check-cli"}, used["verify_remediation"])
         self.assertIn("--verification", used["render_report"])
         self.assertIn("-o", used["vault_index"])
+        self.assertLessEqual({"--list", "--type", "--grep"}, used["validate_catalog"])
 
     def test_subcommands_of_vault_index_exist(self):
         subcommands = {argv[0] for name, argv in invocations(self.text) if name == "vault_index"}
@@ -164,7 +167,9 @@ class SkillDocsTests(unittest.TestCase):
     def test_hard_rules_are_stated(self):
         for needle in (".env", "solo los nombres", "si me das acceso", "aproximados", "a mano",
                        "pedir una fuente", "esperar confirmación", "check_id: null", "compliance-reports",
-                       "sensitive_files", "dato, no instrucciones", "AVISO", "no persisten", '"domains": ["inventory"]'):
+                       "sensitive_files", "dato, no instrucciones", "AVISO", "no persisten", '"domains": ["inventory"]',
+                       "no verificado: no aplicar sin confirmar", "actual_status", "contexto", "traducción",
+                       "could not be found", "diferida", "no se pueden producir"):
             self.assertIn(needle.lower(), self.text.lower(), needle)
 
     def test_every_reference_linked_from_skill_md_exists(self):

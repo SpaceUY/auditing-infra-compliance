@@ -354,6 +354,37 @@ class FeatureTests(VaultCase):
         self.assertEqual(result["candidates"], ["systems/SES Identity.md"])
         self.assertEqual(result["chosen"], "systems/SES Identity.md")
 
+    def test_feature_token_level_finds_a_translated_title(self):
+        index = vault_index.build_index(TYPED)
+        result = vault_index.resolve_feature(index, "envío de email")
+        self.assertEqual(result["candidates"], ["systems/Email delivery.md"])
+        self.assertEqual(result["chosen"], "systems/Email delivery.md")
+        self.assertIn("Mail Queue", titles(result["components"]))
+
+    def test_feature_token_level_folds_accents_drops_stopwords_and_short_words(self):
+        index = vault_index.build_index(TYPED)
+        self.assertEqual(vault_index._tokens("Envío de   EMAIL para los usuarios"), ["envio", "email", "usuarios"])
+        self.assertEqual(vault_index._tokens("the and de del a to"), [])
+        # only stopwords / short words never match anything
+        self.assertEqual(vault_index.resolve_feature(index, "de la para")["candidates"], [])
+        self.assertEqual(vault_index.resolve_feature(index, "the and with")["candidates"], [])
+
+    def test_feature_token_level_keeps_the_ambiguity_rule(self):
+        index = vault_index.build_index(TYPED)
+        result = vault_index.resolve_feature(index, "envío del mailer")  # "mailer" is in two titles, "envio" in none
+        self.assertIsNone(result["chosen"])
+        self.assertEqual(sorted(result["candidates"]), ["systems/Mailer Lambda.md", "systems/Mailer Role.md"])
+
+    def test_feature_token_level_prefers_the_note_with_more_tokens(self):
+        index = vault_index.build_index(TYPED)
+        result = vault_index.resolve_feature(index, "mailer lambda envío")
+        self.assertEqual(result["candidates"], ["systems/Mailer Lambda.md"])
+
+    def test_feature_token_level_only_runs_after_the_other_levels(self):
+        index = vault_index.build_index(TYPED)
+        self.assertEqual(vault_index.resolve_feature(index, "Email delivery")["candidates"], ["systems/Email delivery.md"])
+        self.assertEqual(vault_index.resolve_feature(index, "Blockchain ledger")["candidates"], [])
+
     def test_feature_not_found_empty(self):
         index = vault_index.build_index(TYPED)
         result = vault_index.resolve_feature(index, "Blockchain ledger")

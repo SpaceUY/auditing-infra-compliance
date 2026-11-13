@@ -8,6 +8,9 @@ Rules worth knowing:
   DOCUMENTED_ONLY, DOCUMENTED_GAP) and one critical FAIL per secret the vault indexer detected.
 - PENDING_CLAUDE rows are replaced by the EVAL claims with the same check_id (claim resource must match unless the row
   is the account-level one); without a claim they become NO_VERIFICADO plus a warning.
+- Remediation by status: FAIL, DOCUMENTED_GAP, UNDOCUMENTED and a DRIFT claim with actual_status "FAIL" keep the full fix; the other
+  statuses (DOCUMENTED_ONLY, PASS, N/A, NO_VERIFICADO, any other DRIFT) carry no steps/commands/notes, only verify_after and a
+  remediation.note_status. A DOCUMENTED_ONLY finding is severity low with evidence.catalog_severity (the check's severity).
 - Severity: detail.severity_override > explicit claim severity > catalog severity (UNDOCUMENTED and claims without a
   check default to low). A claim with breaks_tests becomes a DRIFT of at least high severity.
 - Remediation placeholders are filled with plain regex substitution (commands contain literal JSON braces, never
@@ -53,6 +56,8 @@ CLAIM_TITLES = {
     "DOCUMENTED_ONLY": "Documentado en el vault, sin recurso verificable en AWS",
     "DOCUMENTED_GAP": "Brecha reconocida en el vault",
 }
+NOTE_STATUS = "no verificado: no aplicar sin confirmar"
+FIX_STATUSES = frozenset({"FAIL", "DOCUMENTED_GAP", "UNDOCUMENTED"})  # DRIFT only when its `actual` fails
 SECRET_TITLE = "Credenciales en texto plano en el vault"
 SENSITIVE_TITLE = "Archivo sensible dentro del vault (probables credenciales en texto plano)"
 SENSITIVE_REMEDIATION = {
@@ -165,13 +170,21 @@ def _safe_values(env, check, resource, arn):
     return values, bad
 
 
-def _remediation(env, check, resource, arn, detail):
-    """(instantiated remediation | None, True when an unsafe value was replaced by a marker)."""
+def _remediation(env, check, resource, arn, detail, keep_fix=True):
+    """(instantiated remediation | None, True when an unsafe value was replaced by a marker).
+
+    Without keep_fix (the status is not verified: DOCUMENTED_ONLY, PASS, N/A, NO_VERIFICADO...) the remediation carries no
+    steps, commands or notes, only the verify_after command and a `note_status`.
+    """
     if not check:
         return None, False
     values, bad = _safe_values(env, check, resource, arn)
     used = set()
     rem = check["remediation"]
+    if not keep_fix:
+        verify = _fill(rem["verify_after"], values, detail, used)
+        return {**rem, "steps": [], "commands": [], "verify_after": verify, "notes": "",
+                "note_status": NOTE_STATUS}, bool(used & bad)
     filled = {**rem,
               "steps": [_fill(t, values, detail, used) for t in rem["steps"]],
               "commands": [_fill(t, values, detail, used) for t in rem["commands"]],
@@ -197,9 +210,10 @@ def _severity(check, detail, explicit=None, default="low"):
 
 def _finding(env, check, *, status, severity, resource, arn=None, detail=None, evidence=None, title=None,
              vault_claim=None, vault_note=None, evaluated_by="script", vacuous=False, breaks_tests=(), missing=(),
-             check_id=None):
+             check_id=None, actual_fails=False):
     detail = detail or {}
-    remediation, unsafe = _remediation(env, check, resource, arn, detail)
+    keep_fix = status in FIX_STATUSES or (status == "DRIFT" and actual_fails)
+    remediation, unsafe = _remediation(env, check, resource, arn, detail, keep_fix)
     return {
         "id": None,
         "check_id": check["id"] if check else check_id,
@@ -283,6 +297,8 @@ def _row_findings(env, rows, evals, warnings):
 
 
 def _claim_severity(check, claim, kind):
+    if kind == "DOCUMENTED_ONLY":  # not verified: the check's own severity goes to evidence.catalog_severity
+        return "low"
     explicit = claim.get("severity") if claim.get("severity") in catalog.SEVERITIES else None
     if claim.get("breaks_tests"):
         ranked = [s for s in ("high", explicit) if s]
@@ -303,10 +319,12 @@ def _claim_finding(env, claim, warnings):
         kind = "DRIFT"
     resource, arn = _claim_resource(env, check, claim)
     evidence = {"actual": claim["actual"]} if claim.get("actual") else {}
+    if kind == "DOCUMENTED_ONLY":
+        evidence = {**evidence, "catalog_severity": check["severity"] if check else None, "note": "no verificada"}
     return _finding(env, check, status=kind, severity=_claim_severity(check, claim, kind), resource=resource,
                     arn=arn, evidence=evidence, title=CLAIM_TITLES[kind], check_id=cid,
                     vault_claim=claim.get("vault_claim"), vault_note=claim.get("vault_note"), evaluated_by="claude",
-                    breaks_tests=claim.get("breaks_tests") or [])
+                    breaks_tests=claim.get("breaks_tests") or [], actual_fails=claim.get("actual_status") == "FAIL")
 
 
 def _claim_findings(env, claims, warnings):

@@ -9,6 +9,10 @@ anywhere in the vault tree (except .git) are listed by NAME only in `sensitive_f
 CLI:
   vault_index.py index <vault> [-o vault-index.json]
   vault_index.py feature <vault-index.json> "<text>"     (JSON on stdout)
+
+Feature lookup levels (the first one with matches wins): exact title/alias, title/H1 substring, body substring, and finally
+a token level (words of 4+ characters, accents folded, stopwords dropped, matched against titles/H1/aliases; the notes
+with the most tokens win), so "envío de email" finds "Email delivery".
 """
 
 import argparse
@@ -271,6 +275,34 @@ def _body(index, note):
         return ""
 
 
+MIN_TOKEN = 4
+STOPWORDS = frozenset({
+    "de", "del", "la", "las", "el", "los", "un", "una", "unos", "unas", "para", "con", "sin", "por", "que", "como", "sobre",
+    "entre", "desde", "hacia", "este", "esta", "estos", "estas", "feature", "funcionalidad", "modulo", "sistema",
+    "the", "and", "for", "with", "from", "into", "about", "that", "this", "these", "those", "of", "to", "in", "on", "a", "an",
+})
+
+
+def _tokens(query):
+    """Distinct accent-folded words of at least MIN_TOKEN characters that are not stopwords."""
+    words = re.findall(r"[^\W_]+", _norm(query))
+    return list(dict.fromkeys(w for w in words if len(w) >= MIN_TOKEN and w not in STOPWORDS))
+
+
+def _token_matches(notes, query):
+    """Notes whose title, H1 or aliases contain the most query tokens (at least one); same ambiguity rule as the other levels."""
+    tokens = _tokens(query)
+    scored = []
+    for note in notes:
+        text = " ".join([_norm(note["title"]), *(_norm(a) for a in note.get("aliases", [])),
+                         *(_norm(h[2:]) for h in note["headings"] if h.startswith("# "))])
+        score = sum(1 for t in tokens if t in text)
+        if score:
+            scored.append((score, note))
+    best = max((s for s, _ in scored), default=0)
+    return [n for s, n in scored if s == best]
+
+
 def _candidates(index, query):
     q = _norm(query)
     if not q:
@@ -285,7 +317,7 @@ def _candidates(index, query):
         found = [n for n in notes if matches(n)]
         if found:
             return found
-    return []
+    return _token_matches(notes, query)
 
 
 def _component(note, depth, via):

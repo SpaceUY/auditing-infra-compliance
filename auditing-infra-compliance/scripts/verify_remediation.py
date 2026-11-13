@@ -10,7 +10,7 @@ What it does (spec 9bis):
 - Claude's vault-based claims (verification-claims.json): the most severe status wins and a claim never lowers a
   CONFLICTO raised by the script.
 
-Only FAIL findings with a remediation get a status (OK / REVISAR / CONFLICTO). Everything written goes through redact.
+Only findings that carry a fix get a status (OK / REVISAR / CONFLICTO): FAIL ones and any other with commands (DOCUMENTED_GAP...). Everything written goes through redact.
 
 Usage: verify_remediation.py --run-dir DIR [--claims FILE] [--check-cli]
 """
@@ -486,7 +486,10 @@ def _analyse(finding, runner, cache, cli_on):
 def verify(findings: dict, inventory: list, rules: list, *, claims: list | None = None, runner=subprocess.run,
            which=shutil.which, check_cli: bool = False) -> dict:
     all_findings = [f for f in findings.get("findings", []) if isinstance(f, dict)]
-    fails = [f for f in all_findings if f.get("status") == "FAIL" and isinstance(f.get("remediation"), dict)]
+    # every finding that carries a fix gets a status: FAIL (console_only included) and any other status with commands
+    # (DOCUMENTED_GAP, DRIFT whose actual fails...); findings without fix commands (DOCUMENTED_ONLY, PASS, N/A,
+    # NO_VERIFICADO) have nothing to verify
+    fails = [f for f in all_findings if isinstance(f.get("remediation"), dict) and (f.get("status") == "FAIL" or _commands(f))]
     cli_on = bool(check_cli and which("aws"))
     gaps = _finding_gaps(all_findings) + _inventory_gaps(all_findings, inventory)
     if check_cli and not cli_on:
