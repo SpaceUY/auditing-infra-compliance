@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate the check catalog under references/. Exit 1 on errors, 0 otherwise."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -16,12 +17,13 @@ def main() -> int:
     checks = catalog.load_checks(refs / "checks")
     tsc_ids, iso_ids = catalog.load_frameworks(refs / "frameworks")
     drata = catalog.load_drata_map(refs / "mappings" / "drata-dcf.json")
-    errors = catalog.validate(checks, tsc_ids, iso_ids, drata)
+    rules = json.loads((refs / "conflict-rules.json").read_text(encoding="utf-8"))
+    errors = catalog.validate(checks, tsc_ids, iso_ids, drata, rules)
     for error in errors:
         print(error)
     if errors:
         return 1
-    print(f"OK: {len(checks)} checks")
+    print(f"OK: {len(checks)} checks, {len(rules)} reglas de conflicto")
     return 0
 
 

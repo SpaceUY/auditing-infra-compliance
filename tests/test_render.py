@@ -155,11 +155,14 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(any(f["missing"] for f in findings if f["status"] == "NO_VERIFICADO"))
         self.assertTrue(any(not m["sourced"] for f in findings for m in f["mappings"]["tsc"] + f["mappings"]["iso27001_2022"]))
 
-    def test_render_is_pure_and_ignores_verification(self):
+    def test_render_is_pure_and_does_not_mutate_inputs(self):
         before = json.dumps(SAMPLE, sort_keys=True)
+        verification = {"per_finding": {}}
         first = render_report.render(SAMPLE, TEMPLATE)
-        self.assertEqual(first, render_report.render(SAMPLE, TEMPLATE, verification={"results": []}))
+        self.assertEqual(first, render_report.render(SAMPLE, TEMPLATE))
+        render_report.render(SAMPLE, TEMPLATE, verification)
         self.assertEqual(json.dumps(SAMPLE, sort_keys=True), before)
+        self.assertEqual(verification, {"per_finding": {}})
 
     def test_rejects_template_without_marker_and_bad_findings(self):
         with self.assertRaises(ValueError):

@@ -31,6 +31,8 @@ _REQUIRED_VERIFY = ("calls", "evaluator", "pass_when_text", "needs")
 _REQUIRED_REMEDIATION = ("kind", "risk", "downtime", "steps", "commands", "verify_after", "notes")
 _DNS_REQUIRED_PARAMS = ("rrtype", "name_template", "must_match")
 _REQUIRED_MAPPINGS = ("drata", "vanta", "tsc_inferred", "iso_inferred", "security_hub", "cis_aws")
+RULE_STATUSES = ("CONFLICTO", "REVISAR")
+RULE_SCOPES = ("same_resource", "same_account")
 
 
 def _read_json(path):
@@ -274,7 +276,73 @@ def _check_coverage(check, drata):
     return errors
 
 
-def validate(checks, tsc_ids, iso_ids, drata) -> list[str]:
+def _rule_check_refs(when):
+    """(key, check id) for every check cited in a rule's `when`."""
+    refs = []
+    for key in ("all_fail", "any_fail", "fail", "and_fail", "related_check_any"):
+        value = when.get(key)
+        refs += [(key, v) for v in (value if isinstance(value, list) else [value] if value is not None else [])]
+    return refs
+
+
+def _rule_when_errors(rid, when):
+    if not isinstance(when, dict):
+        return [f"{rid}: 'when' debe ser un objeto"]
+    forms = [k for k in ("all_fail", "any_fail", "fail") if k in when]
+    errors = []
+    if len(forms) != 1:
+        return [f"{rid}: 'when' requiere exactamente una de all_fail, any_fail o fail"]
+    if forms[0] == "fail" and sum(k in when for k in ("and_fail", "related_check_any")) != 1:
+        errors.append(f"{rid}: 'when.fail' requiere exactamente una de and_fail o related_check_any")
+    for key, value in when.items():
+        if key == "command_contains":
+            if not (isinstance(value, list) and all(isinstance(v, str) and v for v in value)):
+                errors.append(f"{rid}: when.command_contains debe ser lista de textos no vacios")
+        elif key not in ("all_fail", "any_fail", "fail", "and_fail", "related_check_any"):
+            errors.append(f"{rid}: when.{key} desconocido")
+    return errors
+
+
+def _rule_errors(rule, check_ids):
+    rid = rule.get("id", "<sin id>") if isinstance(rule, dict) else "<regla invalida>"
+    if not isinstance(rule, dict):
+        return [f"{rid}: la regla debe ser un objeto"]
+    errors = [f"{rid}: falta el campo '{f}'" for f in ("id", "when", "scope", "status", "message", "order") if f not in rule]
+    if errors:
+        return errors
+    if rule["status"] not in RULE_STATUSES:
+        errors.append(f"{rid}: status invalido '{rule['status']}'")
+    if rule["scope"] not in RULE_SCOPES:
+        errors.append(f"{rid}: scope invalido '{rule['scope']}'")
+    if not str(rule["message"]).strip():
+        errors.append(f"{rid}: message vacio")
+    errors += _rule_when_errors(rid, rule["when"])
+    cited = _rule_check_refs(rule["when"]) if isinstance(rule["when"], dict) else []
+    pairs = rule["order"] if isinstance(rule["order"], list) else []
+    if not isinstance(rule["order"], list) or not all(isinstance(p, list) and len(p) == 2 for p in pairs):
+        errors.append(f"{rid}: order debe ser una lista de pares [antes, despues]")
+        pairs = [p for p in pairs if isinstance(p, list) and len(p) == 2]
+    cited += [("order", c) for pair in pairs for c in pair]
+    errors += [f"{rid}: {key} cita un chequeo inexistente '{c}'" for key, c in cited if c not in check_ids]
+    return errors
+
+
+def validate_conflict_rules(rules, checks) -> list[str]:
+    """Rule ids must be unique and every check id cited in `when` or `order` must exist in the catalog."""
+    if not isinstance(rules, list):
+        return ["conflict-rules: se esperaba una lista de reglas"]
+    check_ids = {c.get("id") for c in checks}
+    errors, seen = [], set()
+    for rule in rules:
+        errors += _rule_errors(rule, check_ids)
+        rid = rule.get("id") if isinstance(rule, dict) else None
+        if rid in seen:
+            errors.append(f"{rid}: id de regla duplicado")
+        seen.add(rid)
+    return errors
+
+
+def validate(checks, tsc_ids, iso_ids, drata, conflict_rules=None) -> list[str]:
     errors = []
     seen_ids = set()
     for check in checks:
@@ -290,4 +358,6 @@ def validate(checks, tsc_ids, iso_ids, drata) -> list[str]:
         errors += _check_call_options(check)
         errors += _check_remediation(check)
         errors += _check_coverage(check, drata)
+    if conflict_rules is not None:
+        errors += validate_conflict_rules(conflict_rules, checks)
     return errors

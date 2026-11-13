@@ -1,0 +1,492 @@
+import contextlib
+import copy
+import io
+import json
+import re
+import tempfile
+import unittest
+from pathlib import Path
+
+import helpers
+from helpers import FakeRunner, SKILL_DIR
+
+import catalog
+import render_report
+import validate_catalog
+import verify_remediation
+
+RULES = json.loads((SKILL_DIR / "references" / "conflict-rules.json").read_text(encoding="utf-8"))
+TEMPLATE = (SKILL_DIR / "assets" / "report-template.html").read_text(encoding="utf-8")
+FINDINGS = helpers.load_fixture("findings-verify.json")
+INVENTORY = helpers.load_fixture("inventory-verify.json")
+CLAIMS = helpers.load_fixture("verification-claims.json")
+HEADER = 'REGION="us-east-1"\nACCOUNT_ID="111122223333"\n'
+
+
+def bash_ok():
+    return FakeRunner({("bash", None, None): {"returncode": 0}})
+
+
+def finding(number, check, cmds, *, kind="cli", notes="", severity="medium", status="FAIL", domain="network",
+            deps=None, verify_after="aws sts get-caller-identity", rtype="security_group", rid=None):
+    rid = rid or f"sg-{number:017x}"
+    return {"id": f"F-{number:04d}", "check_id": check, "title": f"Chequeo {check}", "domain": domain, "status": status,
+            "severity": severity, "resource": {"type": rtype, "id": rid, "region": "us-east-1", "name": rid},
+            "remediation": {"kind": kind, "risk": "low", "downtime": False, "steps": ["Aplicar."], "commands": cmds,
+                            "verify_after": verify_after, "notes": notes},
+            "depends_on_me": deps or [], "missing": []}
+
+
+def doc(*findings):
+    return {"meta": {}, "findings": list(findings), "dependencies": [], "warnings": [], "notes": []}
+
+
+def run(*findings, **kwargs):
+    kwargs.setdefault("runner", bash_ok())
+    return verify_remediation.verify(doc(*findings), kwargs.pop("inventory", []), kwargs.pop("rules", RULES), **kwargs)
+
+
+def kinds(result, fid):
+    return [i["kind"] for i in result["per_finding"][fid]["issues"]]
+
+
+def status(result, fid):
+    return result["per_finding"][fid]["status"]
+
+
+SAFE = "aws s3api get-bucket-versioning --bucket acme-notes-uploads"
+
+
+class AutomaticChecksTests(unittest.TestCase):
+    def test_syntax_error_is_conflict(self):
+        broken = 'aws s3api put-x --bucket "a'
+        result = verify_remediation.verify(doc(finding(1, "DAT-007", [broken])), [], RULES)
+        self.assertEqual(status(result, "F-0001"), "CONFLICTO")
+        self.assertIn("syntax", kinds(result, "F-0001"))
+
+    def test_clean_fix_is_ok(self):
+        result = run(finding(1, "DAT-007", [HEADER + SAFE]))
+        self.assertEqual(status(result, "F-0001"), "OK")
+        self.assertEqual(result["per_finding"]["F-0001"]["issues"], [])
+        self.assertEqual(result["summary"], {"OK": 1, "REVISAR": 0, "CONFLICTO": 0})
+
+    def test_bash_n_never_executes(self):
+        runner = bash_ok()
+        command = HEADER + "aws s3api delete-bucket --bucket acme-notes-uploads"
+        run(finding(1, "DAT-007", [command]), runner=runner)
+        self.assertEqual(runner.calls, [["bash", "-n"]])
+        self.assertEqual(runner.kwargs[0]["input"], command)
+        self.assertIsNot(runner.kwargs[0].get("shell"), True)
+        self.assertNotIn(command, [part for call in runner.calls for part in call])
+
+    def test_unresolved_placeholder_is_conflict(self):
+        result = run(finding(1, "DAT-007", ['aws ec2 describe-security-groups --group-ids "{resource_id}" --region {region}']))
+        self.assertEqual(status(result, "F-0001"), "CONFLICTO")
+        self.assertIn("placeholder_sin_resolver", kinds(result, "F-0001"))
+
+    def test_literal_json_braces_are_not_placeholders(self):
+        command = """aws s3api put-bucket-tagging --bucket b --tagging '{"TagSet":[{"Key":"Environment","Value":"prod"}]}'"""
+        result = run(finding(1, "DAT-007", [command]))
+        self.assertNotIn("placeholder_sin_resolver", kinds(result, "F-0001"))
+
+    def test_detail_json_placeholder_is_unresolved(self):
+        result = run(finding(1, "DAT-007", ["aws ec2 revoke-security-group-ingress --ip-permissions {detail_json:ip_permissions}"],
+                             kind="cli_with_decision", notes="Revisar."))
+        self.assertIn("placeholder_sin_resolver", kinds(result, "F-0001"))
+
+    def test_completar_counted_and_review(self):
+        command = HEADER + 'KEY="__COMPLETAR_KMS_KEY_ARN__"\nOWNER="__COMPLETAR_OWNER_EMAIL__"\necho "$KEY" "$OWNER" "$KEY"'
+        result = run(finding(1, "DAT-007", [command]), )
+        self.assertEqual(status(result, "F-0001"), "REVISAR")
+        self.assertIn("requiere_completar", kinds(result, "F-0001"))
+        self.assertEqual(result["completar_pendientes"], 2)
+        second = run(finding(1, "DAT-007", [command]), finding(2, "DAT-007", [HEADER + 'X="__COMPLETAR_KMS_KEY_ARN__"']))
+        self.assertEqual(second["completar_pendientes"], 3)
+
+    def test_heredoc_or_set_e_is_conflict(self):
+        for command in ("cat <<EOF\nhola\nEOF", "set -e\n" + SAFE, "set -eu\n" + SAFE, "set -o errexit\n" + SAFE):
+            result = run(finding(1, "DAT-007", [command]))
+            self.assertEqual(status(result, "F-0001"), "CONFLICTO", command)
+            self.assertIn("higiene", kinds(result, "F-0001"), command)
+
+    def test_destructive_without_warning_is_review(self):
+        for op in ("delete-bucket --bucket b", "revoke-security-group-ingress --group-id g", "terminate-instances --instance-ids i",
+                   "put-bucket-policy --bucket b --policy file://p.json", "put-key-policy --key-id k --policy-name default",
+                   "update-account-password-policy --minimum-password-length 14"):
+            result = run(finding(1, "DAT-007", [f"aws svc {op}"], kind="cli"))
+            self.assertEqual(status(result, "F-0001"), "REVISAR", op)
+            self.assertIn("destructivo_sin_aviso", kinds(result, "F-0001"), op)
+        result = run(finding(1, "DAT-007", ["aws ec2 stop-instances --instance-ids i --force"], kind="cli"))
+        self.assertIn("destructivo_sin_aviso", kinds(result, "F-0001"))
+
+    def test_destructive_with_warning_is_fine(self):
+        command = "aws ec2 revoke-security-group-ingress --group-id g"
+        for kind, notes in (("planned_change", ""), ("cli_with_decision", "Revisar antes.")):
+            result = run(finding(1, "DAT-007", [command], kind=kind, notes=notes))
+            self.assertNotIn("destructivo_sin_aviso", kinds(result, "F-0001"), kind)
+        result = run(finding(1, "DAT-007", [command], kind="cli_with_decision", notes=""))
+        self.assertIn("destructivo_sin_aviso", kinds(result, "F-0001"))
+
+    def test_destructive_words_in_comments_and_queries_ignored(self):
+        command = "# delete-bucket y revoke-x son solo texto\naws ec2 describe-security-groups --query 'SecurityGroups[?x==`delete-me`]'"
+        result = run(finding(1, "DAT-007", [command]))
+        self.assertNotIn("destructivo_sin_aviso", kinds(result, "F-0001"))
+
+    def test_dependency_impact_names_tests(self):
+        deps = [{"tool": "drata", "test": 104, "name": "Cloud Storage Public Access Disabled"},
+                {"tool": "vanta", "test": "Buckets use Block Public Access settings", "name": "Buckets use Block Public Access settings"}]
+        result = run(finding(1, "DAT-007", [HEADER + SAFE], deps=deps))
+        self.assertEqual(status(result, "F-0001"), "REVISAR")
+        issue = next(i for i in result["per_finding"]["F-0001"]["issues"] if i["kind"] == "impacto_dependencias")
+        self.assertIn("Drata 104", issue["message"])
+        self.assertIn("Cloud Storage Public Access Disabled", issue["message"])
+        self.assertIn("Buckets use Block Public Access settings", issue["message"])
+
+
+class ConflictRuleTests(unittest.TestCase):
+    def test_cr001_port80_vs_redirect(self):
+        alb_sg = finding(1, "NET-003", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="Decidir.")
+        redirect_ok = finding(2, "TLS-002", [], status="PASS", rtype="elbv2", rid="acme-notes-alb")
+        result = run(alb_sg, redirect_ok)
+        self.assertEqual(status(result, "F-0001"), "CONFLICTO")
+        self.assertIn("conflicto_regla", kinds(result, "F-0001"))
+        conflict = next(c for c in result["conflicts"] if c["rule_id"] == "CR-001")
+        self.assertEqual(conflict["status"], "CONFLICTO")
+        self.assertEqual(set(conflict["findings"]), {"F-0001", "F-0002"})
+        self.assertIn("redirección", conflict["message"])
+        self.assertNotIn("F-0002", result["per_finding"])
+        self.assertEqual(run(alb_sg)["conflicts"], [])
+
+    def test_cr001_ignores_other_region_and_na(self):
+        alb_sg = finding(1, "NET-003", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="Decidir.")
+        elsewhere = finding(2, "TLS-002", [], status="PASS", rtype="elbv2", rid="alb-eu")
+        elsewhere["resource"]["region"] = "eu-west-1"
+        vacuous = finding(3, "TLS-002", [], status="N/A", rtype="elbv2", rid="alb-none")
+        self.assertEqual(run(alb_sg, elsewhere, vacuous)["conflicts"], [])
+
+    def test_cr003_ssh_without_ssm_orders_ssm_first(self):
+        ssh = finding(1, "NET-001", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="Ojo.",
+                      severity="critical")
+        ssm = finding(2, "CMP-006", [SAFE], kind="planned_change", severity="low", domain="compute", rtype="ec2_instance")
+        result = run(ssh, ssm)
+        self.assertEqual(status(result, "F-0001"), "CONFLICTO")
+        self.assertLess(result["apply_order"].index("F-0002"), result["apply_order"].index("F-0001"))
+        plain = run(ssh)
+        self.assertEqual(plain["conflicts"], [])
+
+    def test_cr002_orders_key_before_trail(self):
+        trail = finding(1, "LOG-003", [SAFE], kind="planned_change", severity="high", domain="logging", rtype="cloudtrail_trail")
+        key = finding(2, "INT-004", [SAFE], kind="cli_with_decision", notes="n", severity="low", domain="integration", rtype="kms_key")
+        result = run(trail, key)
+        self.assertEqual(status(result, "F-0001"), "REVISAR")
+        self.assertLess(result["apply_order"].index("F-0002"), result["apply_order"].index("F-0001"))
+
+    def test_any_fail_rules_review_each_check(self):
+        for check in ("CMP-001", "CMP-002", "IAM-008", "IAM-009", "IAM-010", "TLS-001", "ENC-002", "ENC-003", "ENC-004",
+                      "INV-003", "INT-004", "DAT-002"):
+            result = run(finding(1, check, [SAFE], kind="planned_change"))
+            self.assertEqual(status(result, "F-0001"), "REVISAR", check)
+            self.assertIn("conflicto_regla", kinds(result, "F-0001"), check)
+
+    def test_cr009_any_put_key_policy(self):
+        policy = finding(1, "ENC-007", ["aws kms put-key-policy --key-id k --policy-name default --policy file://p.json"],
+                         kind="cli_with_decision", notes="Conservar el statement root.")
+        result = run(policy)
+        issue = next(i for i in result["per_finding"]["F-0001"]["issues"] if i["kind"] == "conflicto_regla")
+        self.assertEqual(issue["rule_id"], "CR-009")
+
+    def test_all_fail_and_same_resource_scope(self):
+        rules = [{"id": "CR-X", "when": {"all_fail": ["AAA-001", "BBB-001"]}, "scope": "same_resource", "status": "CONFLICTO",
+                  "message": "juntos rompen", "order": []}]
+        a = finding(1, "AAA-001", [SAFE], rid="r-1")
+        b_same = finding(2, "BBB-001", [SAFE], rid="r-1")
+        b_other = finding(3, "BBB-001", [SAFE], rid="r-2")
+        result = run(a, b_other, rules=rules)
+        self.assertEqual(result["conflicts"], [])
+        result = run(a, b_same, b_other, rules=rules)
+        self.assertEqual(result["conflicts"][0]["findings"], ["F-0001", "F-0002"])
+        self.assertEqual(status(result, "F-0003"), "OK")
+
+    def test_apply_order_by_group_and_severity(self):
+        specs = [(1, "TAG-001", "integration", "low", "cli"), (2, "NET-009", "network", "critical", "cli"),
+                 (3, "IAM-020", "iam", "low", "cli"), (4, "LOG-009", "logging", "medium", "cli"),
+                 (5, "DET-009", "detection", "high", "cli"), (6, "ENC-006", "encryption", "medium", "cli"),
+                 (7, "ENC-009", "encryption", "high", "planned_change"), (8, "ENC-010", "encryption", "low", "cli"),
+                 (9, "DAT-009", "data", "high", "cli"), (10, "MON-009", "monitoring", "high", "cli"),
+                 (11, "NET-010", "network", "medium", "cli")]
+        findings = [finding(n, c, [SAFE], kind=k, domain=d, severity=s, notes="n") for n, c, d, s, k in specs]
+        findings[5]["resource"]["type"] = "kms_key"
+        order = run(*findings)["apply_order"]
+        # iam, logging+detection (by severity), kms, encryption (planned_change last), network (by severity), data, monitoring, integration
+        self.assertEqual(order, ["F-0003", "F-0005", "F-0004", "F-0006", "F-0008", "F-0007", "F-0002", "F-0011", "F-0009", "F-0010", "F-0001"])
+
+    def test_order_cycle_ignored_with_gap(self):
+        rules = [{"id": "CR-A", "when": {"any_fail": ["AAA-001"]}, "scope": "same_account", "status": "REVISAR", "message": "a",
+                  "order": [["AAA-001", "BBB-001"]]},
+                 {"id": "CR-B", "when": {"any_fail": ["BBB-001"]}, "scope": "same_account", "status": "REVISAR", "message": "b",
+                  "order": [["BBB-001", "AAA-001"]]}]
+        a = finding(1, "AAA-001", [SAFE], severity="low")
+        b = finding(2, "BBB-001", [SAFE], severity="critical")
+        result = run(a, b, rules=rules)
+        self.assertEqual(result["apply_order"], ["F-0002", "F-0001"])
+        self.assertTrue(any("ciclo" in g["message"] for g in result["gaps"]))
+
+
+class GapTests(unittest.TestCase):
+    def test_gaps_listed(self):
+        result = verify_remediation.verify(FINDINGS, INVENTORY, RULES, runner=bash_ok())
+        by_kind = {}
+        for gap in result["gaps"]:
+            by_kind.setdefault(gap["kind"], []).append(gap)
+        self.assertEqual({"sin_arreglo", "no_verificado", "recurso_sin_chequeo", "sin_verify_after"}, set(by_kind))
+        self.assertEqual([g["ref"] for g in by_kind["sin_arreglo"]], ["F-0009"])
+        self.assertEqual([g["ref"] for g in by_kind["sin_verify_after"]], ["F-0010"])
+        self.assertIn("rds:DescribeDBInstances", by_kind["no_verificado"][0]["message"])
+        self.assertEqual(by_kind["no_verificado"][0]["ref"], "F-0008")
+        orphan = by_kind["recurso_sin_chequeo"]
+        self.assertEqual([g["ref"] for g in orphan], ["vpc"])
+        self.assertIn("vpc-0aaa1111bbbb2222c", orphan[0]["message"])
+        self.assertNotIn("acme-notes-uploads", orphan[0]["message"])
+
+    def test_console_only_without_commands_is_not_a_gap(self):
+        result = verify_remediation.verify(FINDINGS, INVENTORY, RULES, runner=bash_ok())
+        self.assertNotIn("F-0007", [g["ref"] for g in result["gaps"]])
+
+    def test_fixture_end_to_end(self):
+        result = verify_remediation.verify(FINDINGS, INVENTORY, RULES, runner=bash_ok())
+        self.assertEqual(status(result, "F-0003"), "CONFLICTO")
+        self.assertEqual(status(result, "F-0001"), "CONFLICTO")  # CR-003: CMP-006 sigue en FAIL
+        self.assertEqual(status(result, "F-0005"), "REVISAR")
+        self.assertEqual(status(result, "F-0006"), "OK")
+        self.assertEqual(result["completar_pendientes"], 2)
+        self.assertEqual(sum(result["summary"].values()), len(result["per_finding"]))
+        self.assertEqual(set(result["apply_order"]), set(result["per_finding"]))
+        self.assertNotIn("F-0004", result["per_finding"])
+        self.assertNotIn("F-0008", result["per_finding"])
+        self.assertFalse(result["cli_checked"])
+
+
+class ClaimTests(unittest.TestCase):
+    def test_claude_claim_cannot_downgrade_conflict(self):
+        ssh = finding(1, "NET-001", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="n")
+        ssm = finding(2, "CMP-006", [SAFE], kind="planned_change", domain="compute", rtype="ec2_instance")
+        claims = [{"finding_id": "F-0001", "status": "OK", "message": "Sin dependencias.", "vault_note": None}]
+        result = run(ssh, ssm, claims=claims)
+        self.assertEqual(status(result, "F-0001"), "CONFLICTO")
+        self.assertEqual(status(run(ssh, ssm), "F-0001"), "CONFLICTO")
+
+    def test_claim_can_raise_status_and_is_attributed(self):
+        result = run(finding(1, "DAT-007", [HEADER + SAFE]), claims=[
+            {"finding_id": "F-0001", "status": "CONFLICTO", "message": "La Lambda de envío usa la key.", "vault_note": "systems/Mailer Lambda.md"}])
+        self.assertEqual(status(result, "F-0001"), "CONFLICTO")
+        issue = result["per_finding"]["F-0001"]["issues"][0]
+        self.assertEqual((issue["kind"], issue["source"], issue["rule_id"]), ("claude", "claude", None))
+        self.assertIn("La Lambda de envío usa la key.", issue["message"])
+        self.assertIn("systems/Mailer Lambda.md", issue["message"])
+
+    def test_ok_claim_and_unknown_finding_are_ignored(self):
+        result = run(finding(1, "DAT-007", [HEADER + SAFE]), claims=[
+            {"finding_id": "F-0001", "status": "OK", "message": "ok", "vault_note": None},
+            {"finding_id": "F-9999", "status": "CONFLICTO", "message": "x", "vault_note": None}])
+        self.assertEqual(status(result, "F-0001"), "OK")
+        self.assertEqual(result["summary"]["CONFLICTO"], 0)
+
+    def test_claim_text_is_masked(self):
+        key = "AKIA" + "TESTKEYABCDEMNOP"
+        result = run(finding(1, "DAT-007", [HEADER + SAFE]), claims=[
+            {"finding_id": "F-0001", "status": "REVISAR", "message": f"La key {key} la usa el pipeline.", "vault_note": None}])
+        self.assertNotIn(key, json.dumps(result))
+
+    def test_fixture_claims_merge(self):
+        result = verify_remediation.verify(FINDINGS, INVENTORY, RULES, claims=CLAIMS, runner=bash_ok())
+        self.assertEqual(status(result, "F-0006"), "REVISAR")
+        self.assertEqual(status(result, "F-0003"), "CONFLICTO")
+
+
+class CliCheckTests(unittest.TestCase):
+    HELP_OK = "NAME\n       revoke-security-group-ingress\nOPTIONS\n       --group-id (string)\n       --ip-permissions (list)\n"
+
+    def runner(self, help_text, returncode=0):
+        return FakeRunner({("bash", None, None): {"returncode": 0},
+                           ("ec2", "revoke-security-group-ingress", None): {"stdout": help_text, "returncode": returncode}})
+
+    def test_check_cli_flags(self):
+        command = 'aws ec2 revoke-security-group-ingress --group-id g --foo bar --region us-east-1'
+        runner = self.runner(self.HELP_OK)
+        result = run(finding(1, "NET-009", [command], kind="cli_with_decision", notes="n"), runner=runner, check_cli=True,
+                     which=lambda name: "/usr/bin/aws")
+        self.assertEqual(status(result, "F-0001"), "CONFLICTO")
+        issue = next(i for i in result["per_finding"]["F-0001"]["issues"] if i["kind"] == "cli_invalida")
+        self.assertIn("--foo", issue["message"])
+        self.assertNotIn("--region", issue["message"])
+        self.assertTrue(result["cli_checked"])
+        help_call = [c for c in runner.calls if c[0] == "aws"]
+        self.assertEqual(help_call, [["aws", "ec2", "revoke-security-group-ingress", "help"]])
+        env = runner.kwargs[runner.calls.index(help_call[0])]["env"]
+        self.assertEqual((env["PAGER"], env["AWS_PAGER"]), ("cat", ""))
+
+    def test_valid_flags_pass_and_help_is_cached(self):
+        command = 'aws ec2 revoke-security-group-ingress --group-id g --ip-permissions \'[]\'\naws ec2 revoke-security-group-ingress --group-id h --ip-permissions \'[]\''
+        runner = self.runner(self.HELP_OK)
+        result = run(finding(1, "NET-009", [command], kind="cli_with_decision", notes="n"), runner=runner, check_cli=True,
+                     which=lambda name: "/usr/bin/aws")
+        self.assertNotIn("cli_invalida", kinds(result, "F-0001"))
+        self.assertEqual(len([c for c in runner.calls if c[0] == "aws"]), 1)
+
+    def test_help_with_overstrike_is_readable(self):
+        bold = "".join(f"{ch}\b{ch}" for ch in "--group-id") + " (string)\n"
+        result = run(finding(1, "NET-009", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="n"),
+                     runner=self.runner(bold), check_cli=True, which=lambda name: "/usr/bin/aws")
+        self.assertNotIn("cli_invalida", kinds(result, "F-0001"))
+
+    def test_unknown_operation_is_conflict(self):
+        result = run(finding(1, "NET-009", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="n"),
+                     runner=self.runner("", returncode=252), check_cli=True, which=lambda name: "/usr/bin/aws")
+        self.assertEqual(status(result, "F-0001"), "CONFLICTO")
+        self.assertIn("cli_invalida", kinds(result, "F-0001"))
+
+    def test_only_first_command_of_a_pipeline_is_checked(self):
+        command = "aws ec2 revoke-security-group-ingress --group-id g && aws ec2 other-op --zzz 1"
+        result = run(finding(1, "NET-009", [command], kind="cli_with_decision", notes="n"), runner=self.runner(self.HELP_OK),
+                     check_cli=True, which=lambda name: "/usr/bin/aws")
+        self.assertNotIn("cli_invalida", kinds(result, "F-0001"))
+
+    def test_no_cli_available_gap(self):
+        runner = bash_ok()
+        result = run(finding(1, "NET-009", [SAFE]), runner=runner, check_cli=True, which=lambda name: None)
+        self.assertFalse(result["cli_checked"])
+        self.assertTrue(any("CLI" in g["message"] for g in result["gaps"]))
+        self.assertEqual(runner.calls, [["bash", "-n"]])
+
+    def test_cli_not_requested_runs_no_aws(self):
+        runner = bash_ok()
+        result = run(finding(1, "NET-009", [SAFE]), runner=runner, which=lambda name: "/usr/bin/aws")
+        self.assertFalse(result["cli_checked"])
+        self.assertEqual(runner.calls, [["bash", "-n"]])
+
+
+class CatalogTests(unittest.TestCase):
+    def validate(self, rules):
+        refs = SKILL_DIR / "references"
+        checks = catalog.load_checks(refs / "checks")
+        tsc, iso = catalog.load_frameworks(refs / "frameworks")
+        drata = catalog.load_drata_map(refs / "mappings" / "drata-dcf.json")
+        return catalog.validate(checks, tsc, iso, drata, rules)
+
+    def test_conflict_rules_reference_existing_checks(self):
+        self.assertEqual(self.validate(RULES), [])
+        self.assertEqual([r["id"] for r in RULES], [f"CR-{n:03d}" for n in range(1, 11)])
+        bad = copy.deepcopy(RULES)
+        bad[0]["when"]["related_check_any"] = "ZZZ-999"
+        bad[1]["order"] = [["LOG-003", "QQQ-111"]]
+        errors = self.validate(bad)
+        self.assertTrue(any("ZZZ-999" in e for e in errors))
+        self.assertTrue(any("QQQ-111" in e for e in errors))
+
+    def test_conflict_rules_shape_is_validated(self):
+        bad = copy.deepcopy(RULES)
+        bad[0]["status"] = "ROJO"
+        bad[1]["scope"] = "global"
+        bad[2]["id"] = bad[3]["id"]
+        bad[4]["when"] = {"nada": []}
+        errors = "\n".join(self.validate(bad))
+        for expected in ("ROJO", "global", "duplicado", "when"):
+            self.assertIn(expected, errors)
+
+    def test_validate_catalog_cli_checks_rules(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(validate_catalog.main(), 0)
+
+
+class RenderTests(unittest.TestCase):
+    def verification(self):
+        return verify_remediation.verify(FINDINGS, INVENTORY, RULES, claims=CLAIMS, runner=bash_ok())
+
+    @staticmethod
+    def embedded(html):
+        return json.loads(re.search(r'<script id="data" type="application/json">(.*?)</script>', html, re.S).group(1))
+
+    def test_render_with_verification_shows_badges_and_section(self):
+        verification = self.verification()
+        html = render_report.render(FINDINGS, TEMPLATE, verification)
+        data = self.embedded(html)
+        self.assertEqual(data["verification"], verification)
+        self.assertEqual(data["findings"], FINDINGS["findings"])
+        for token in ("id=\"verification\"", "renderVerification", "verifStatus", "ver-CONFLICTO", "ver-REVISAR", "ver-OK",
+                      "Verificación", "apply_order", "completar_pendientes", "gaps", "conflicts"):
+            self.assertIn(token, TEMPLATE, token)
+        self.assertEqual(TEMPLATE.index('id="summary"') < TEMPLATE.index('id="verification"') < TEMPLATE.index('id="filters-section"'), True)
+
+    def test_verification_section_uses_text_nodes_only(self):
+        self.assertEqual(re.findall(r"innerHTML\s*=\s*[^'\"\s]", TEMPLATE), [])
+        block = re.search(r"function renderVerification\(.*?\n\}", TEMPLATE, re.S).group(0)
+        self.assertNotIn("innerHTML", block)
+        self.assertNotRegex(TEMPLATE, r"<script[^>]+src=")
+
+    def test_hostile_verification_text_is_escaped(self):
+        verification = self.verification()
+        verification["conflicts"].append({"rule_id": "CR-X", "findings": ["F-0001"], "status": "REVISAR",
+                                          "message": "</script><script>alert(1)</script> x"})
+        html = render_report.render(FINDINGS, TEMPLATE, verification)
+        self.assertNotIn("</script><script>alert", html)
+        self.assertNotIn(" ", html)
+        self.assertEqual(self.embedded(html)["verification"]["conflicts"][-1]["message"], "</script><script>alert(1)</script> x")
+
+    def test_low_risk_copy_excludes_conflicts(self):
+        logic = re.search(r"function bulkCandidates\(.*?\n\}", TEMPLATE, re.S).group(0)
+        self.assertIn("'CONFLICTO'", logic)
+        self.assertIn("verifStatus(f)", logic)
+        self.assertIn("'__COMPLETAR_'", logic)
+        self.assertEqual(TEMPLATE.count("bulkCandidates("), 3)
+
+    def test_render_without_verification_unchanged(self):
+        plain = render_report.render(FINDINGS, TEMPLATE)
+        self.assertEqual(plain, render_report.render(FINDINGS, TEMPLATE, None))
+        self.assertNotIn("verification", self.embedded(plain))
+        self.assertEqual(self.embedded(plain), FINDINGS)
+
+    def test_render_rejects_malformed_verification(self):
+        with self.assertRaises(ValueError):
+            render_report.render(FINDINGS, TEMPLATE, ["no", "es", "un", "dict"])
+
+    def test_render_cli_accepts_verification_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "findings.json").write_text(json.dumps(FINDINGS), encoding="utf-8")
+            (tmp / "verification.json").write_text(json.dumps(self.verification()), encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = render_report.main([str(tmp / "findings.json"), "--verification", str(tmp / "verification.json")])
+            self.assertEqual(code, 0)
+            self.assertIn("verification", self.embedded((tmp / "report.html").read_text(encoding="utf-8")))
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(render_report.main([str(tmp / "findings.json"), "--verification", str(tmp / "nope.json")]), 2)
+            self.assertIn("error", err.getvalue())
+
+
+class CliTests(unittest.TestCase):
+    def test_cli_writes_verification_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "findings.json").write_text(json.dumps(FINDINGS), encoding="utf-8")
+            (tmp / "inventory.json").write_text(json.dumps(INVENTORY), encoding="utf-8")
+            claims = tmp / "claims.json"
+            claims.write_text(json.dumps(CLAIMS), encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = verify_remediation.main(["--run-dir", str(tmp), "--claims", str(claims)])
+            self.assertEqual(code, 0)
+            written = json.loads((tmp / "verification.json").read_text(encoding="utf-8"))
+            self.assertEqual(set(written), {"per_finding", "conflicts", "gaps", "apply_order", "completar_pendientes", "cli_checked", "summary"})
+            self.assertLessEqual(len(out.getvalue().splitlines()), 10)
+
+    def test_cli_missing_inputs_is_clean_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(verify_remediation.main(["--run-dir", tmp]), 2)
+            self.assertIn("error", err.getvalue())
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(verify_remediation.main(["--run-dir", tmp + "/no-existe"]), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

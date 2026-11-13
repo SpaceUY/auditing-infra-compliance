@@ -1,0 +1,34 @@
+[
+  {
+    "type": "security_group",
+    "id": "sg-0a1b2c3d4e5f60718",
+    "arn": "",
+    "name": "acme-notes-ssh",
+    "region": "us-east-1",
+    "tags": {}
+  },
+  {
+    "type": "s3_bucket",
+    "id": "acme-notes-uploads",
+    "arn": "arn:aws:s3:::acme-notes-uploads",
+    "name": "acme-notes-uploads",
+    "region": "us-east-1",
+    "tags": {}
+  },
+  {
+    "type": "vpc",
+    "id": "vpc-0aaa1111bbbb2222c",
+    "arn": "",
+    "name": "vpc-0aaa1111bbbb2222c",
+    "region": "us-east-1",
+    "tags": {}
+  },
+  {
+    "type": "vpc",
+    "id": "vpc-0ddd3333eeee4444f",
+    "arn": "",
+    "name": "acme-notes-vpc",
+    "region": "us-east-1",
+    "tags": {}
+  }
+]

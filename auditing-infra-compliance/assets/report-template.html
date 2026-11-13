@@ -68,6 +68,9 @@ a.chip:hover { text-decoration: underline; }
 .st-DOCUMENTED_ONLY { background: var(--low-bg); color: var(--low-fg); border-color: var(--low-fg); }
 .st-NO_VERIFICADO { background: var(--nov-bg); color: var(--nov-fg); border-color: var(--nov-fg); }
 .st-NA, .st-NOT_TOUCHED { background: var(--na-bg); color: var(--na-fg); border-color: var(--na-fg); }
+.ver-OK { background: var(--pass-bg); color: var(--pass-fg); border-color: var(--pass-fg); }
+.ver-REVISAR { background: var(--med-bg); color: var(--med-fg); border-color: var(--med-fg); }
+.ver-CONFLICTO { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
 button, select, input[type="search"] { font: inherit; color: var(--text); }
 button.btn {
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px;
@@ -140,6 +143,7 @@ footer.fixed {
 </header>
 <main>
   <section id="summary" aria-labelledby="h-summary"><h2 id="h-summary"></h2><div class="panel" id="summary-body"></div></section>
+  <section id="verification" aria-labelledby="h-verification" hidden><h2 id="h-verification"></h2><div class="panel" id="verification-body"></div></section>
   <section id="filters-section" class="no-print" aria-labelledby="h-filters">
     <h2 id="h-filters"></h2>
     <div class="panel">
@@ -177,7 +181,7 @@ const I18N = {
   filters: { title: 'Filtros', severity: 'Severidad', status: 'Estado', domain: 'Dominio', tool: 'Herramienta', norm: 'Norma', search: 'Buscar',
              searchPlaceholder: 'ID, recurso, texto…', all: 'Todos', allF: 'Todas', clear: 'Limpiar filtros', expand: 'Expandir todo', collapse: 'Contraer todo',
              showing: 'Mostrando', of: 'de', normSoc2: 'SOC 2', normIso: 'ISO 27001' },
-  bulk: { title: 'Copiar arreglos de bajo riesgo', hint: 'Por severidad: junta los comandos de los hallazgos FAIL de tipo CLI con riesgo bajo, separados por comentarios con el ID. Se omiten los que tienen valores por completar. Revisar antes de pegar en CloudShell.',
+  bulk: { title: 'Copiar arreglos de bajo riesgo', hint: 'Por severidad: junta los comandos de los hallazgos FAIL de tipo CLI con riesgo bajo, separados por comentarios con el ID. Se omiten los que tienen valores por completar y los que la verificación marcó como CONFLICTO. Revisar antes de pegar en CloudShell.',
           button: 'Copiar arreglos de bajo riesgo', empty: 'sin comandos', header: 'Hallazgos' },
   findings: { title: 'Hallazgos', empty: 'Ningún hallazgo coincide con los filtros.', noResource: 'Sin recurso asociado', account: 'Cuenta AWS',
               region: 'región', mappings: 'Mapeos', inferred: 'inferido', inferredHint: 'Mapeo inferido por el catálogo, sin fuente oficial.',
@@ -198,6 +202,18 @@ const I18N = {
          groups: { technical: 'Controles técnicos', organizational: 'Organizacionales: fuera del alcance de este reporte', inherited: 'Heredados de AWS' },
          st: { PASS: 'Pasa', FAIL: 'Falla', NO_VERIFICADO: 'No verificado', NOT_TOUCHED: 'No tocado' } },
   notes: { title: 'Advertencias y notas', warnings: 'Advertencias de la corrida', notes: 'Notas', none: 'Sin advertencias ni notas.' },
+  ver: { title: 'Verificación de los arreglos', badgeTitle: 'Verificación del arreglo',
+         hint: 'Revisión de los comandos de CloudShell sin ejecutar nada en AWS: sintaxis, valores sin resolver, operaciones destructivas, conflictos entre arreglos y lo que falta.',
+         counts: 'Arreglos verificados', pending: 'Valores por completar (__COMPLETAR_…__) pendientes', pendingHint: 'Completarlos antes de pegar los comandos en CloudShell.',
+         cliOn: 'Validez de operaciones y flags: comprobada con la ayuda local de la AWS CLI.',
+         cliOff: 'Validez de operaciones y flags: no comprobada (correr la verificación con --check-cli y la AWS CLI instalada).',
+         conflicts: 'Conflictos entre arreglos', noConflicts: 'Sin conflictos entre arreglos.', gaps: 'Lo que falta', noGaps: 'Nada faltante detectado.',
+         order: 'Orden sugerido de aplicación', orderHint: 'Identidad, logging y detección, claves KMS, cifrado, red, datos, monitoreo, tags e integración; dentro de cada grupo por severidad y los cambios planificados al final. Las reglas de conflicto tienen prioridad.',
+         reasons: 'Verificación del arreglo', byClaude: 'revisión de Claude', rule: 'Regla', findings: 'Hallazgos', none: 'sin observaciones',
+         status: { OK: 'OK', REVISAR: 'REVISAR', CONFLICTO: 'CONFLICTO' },
+         gapKind: { sin_arreglo: 'Falla sin arreglo', no_verificado: 'No verificado', recurso_sin_chequeo: 'Recurso sin chequeo', sin_verify_after: 'Arreglo sin verificación posterior' },
+         issueKind: { syntax: 'Sintaxis', cli_invalida: 'CLI inválida', placeholder_sin_resolver: 'Placeholder sin resolver', requiere_completar: 'Valor por completar',
+                      higiene: 'Higiene', destructivo_sin_aviso: 'Destructivo sin aviso', conflicto_regla: 'Conflicto', impacto_dependencias: 'Impacto en dependencias', claude: 'Claude' } },
   footer: 'Pre-auditoría técnica automatizada. No es una opinión de auditoría ni cubre controles organizacionales (políticas, RRHH, equipos, proveedores, ISMS).',
   status: { FAIL: 'Falla', PASS: 'Pasa', DRIFT: 'Drift', DOCUMENTED_ONLY: 'Solo documentado', DOCUMENTED_GAP: 'Brecha documentada',
             UNDOCUMENTED: 'Sin documentar', NO_VERIFICADO: 'No verificado', 'N/A': 'N/A' },
@@ -218,6 +234,8 @@ try {
 }
 const META = DATA.meta || {};
 const FINDINGS = Array.isArray(DATA.findings) ? DATA.findings : [];
+const VERIF = DATA.verification && typeof DATA.verification === 'object' ? DATA.verification : null;
+const VERIF_STATES = ['OK', 'REVISAR', 'CONFLICTO'];
 const openIds = new Set();
 const filters = { severity: '', status: '', domain: '', tool: '', norm: '', q: '' };
 
@@ -252,6 +270,14 @@ function appendMarked(parent, text) {
 function badge(text, cls, title) {
   return el('span', { cls: 'badge ' + (cls || ''), text: text, attrs: title ? { title: title } : null });
 }
+function verifEntry(f) {
+  const per = VERIF && VERIF.per_finding;
+  if (!per || typeof per !== 'object' || !Object.prototype.hasOwnProperty.call(per, f.id)) return null;
+  const entry = per[f.id];
+  return entry && VERIF_STATES.indexOf(entry.status) !== -1 ? entry : null;
+}
+function verifStatus(f) { const e = verifEntry(f); return e ? e.status : null; }
+function verifBadge(state) { return badge(I18N.ver.status[state], 'ver-' + state, I18N.ver.badgeTitle); }
 function sevBadge(sev) { return badge(I18N.severity[sev] || sev, 'sev-' + sev); }
 function statusBadge(st) { return badge(I18N.status[st] || st, 'st-' + statusKey(st)); }
 
@@ -474,10 +500,12 @@ function resourceLabel(f) {
   return (r.type ? r.type + ' ' : '') + name + (r.region ? ' · ' + r.region : '');
 }
 // Findings with unresolved __COMPLETAR_ placeholders are left out: pasting them would run literal placeholders.
+// Findings the verification stage marked CONFLICTO are left out too.
 function bulkCandidates(sev) {
   return FINDINGS.filter(function (f) {
     const rem = f.remediation;
     return f.status === 'FAIL' && f.severity === sev && rem && rem.kind === 'cli' && rem.risk === 'low' && arr(rem.commands).length &&
+      verifStatus(f) !== 'CONFLICTO' &&
       !arr(rem.commands).some(function (c) { return c.indexOf('__COMPLETAR_') !== -1; });
   });
 }
@@ -584,6 +612,19 @@ function evidenceText(ev) {
   return JSON.stringify(ev, null, 2);
 }
 
+function verifIssues(entry) {
+  const ul = el('ul', { cls: 'plain' });
+  arr(entry.issues).forEach(function (i) {
+    const li = el('li');
+    li.appendChild(el('strong', { text: (I18N.ver.issueKind[i.kind] || i.kind) + ': ' }));
+    li.appendChild(document.createTextNode(oneLine(i.message)));
+    if (i.rule_id) li.appendChild(el('code', { text: ' ' + i.rule_id }));
+    if (i.source === 'claude' && i.kind !== 'claude') li.appendChild(document.createTextNode(' (' + I18N.ver.byClaude + ')'));
+    ul.appendChild(li);
+  });
+  return ul;
+}
+
 function cardBody(f) {
   const body = el('div', { cls: 'card-body collapsible-body' });
   const flags = el('div', { cls: 'row' });
@@ -612,6 +653,8 @@ function cardBody(f) {
     arr(f.depends_on_me).forEach(function (t) { ul.appendChild(el('li', { text: testLabel(t) })); });
     body.appendChild(section(I18N.findings.dependsOnMe, ul));
   }
+  const ver = verifEntry(f);
+  if (ver && arr(ver.issues).length) body.appendChild(section(I18N.ver.reasons, verifIssues(ver)));
   const ev = evidenceText(f.evidence);
   if (ev) body.appendChild(section(I18N.findings.evidence, el('pre', null, [el('code', { text: ev })])));
   const rem = renderRemediation(f);
@@ -624,11 +667,12 @@ function setOpen(card, open) {
   card.querySelector('.card-head').setAttribute('aria-expanded', open ? 'true' : 'false');
   card.querySelector('.card-body').hidden = !open;
 }
+function verifState(f) { const state = verifStatus(f); return state ? verifBadge(state) : null; }
 function buildCard(f) {
   const card = el('article', { cls: 'card', attrs: { id: f.id || '' } });
   const head = el('button', { cls: 'card-head', attrs: { type: 'button' } });
   const line = el('span', { cls: 'line' }, [
-    el('code', { text: f.id }), sevBadge(f.severity), statusBadge(f.status), el('span', { cls: 'title', text: f.title })
+    el('code', { text: f.id }), sevBadge(f.severity), statusBadge(f.status), verifState(f), el('span', { cls: 'title', text: f.title })
   ]);
   head.appendChild(line);
   head.appendChild(el('span', { cls: 'sub', text: resourceLabel(f) }));
@@ -652,6 +696,82 @@ function renderCards() {
   const frag = document.createDocumentFragment();
   list.forEach(function (f) { frag.appendChild(buildCard(f)); });
   box.appendChild(frag);
+}
+
+// ---------------------------------------------------------------- fix verification
+
+function findingById(id) {
+  for (let i = 0; i < FINDINGS.length; i++) if (FINDINGS[i].id === id) return FINDINGS[i];
+  return null;
+}
+function verifCounts(body) {
+  const summary = VERIF.summary && typeof VERIF.summary === 'object' ? VERIF.summary : {};
+  body.appendChild(el('h3', { text: I18N.ver.counts }));
+  const row = el('div', { cls: 'row' });
+  VERIF_STATES.forEach(function (s) { row.appendChild(badge(I18N.ver.status[s] + ': ' + (Number(summary[s]) || 0), 'ver-' + s)); });
+  body.appendChild(row);
+  const pending = Number(VERIF.completar_pendientes) || 0;
+  body.appendChild(el('p', null, [el('strong', { text: I18N.ver.pending + ': ' + pending + '. ' }), document.createTextNode(pending ? I18N.ver.pendingHint : '')]));
+  body.appendChild(el('p', { cls: 'muted', text: VERIF.cli_checked ? I18N.ver.cliOn : I18N.ver.cliOff }));
+}
+function verifConflicts(body) {
+  const conflicts = arr(VERIF.conflicts);
+  body.appendChild(el('h3', { text: I18N.ver.conflicts + ' (' + conflicts.length + ')' }));
+  if (!conflicts.length) { body.appendChild(el('p', { cls: 'muted', text: I18N.ver.noConflicts })); return; }
+  const ul = el('ul', { cls: 'plain' });
+  conflicts.forEach(function (c) {
+    const li = el('li');
+    if (VERIF_STATES.indexOf(c.status) !== -1) li.appendChild(verifBadge(c.status));
+    li.appendChild(el('code', { text: ' ' + (c.rule_id || '') + ' ' }));
+    li.appendChild(document.createTextNode(oneLine(c.message) + ' — ' + I18N.ver.findings + ': ' + arr(c.findings).join(', ')));
+    ul.appendChild(li);
+  });
+  body.appendChild(ul);
+}
+function verifGaps(body) {
+  const gaps = arr(VERIF.gaps);
+  body.appendChild(el('h3', { text: I18N.ver.gaps + ' (' + gaps.length + ')' }));
+  if (!gaps.length) { body.appendChild(el('p', { cls: 'muted', text: I18N.ver.noGaps })); return; }
+  const ul = el('ul', { cls: 'plain' });
+  gaps.forEach(function (g) {
+    const li = el('li');
+    li.appendChild(el('strong', { text: (I18N.ver.gapKind[g.kind] || g.kind) + ': ' }));
+    li.appendChild(document.createTextNode(oneLine(g.message)));
+    ul.appendChild(li);
+  });
+  body.appendChild(ul);
+}
+function verifOrder(body) {
+  const order = arr(VERIF.apply_order);
+  body.appendChild(el('h3', { text: I18N.ver.order + ' (' + order.length + ')' }));
+  body.appendChild(el('p', { cls: 'muted', text: I18N.ver.orderHint }));
+  if (!order.length) return;
+  const ol = el('ol', { cls: 'steps' });
+  order.forEach(function (id) {
+    const f = findingById(id);
+    const li = el('li');
+    li.appendChild(el('code', { text: String(id) }));
+    if (f) {
+      const state = verifStatus(f);
+      li.appendChild(document.createTextNode(' '));
+      if (state) li.appendChild(verifBadge(state));
+      li.appendChild(document.createTextNode(' ' + oneLine(f.title) + ' | ' + oneLine(resourceLabel(f))));
+    }
+    ol.appendChild(li);
+  });
+  body.appendChild(ol);
+}
+function renderVerification() {
+  const box = document.getElementById('verification');
+  if (!VERIF) { box.hidden = true; return; }
+  box.hidden = false;
+  document.getElementById('h-verification').textContent = I18N.ver.title;
+  const body = mount('verification-body');
+  body.appendChild(el('p', { cls: 'muted', text: I18N.ver.hint }));
+  verifCounts(body);
+  verifConflicts(body);
+  verifGaps(body);
+  verifOrder(body);
 }
 
 // ---------------------------------------------------------------- dependencies, coverage, notes
@@ -720,6 +840,7 @@ function renderNotes() {
 
 renderHeader();
 renderSummary();
+renderVerification();
 renderFilters();
 renderBulk();
 renderCards();
