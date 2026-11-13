@@ -337,7 +337,7 @@ class ComputeCatalogTests(unittest.TestCase):
         rem = catalog_check("CMP-002")["remediation"]
         refresh = rem["commands"][-1]
         self.assertRegex(refresh, r'= "required" \]\s*&&\s*aws autoscaling update-auto-scaling-group [^\n]*&&\s*aws autoscaling start-instance-refresh')
-        self.assertRegex(rem["notes"], r"(?i)reemplaza")
+        self.assertRegex(rem["notes"], r"(?i)replaces")
 
     def test_cmp_003_instance_profile_is_associated_only_after_it_was_created(self):
         commands = catalog_check("CMP-003")["remediation"]["commands"]

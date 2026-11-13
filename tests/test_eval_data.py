@@ -519,8 +519,8 @@ class DataCatalogTests(unittest.TestCase):
     def test_dat_010_is_account_level_and_says_so(self):
         check = catalog_check("DAT-010")
         self.assertEqual(check["scope"], "account")
-        self.assertRegex(check["title"], r"(?i)al menos un plan")
-        self.assertRegex(check["verify"]["pass_when_text"], r"semanales o de archivo no fallan")
+        self.assertRegex(check["title"], r"(?i)at least one AWS Backup plan")
+        self.assertRegex(check["verify"]["pass_when_text"], r"Weekly or archive plans do not fail")
 
     def test_dat_011_has_a_standalone_block_for_groups_that_already_have_a_replica(self):
         commands = catalog_check("DAT-011")["remediation"]["commands"]
@@ -624,7 +624,7 @@ class DataCatalogTests(unittest.TestCase):
 
     def test_dat_002_and_dat_011_are_planned_changes_that_warn_about_cost(self):
         for check_id in ("DAT-002", "DAT-011"):
-            self.assertRegex(catalog_check(check_id)["remediation"]["notes"], r"(?i)costo", check_id)
+            self.assertRegex(catalog_check(check_id)["remediation"]["notes"], r"(?i)cost", check_id)
 
 
 class DataCollectTests(unittest.TestCase):

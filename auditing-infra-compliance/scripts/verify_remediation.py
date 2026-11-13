@@ -180,10 +180,8 @@ def _destructive_operations(commands):
 
 # A cli_with_decision fix is "warned" only when its notes actually say so; any non-empty text is not a warning.
 WARNING_WORDS = re.compile(
-    r"(?i)\b(?:advertencia|atenci[oó]n|cuidado|precauci[oó]n|peligro|riesgo|irreversible\w*|destructiv\w*|p[eé]rdida|perder\w*|pierd\w*|"
-    r"sobrescrib\w*|reemplaz\w*|elimin\w*|borr\w*|cort(?:a|ar|e|es)|dej\w+ sin|sin acceso|sin tr[aá]fico|downtime|"
-    r"no se puede deshacer|warning|caution|danger|risk\w*|irreversib\w*|destructive|data loss|loss of|overwrit\w*|replac\w*|"
-    r"delet\w*|remov\w*|cannot be undone|no access|without access|no traffic|lock(?:ed)?[ -]?out|permanent\w*)\b")
+    r"(?i)\b(?:warning|caution|danger|risk\w*|irreversib\w*|destructive|data loss|loss of|overwrit\w*|replac\w*|"
+    r"lose|lost|cuts?|cutting|delet\w*|remov\w*|cannot be undone|no access|without access|no traffic|downtime|lock(?:ed)?[ -]?out|permanent\w*)\b")
 
 
 def _has_warning(rem):

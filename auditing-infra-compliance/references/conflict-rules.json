@@ -4,7 +4,7 @@
     "when": {"fail": ["NET-003", "NET-004"], "attachment_description_prefix": "ELB "},
     "scope": "same_account",
     "status": "CONFLICT",
-    "message": "Este security group lo usa un balanceador de carga (ALB, NLB o clásico; interfaz ELB ...): revocar el acceso público del puerto 80 (o todo el tráfico) rompe la redirección HTTP a HTTPS o corta el servicio. Alternativa: dejar solo el 443, o excluir el recurso en Drata con la justificación de que el balanceador solo redirige.",
+    "message": "A load balancer (ALB, NLB or classic; ELB interface ...) uses this security group: revoking public access on port 80 (or all traffic) breaks the HTTP-to-HTTPS redirect or cuts the service. Alternative: leave only 443, or exclude the resource in Drata with the justification that the load balancer only redirects.",
     "order": []
   },
   {
@@ -12,7 +12,7 @@
     "when": {"any_fail": ["LOG-003"]},
     "scope": "same_account",
     "status": "REVIEW",
-    "message": "La key policy de la clave debe permitir a cloudtrail.amazonaws.com antes de aplicar; si no, el trail deja de loguear. Aplicar primero la clave y después el trail.",
+    "message": "The key policy of the key must allow cloudtrail.amazonaws.com before applying; otherwise the trail stops logging. Apply the key first and then the trail.",
     "order": [["INT-004", "LOG-003"], ["ENC-006", "LOG-003"]]
   },
   {
@@ -20,7 +20,7 @@
     "when": {"fail": ["NET-001", "NET-002"], "attached_instance_fail": {"check": "CMP-006", "evidence_true": "ssm_unreachable"}},
     "scope": "same_account",
     "status": "CONFLICT",
-    "message": "Una instancia que usa este security group no está accesible por Systems Manager (CMP-006: no registrada o agente sin conexión): revocar SSH o RDP la deja sin acceso. Primero habilitar SSM.",
+    "message": "An instance that uses this security group is not reachable through Systems Manager (CMP-006: not registered or agent offline): revoking SSH or RDP leaves it with no access. Enable SSM first.",
     "order": [["CMP-006", "NET-001"], ["CMP-006", "NET-002"]]
   },
   {
@@ -28,7 +28,7 @@
     "when": {"any_fail": ["CMP-001", "CMP-002"]},
     "scope": "same_account",
     "status": "REVIEW",
-    "message": "IMDSv2 obligatorio: los SDK o agentes viejos que solo usan IMDSv1 dejan de obtener credenciales.",
+    "message": "IMDSv2 required: old SDKs or agents that only use IMDSv1 stop getting credentials.",
     "order": []
   },
   {
@@ -36,7 +36,7 @@
     "when": {"any_fail": ["IAM-008", "IAM-009", "IAM-010"]},
     "scope": "same_account",
     "status": "REVIEW",
-    "message": "La app o el pipeline que usa esa access key se rompe al desactivarla: rotar primero, desactivar después.",
+    "message": "The app or pipeline that uses that access key breaks when it is deactivated: rotate first, deactivate afterwards.",
     "order": [["IAM-008", "IAM-009"]]
   },
   {
@@ -44,7 +44,7 @@
     "when": {"any_fail": ["TLS-001"]},
     "scope": "same_account",
     "status": "REVIEW",
-    "message": "Los clientes que acceden al bucket por HTTP plano van a fallar.",
+    "message": "Clients that access the bucket over plain HTTP will fail.",
     "order": []
   },
   {
@@ -52,7 +52,7 @@
     "when": {"any_fail": ["ENC-003", "ENC-002", "ENC-004"]},
     "scope": "same_account",
     "status": "REVIEW",
-    "message": "Cifrar un recurso existente requiere una migración con downtime.",
+    "message": "Encrypting an existing resource requires a migration with downtime.",
     "order": []
   },
   {
@@ -60,7 +60,7 @@
     "when": {"any_fail": ["INV-003"]},
     "scope": "same_account",
     "status": "REVIEW",
-    "message": "Quitar VantaNonProd de un recurso de producción lo mete en el alcance de Vanta y puede abrir tests nuevos.",
+    "message": "Removing VantaNonProd from a production resource brings it into Vanta's scope and may open new tests.",
     "order": []
   },
   {
@@ -68,7 +68,7 @@
     "when": {"any_fail": ["INT-004"], "command_contains": ["put-key-policy"]},
     "scope": "same_account",
     "status": "REVIEW",
-    "message": "Reemplazar la key policy puede dejar la clave inaccesible: conservar el statement de la cuenta root.",
+    "message": "Replacing the key policy can leave the key inaccessible: keep the account root statement.",
     "order": []
   },
   {
@@ -76,7 +76,7 @@
     "when": {"any_fail": ["DAT-002"]},
     "scope": "same_account",
     "status": "REVIEW",
-    "message": "Multi-AZ tiene costo adicional y un failover breve durante el cambio.",
+    "message": "Multi-AZ has an additional cost and a brief failover during the change.",
     "order": []
   }
 ]

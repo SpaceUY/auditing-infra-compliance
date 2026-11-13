@@ -661,7 +661,7 @@ class LoggingCatalogTests(unittest.TestCase):
         (command,) = rem["commands"]
         self.assertIn('RETENTION_DAYS="365"', command)
         self.assertIn('aws logs put-retention-policy --log-group-name "{resource_id}" --retention-in-days "$RETENTION_DAYS"', command)
-        self.assertRegex(rem["notes"], r"(?i)costo")
+        self.assertRegex(rem["notes"], r"(?i)cost")
 
     def test_log_009_threshold_is_in_the_query(self):
         self.assertIn("`365`", catalog_check("LOG-009")["verify"]["offenders"])

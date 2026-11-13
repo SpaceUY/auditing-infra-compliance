@@ -324,9 +324,9 @@ class InventoryCatalogTests(unittest.TestCase):
 
     def test_inv_002_follows_the_vanta_test_and_documents_the_severities(self):
         text = catalog_check("INV-002")["verify"]["pass_when_text"]
-        self.assertRegex(text, r"al menos un bucket")
+        self.assertRegex(text, r"at least one S3 bucket")
         self.assertRegex(text, r"resource_id account")
-        self.assertRegex(text, r"sin clasificar")
+        self.assertRegex(text, r"unclassified")
         self.assertRegex(text, r"N/A")
 
     def test_no_command_uses_the_old_arn_placeholder(self):

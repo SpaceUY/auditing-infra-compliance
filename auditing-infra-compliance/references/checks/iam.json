@@ -3,7 +3,7 @@
   "checks": [
     {
       "id": "IAM-001",
-      "title": "La cuenta root tiene MFA habilitado",
+      "title": "The root account has MFA enabled",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -21,7 +21,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "SummaryMap.AccountMFAEnabled == `0` && [{resource_id: 'root', detail: {AccountMFAEnabled: SummaryMap.AccountMFAEnabled}}] || `[]`",
-        "pass_when_text": "AccountMFAEnabled es 1: la cuenta root tiene un dispositivo MFA activo.",
+        "pass_when_text": "AccountMFAEnabled is 1: the root account has an active MFA device.",
         "needs": [
           "iam:GetAccountSummary"
         ]
@@ -29,7 +29,8 @@
       "vault_signals": [
         "root",
         "MFA root",
-        "autenticación multifactor del root"
+        "autenticación multifactor del root",
+        "root multi-factor authentication"
       ],
       "mappings": {
         "drata": [
@@ -59,16 +60,16 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Iniciar sesión en la consola de AWS como usuario root (email de la cuenta y contraseña).",
-          "Abrir el menú de la cuenta (arriba a la derecha) y entrar a Security credentials.",
-          "En Multi-factor authentication (MFA) elegir Assign MFA device.",
-          "Elegir el tipo de dispositivo. Para este chequeo alcanza una app autenticadora; para Drata 225 hace falta una llave de hardware (ver IAM-002).",
-          "Registrar el dispositivo con dos códigos consecutivos y confirmar.",
-          "Guardar el acceso de recuperación en un lugar compartido y protegido del equipo (no en el repo ni en un chat)."
+          "Sign in to the AWS console as the root user (account email and password).",
+          "Open the account menu (top right) and go to Security credentials.",
+          "Under Multi-factor authentication (MFA), choose Assign MFA device.",
+          "Choose the device type. For this check an authenticator app is enough; for Drata 225 a hardware key is needed (see IAM-002).",
+          "Register the device with two consecutive codes and confirm.",
+          "Store the recovery access in a shared, protected place of the team (not in the repo or in a chat)."
         ],
         "commands": [],
         "verify_after": "aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled'",
-        "notes": "AWS CLI no puede habilitar MFA para el root: solo se hace desde la consola con el usuario root."
+        "notes": "The AWS CLI cannot enable MFA for root: it can only be done from the console as the root user."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828711",
@@ -79,7 +80,7 @@
     },
     {
       "id": "IAM-002",
-      "title": "La cuenta root usa MFA de hardware",
+      "title": "The root account uses hardware MFA",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -104,7 +105,7 @@
         ],
         "evaluator": "python:root_hardware_mfa",
         "params": {},
-        "pass_when_text": "El root tiene MFA y ningún dispositivo MFA virtual asignado al root (llave de seguridad o token de hardware).",
+        "pass_when_text": "Root has MFA and no virtual MFA device assigned to root (security key or hardware token).",
         "needs": [
           "iam:GetAccountSummary",
           "iam:ListVirtualMFADevices"
@@ -114,7 +115,9 @@
         "root",
         "MFA de hardware",
         "llave de seguridad",
-        "yubikey"
+        "yubikey",
+        "hardware MFA",
+        "security key"
       ],
       "mappings": {
         "drata": [
@@ -139,15 +142,15 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Iniciar sesión en la consola de AWS como usuario root.",
-          "Entrar a Security credentials y, en Multi-factor authentication (MFA), elegir Assign MFA device.",
-          "Elegir Passkey or security key (o Hardware TOTP token) y registrar la llave física del equipo.",
-          "Una vez registrada la llave, quitar el dispositivo MFA virtual del root (Remove) para que no quede asignado.",
-          "Borrar en IAM > Users > MFA devices los registros virtuales huérfanos, que también hacen fallar el test."
+          "Sign in to the AWS console as the root user.",
+          "Go to Security credentials and, under Multi-factor authentication (MFA), choose Assign MFA device.",
+          "Choose Passkey or security key (or Hardware TOTP token) and register the team's physical key.",
+          "Once the key is registered, remove the virtual MFA device from root (Remove) so that it is not left assigned.",
+          "In IAM > Users > MFA devices, delete the orphaned virtual registrations, which also make the test fail."
         ],
         "commands": [],
         "verify_after": "aws iam list-virtual-mfa-devices",
-        "notes": "Drata 225 falla con MFA virtual (app autenticadora). Algunos auditores aceptan MFA virtual, pero el test automático no. Guardar al menos dos llaves por si una se pierde."
+        "notes": "Drata 225 fails with virtual MFA (authenticator app). Some auditors accept virtual MFA, but the automatic test does not. Keep at least two keys in case one is lost."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828713",
@@ -157,7 +160,7 @@
     },
     {
       "id": "IAM-003",
-      "title": "La cuenta root no tiene access keys",
+      "title": "The root account has no access keys",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -175,7 +178,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "SummaryMap.AccountAccessKeysPresent > `0` && [{resource_id: 'root', detail: {AccountAccessKeysPresent: SummaryMap.AccountAccessKeysPresent}}] || `[]`",
-        "pass_when_text": "AccountAccessKeysPresent es 0: el root no tiene access keys.",
+        "pass_when_text": "AccountAccessKeysPresent is 0: root has no access keys.",
         "needs": [
           "iam:GetAccountSummary"
         ]
@@ -183,7 +186,8 @@
       "vault_signals": [
         "root",
         "access keys del root",
-        "claves de acceso root"
+        "claves de acceso root",
+        "root access keys"
       ],
       "mappings": {
         "drata": [],
@@ -213,15 +217,15 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Iniciar sesión en la consola de AWS como usuario root.",
-          "Abrir Security credentials y mirar la sección Access keys: anotar el último uso de cada key.",
-          "Confirmar que ninguna aplicación ni pipeline usa esa key; si alguna la usa, migrarla antes a un rol IAM.",
-          "Elegir Make inactive para cada key y esperar unos días por si algo se rompe.",
-          "Elegir Delete para borrar las keys definitivamente."
+          "Sign in to the AWS console as the root user.",
+          "Open Security credentials and look at the Access keys section: note the last use of each key.",
+          "Confirm that no application or pipeline uses that key; if any does, migrate it to an IAM role first.",
+          "Choose Make inactive for each key and wait a few days in case something breaks.",
+          "Choose Delete to delete the keys permanently."
         ],
         "commands": [],
         "verify_after": "aws iam get-account-summary --query 'SummaryMap.AccountAccessKeysPresent'",
-        "notes": "Las access keys del root dan control total de la cuenta y no se pueden limitar con políticas. Las keys del root se borran desde la consola, con el usuario root."
+        "notes": "Root access keys give full control of the account and cannot be restricted with policies. Root keys are deleted from the console, as the root user."
       },
       "sources": [
         "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
@@ -231,7 +235,7 @@
     },
     {
       "id": "IAM-004",
-      "title": "El usuario root no se usa para iniciar sesión (máximo 1 ConsoleLogin en 7 días)",
+      "title": "The root user is not used to sign in (at most 1 ConsoleLogin in 7 days)",
       "scope": "account",
       "resource_types": [],
       "all_regions": true,
@@ -255,7 +259,7 @@
           "days": 7,
           "max": 1
         },
-        "pass_when_text": "El root tiene como máximo 1 ConsoleLogin (también los fallidos) en los últimos 7 días, sumando todas las regiones habilitadas (un inicio de sesión por un endpoint regional se registra en esa región). El uso de la API por root no se cuenta.",
+        "pass_when_text": "Root has at most 1 ConsoleLogin (failed ones included) in the last 7 days, adding up all enabled regions (a sign-in through a regional endpoint is recorded in that region). API use by root is not counted.",
         "needs": [
           "cloudtrail:LookupEvents"
         ]
@@ -263,7 +267,9 @@
       "vault_signals": [
         "root",
         "uso del root",
-        "inicio de sesión root"
+        "inicio de sesión root",
+        "root usage",
+        "root sign-in"
       ],
       "mappings": {
         "drata": [
@@ -284,15 +290,15 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Identificar quién inició sesión como root (CloudTrail > Event history, filtrar por User name = root).",
-          "Dar a esa persona un acceso de administración propio con IAM Identity Center (o un rol IAM con MFA) para no volver a usar el root.",
-          "Reservar el root solo para las tareas que lo exigen (cerrar la cuenta, cambiar el plan de soporte) y registrarlas.",
-          "Crear una alarma de EventBridge o CloudWatch que avise por SNS cada vez que se use el root.",
-          "Esperar a que los inicios de sesión salgan de la ventana de 7 días para que el test vuelva a verde."
+          "Identify who signed in as root (CloudTrail > Event history, filter by User name = root).",
+          "Give that person their own administrative access with IAM Identity Center (or an IAM role with MFA) so that root is not used again.",
+          "Reserve root only for the tasks that require it (closing the account, changing the support plan) and log them.",
+          "Create an EventBridge or CloudWatch alarm that notifies through SNS every time root is used.",
+          "Wait for the sign-ins to leave the 7-day window so that the test turns green again."
         ],
         "commands": [],
         "verify_after": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=Username,AttributeValue=root --max-results 5",
-        "notes": "Drata 124 falla con 2 o más intentos de login del root (aunque fallen) en 7 días móviles. El chequeo mira todas las regiones habilitadas: AWS registra el sign-in global en us-east-1 y un login por un endpoint regional queda en esa región, así que se suman los de todas."
+        "notes": "Drata 124 fails with 2 or more root login attempts (even failed ones) in a rolling 7 days. The check looks at all enabled regions: AWS records the global sign-in in us-east-1 and a login through a regional endpoint is recorded in that region, so those of all of them are added up."
       },
       "sources": [
         "https://help.drata.com/en/articles/4777051",
@@ -301,7 +307,7 @@
     },
     {
       "id": "IAM-005",
-      "title": "Los usuarios IAM con contraseña de consola tienen MFA",
+      "title": "IAM users with a console password have MFA",
       "scope": "resource",
       "resource_types": [
         "iam_user"
@@ -328,7 +334,7 @@
         ],
         "evaluator": "python:cred_report_console_mfa",
         "params": {},
-        "pass_when_text": "Todo usuario con password_enabled = true tiene mfa_active = true en el credential report.",
+        "pass_when_text": "Every user with password_enabled = true has mfa_active = true in the credential report.",
         "needs": [
           "iam:GenerateCredentialReport",
           "iam:GetCredentialReport"
@@ -337,7 +343,9 @@
       "vault_signals": [
         "MFA",
         "usuarios IAM",
-        "consola"
+        "consola",
+        "IAM users",
+        "console"
       ],
       "mappings": {
         "drata": [
@@ -367,14 +375,14 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Pedir al usuario {resource_id} que inicie sesión y entre a Security credentials > Assign MFA device (app autenticadora o llave de seguridad).",
-          "Si no puede, un administrador lo registra desde IAM > Users > {resource_id} > Security credentials > Assign MFA device.",
-          "Si el usuario ya no necesita la consola, quitar el acceso: Security credentials > Console access > Disable.",
-          "Para usuarios que se van a migrar a IAM Identity Center, forzar MFA ahí en vez de en IAM (ver IAM-017)."
+          "Ask user {resource_id} to sign in and go to Security credentials > Assign MFA device (authenticator app or security key).",
+          "If they cannot, an administrator registers it from IAM > Users > {resource_id} > Security credentials > Assign MFA device.",
+          "If the user no longer needs the console, remove the access: Security credentials > Console access > Disable.",
+          "For users who will be migrated to IAM Identity Center, enforce MFA there instead of in IAM (see IAM-017)."
         ],
         "commands": [],
         "verify_after": "aws iam list-mfa-devices --user-name \"{resource_id}\"",
-        "notes": "El credential report puede tardar hasta 4 horas en reflejar el cambio; Drata lo sincroniza de forma nocturna."
+        "notes": "The credential report can take up to 4 hours to reflect the change; Drata syncs it overnight."
       },
       "sources": [
         "https://help.drata.com/en/articles/4777035",
@@ -385,7 +393,7 @@
     },
     {
       "id": "IAM-006",
-      "title": "La política de contraseñas exige al menos 14 caracteres",
+      "title": "The password policy requires at least 14 characters",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -408,7 +416,7 @@
         "params": {
           "min_length": 14
         },
-        "pass_when_text": "MinimumPasswordLength es 14 o más. Sin política personalizada (NoSuchEntity) falla.",
+        "pass_when_text": "MinimumPasswordLength is 14 or more. Without a custom policy (NoSuchEntity) it fails.",
         "needs": [
           "iam:GetAccountPasswordPolicy"
         ]
@@ -416,7 +424,8 @@
       "vault_signals": [
         "política de contraseñas",
         "largo mínimo",
-        "password policy"
+        "password policy",
+        "minimum length"
       ],
       "mappings": {
         "drata": [
@@ -446,17 +455,17 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Leer la política de contraseñas actual (primer bloque, solo lectura): el cambio la reemplaza entera y no se aplica sin haberla visto.",
-          "Generar los valores fusionados (segundo bloque, no aplica nada): el largo y el reuso suben solo si los actuales son menores que 14 y 24, se activan los cuatro requisitos de complejidad y se conservan la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña.",
-          "Revisar password-policy-nuevo.args y recién entonces aplicarlo (tercer bloque); verificar con get-account-password-policy."
+          "Read the current password policy (first block, read-only): the change replaces it entirely and must not be applied without having seen it.",
+          "Generate the merged values (second block, applies nothing): length and reuse are raised only if the current ones are below 14 and 24, the four complexity requirements are enabled, and expiration (MaxPasswordAge, HardExpiry) and the permission to change one's password are preserved.",
+          "Review password-policy-new.args and only then apply it (third block); verify with get-account-password-policy."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# solo lectura: trae la política de contraseñas actual a un archivo y la muestra. Si la cuenta no tiene política, parte de una vacía; ante cualquier otro error (por ejemplo AccessDenied) borra el archivo y se detiene, y los bloques siguientes no pueden seguir\nrm -f password-policy-nuevo.args\nif aws iam get-account-password-policy --query PasswordPolicy --output json > password-policy-actual.json 2> password-policy-actual.err; then cat password-policy-actual.json; elif grep -q NoSuchEntity password-policy-actual.err; then echo '{}' > password-policy-actual.json; echo \"la cuenta no tiene política de contraseñas: se parte de una vacía\"; else cat password-policy-actual.err; rm -f password-policy-actual.json; echo \"STOPPED: no se pudo leer la política actual; no seguir\"; fi",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# no aplica nada: fusiona con la política actual y muestra los valores que se aplicarían. Largo (14) y reuso (24) solo suben si el valor actual es menor; se activan los cuatro requisitos de complejidad; la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña se conservan\nrm -f password-policy-nuevo.args\nif [ ! -s password-policy-actual.json ]; then echo \"STOPPED: falta password-policy-actual.json; correr antes el primer bloque\"; else python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); a=[\"--minimum-password-length\",str(max(14,int(p.get(\"MinimumPasswordLength\",0)))),\"--password-reuse-prevention\",str(max(24,int(p.get(\"PasswordReusePrevention\",0)))),\"--require-symbols\",\"--require-numbers\",\"--require-uppercase-characters\",\"--require-lowercase-characters\",\"--max-password-age\",str(int(p.get(\"MaxPasswordAge\",0))),\"--hard-expiry\" if p.get(\"HardExpiry\") else \"--no-hard-expiry\",\"--allow-users-to-change-password\" if p.get(\"AllowUsersToChangePassword\",True) else \"--no-allow-users-to-change-password\"]; print(\" \".join(a))' password-policy-actual.json > password-policy-nuevo.args && echo \"se aplicaría: aws iam update-account-password-policy $(cat password-policy-nuevo.args)\"; fi",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# update-account-password-policy REEMPLAZA la política completa: aplicar solo los valores fusionados y revisados (password-policy-nuevo.args), nunca a mano\nif [ -s password-policy-nuevo.args ]; then aws iam update-account-password-policy $(cat password-policy-nuevo.args); else echo \"STOPPED: falta password-policy-nuevo.args; correr antes los dos primeros bloques\"; fi"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# read-only: fetches the current password policy into a file and shows it. If the account has no policy, it starts from an empty one; on any other error (for example AccessDenied) it deletes the file and stops, and the following blocks cannot continue\nrm -f password-policy-new.args\nif aws iam get-account-password-policy --query PasswordPolicy --output json > password-policy-current.json 2> password-policy-current.err; then cat password-policy-current.json; elif grep -q NoSuchEntity password-policy-current.err; then echo '{}' > password-policy-current.json; echo \"the account has no password policy: starting from an empty one\"; else cat password-policy-current.err; rm -f password-policy-current.json; echo \"STOPPED: could not read the current policy; do not continue\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# applies nothing: merges with the current policy and shows the values that would be applied. Length (14) and reuse (24) are only raised if the current value is lower; the four complexity requirements are enabled; expiration (MaxPasswordAge, HardExpiry) and the permission to change one's password are preserved\nrm -f password-policy-new.args\nif [ ! -s password-policy-current.json ]; then echo \"STOPPED: password-policy-current.json is missing; run the first block first\"; else python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); a=[\"--minimum-password-length\",str(max(14,int(p.get(\"MinimumPasswordLength\",0)))),\"--password-reuse-prevention\",str(max(24,int(p.get(\"PasswordReusePrevention\",0)))),\"--require-symbols\",\"--require-numbers\",\"--require-uppercase-characters\",\"--require-lowercase-characters\",\"--max-password-age\",str(int(p.get(\"MaxPasswordAge\",0))),\"--hard-expiry\" if p.get(\"HardExpiry\") else \"--no-hard-expiry\",\"--allow-users-to-change-password\" if p.get(\"AllowUsersToChangePassword\",True) else \"--no-allow-users-to-change-password\"]; print(\" \".join(a))' password-policy-current.json > password-policy-new.args && echo \"would apply: aws iam update-account-password-policy $(cat password-policy-new.args)\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# update-account-password-policy REPLACES the whole policy: apply only the merged and reviewed values (password-policy-new.args), never by hand\nif [ -s password-policy-new.args ]; then aws iam update-account-password-policy $(cat password-policy-new.args); else echo \"STOPPED: password-policy-new.args is missing; run the first two blocks first\"; fi"
         ],
         "verify_after": "aws iam get-account-password-policy",
-        "notes": "ADVERTENCIA: update-account-password-policy REEMPLAZA la política de contraseñas completa y lo que no se pasa vuelve a su valor por defecto de AWS (por ejemplo, la caducidad). Por eso el arreglo lee la política actual (primer bloque), conserva MaxPasswordAge, HardExpiry y el permiso de cambiar la contraseña, sube el largo y el reuso solo si los actuales son menores, y activa los cuatro requisitos de complejidad; revisar password-policy-nuevo.args antes del tercer bloque (si hay que quitar algún requisito, editarlo ahí). Si el primer bloque muestra STOPPED, no seguir: no se genera ningún archivo y el tercer bloque no aplica nada. IAM-006 e IAM-007 se arreglan con el mismo cambio: aplicarlo una sola vez. Las contraseñas existentes no cambian; las reglas aplican al próximo cambio de contraseña. Los comandos usan python3, que CloudShell trae instalado."
+        "notes": "WARNING: update-account-password-policy REPLACES the entire password policy and whatever is not passed goes back to its AWS default (for example, expiration). That is why the fix reads the current policy (first block), preserves MaxPasswordAge, HardExpiry and the permission to change one's password, raises length and reuse only if the current ones are lower, and enables the four complexity requirements; review password-policy-new.args before the third block (if a requirement must be removed, edit it there). If the first block shows STOPPED, do not continue: no file is generated and the third block applies nothing. IAM-006 and IAM-007 are fixed with the same change: apply it only once. Existing passwords do not change; the rules apply at the next password change. The commands use python3, which CloudShell has installed."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828716",
@@ -467,7 +476,7 @@
     },
     {
       "id": "IAM-007",
-      "title": "La política de contraseñas impide reutilizar las últimas 24",
+      "title": "The password policy prevents reusing the last 24",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -490,7 +499,7 @@
         "params": {
           "min_reuse": 24
         },
-        "pass_when_text": "PasswordReusePrevention es 24. Sin política personalizada (NoSuchEntity) falla.",
+        "pass_when_text": "PasswordReusePrevention is 24. Without a custom policy (NoSuchEntity) it fails.",
         "needs": [
           "iam:GetAccountPasswordPolicy"
         ]
@@ -498,7 +507,8 @@
       "vault_signals": [
         "política de contraseñas",
         "reuso de contraseñas",
-        "password reuse"
+        "password reuse",
+        "password policy"
       ],
       "mappings": {
         "drata": [
@@ -528,17 +538,17 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Leer la política de contraseñas actual (primer bloque, solo lectura): el cambio la reemplaza entera y no se aplica sin haberla visto.",
-          "Generar los valores fusionados (segundo bloque, no aplica nada): el largo y el reuso suben solo si los actuales son menores que 14 y 24, se activan los cuatro requisitos de complejidad y se conservan la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña.",
-          "Revisar password-policy-nuevo.args y recién entonces aplicarlo (tercer bloque); verificar con get-account-password-policy."
+          "Read the current password policy (first block, read-only): the change replaces it entirely and must not be applied without having seen it.",
+          "Generate the merged values (second block, applies nothing): length and reuse are raised only if the current ones are below 14 and 24, the four complexity requirements are enabled, and expiration (MaxPasswordAge, HardExpiry) and the permission to change one's password are preserved.",
+          "Review password-policy-new.args and only then apply it (third block); verify with get-account-password-policy."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# solo lectura: trae la política de contraseñas actual a un archivo y la muestra. Si la cuenta no tiene política, parte de una vacía; ante cualquier otro error (por ejemplo AccessDenied) borra el archivo y se detiene, y los bloques siguientes no pueden seguir\nrm -f password-policy-nuevo.args\nif aws iam get-account-password-policy --query PasswordPolicy --output json > password-policy-actual.json 2> password-policy-actual.err; then cat password-policy-actual.json; elif grep -q NoSuchEntity password-policy-actual.err; then echo '{}' > password-policy-actual.json; echo \"la cuenta no tiene política de contraseñas: se parte de una vacía\"; else cat password-policy-actual.err; rm -f password-policy-actual.json; echo \"STOPPED: no se pudo leer la política actual; no seguir\"; fi",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# no aplica nada: fusiona con la política actual y muestra los valores que se aplicarían. Largo (14) y reuso (24) solo suben si el valor actual es menor; se activan los cuatro requisitos de complejidad; la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña se conservan\nrm -f password-policy-nuevo.args\nif [ ! -s password-policy-actual.json ]; then echo \"STOPPED: falta password-policy-actual.json; correr antes el primer bloque\"; else python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); a=[\"--minimum-password-length\",str(max(14,int(p.get(\"MinimumPasswordLength\",0)))),\"--password-reuse-prevention\",str(max(24,int(p.get(\"PasswordReusePrevention\",0)))),\"--require-symbols\",\"--require-numbers\",\"--require-uppercase-characters\",\"--require-lowercase-characters\",\"--max-password-age\",str(int(p.get(\"MaxPasswordAge\",0))),\"--hard-expiry\" if p.get(\"HardExpiry\") else \"--no-hard-expiry\",\"--allow-users-to-change-password\" if p.get(\"AllowUsersToChangePassword\",True) else \"--no-allow-users-to-change-password\"]; print(\" \".join(a))' password-policy-actual.json > password-policy-nuevo.args && echo \"se aplicaría: aws iam update-account-password-policy $(cat password-policy-nuevo.args)\"; fi",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# update-account-password-policy REEMPLAZA la política completa: aplicar solo los valores fusionados y revisados (password-policy-nuevo.args), nunca a mano\nif [ -s password-policy-nuevo.args ]; then aws iam update-account-password-policy $(cat password-policy-nuevo.args); else echo \"STOPPED: falta password-policy-nuevo.args; correr antes los dos primeros bloques\"; fi"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# read-only: fetches the current password policy into a file and shows it. If the account has no policy, it starts from an empty one; on any other error (for example AccessDenied) it deletes the file and stops, and the following blocks cannot continue\nrm -f password-policy-new.args\nif aws iam get-account-password-policy --query PasswordPolicy --output json > password-policy-current.json 2> password-policy-current.err; then cat password-policy-current.json; elif grep -q NoSuchEntity password-policy-current.err; then echo '{}' > password-policy-current.json; echo \"the account has no password policy: starting from an empty one\"; else cat password-policy-current.err; rm -f password-policy-current.json; echo \"STOPPED: could not read the current policy; do not continue\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# applies nothing: merges with the current policy and shows the values that would be applied. Length (14) and reuse (24) are only raised if the current value is lower; the four complexity requirements are enabled; expiration (MaxPasswordAge, HardExpiry) and the permission to change one's password are preserved\nrm -f password-policy-new.args\nif [ ! -s password-policy-current.json ]; then echo \"STOPPED: password-policy-current.json is missing; run the first block first\"; else python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); a=[\"--minimum-password-length\",str(max(14,int(p.get(\"MinimumPasswordLength\",0)))),\"--password-reuse-prevention\",str(max(24,int(p.get(\"PasswordReusePrevention\",0)))),\"--require-symbols\",\"--require-numbers\",\"--require-uppercase-characters\",\"--require-lowercase-characters\",\"--max-password-age\",str(int(p.get(\"MaxPasswordAge\",0))),\"--hard-expiry\" if p.get(\"HardExpiry\") else \"--no-hard-expiry\",\"--allow-users-to-change-password\" if p.get(\"AllowUsersToChangePassword\",True) else \"--no-allow-users-to-change-password\"]; print(\" \".join(a))' password-policy-current.json > password-policy-new.args && echo \"would apply: aws iam update-account-password-policy $(cat password-policy-new.args)\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# update-account-password-policy REPLACES the whole policy: apply only the merged and reviewed values (password-policy-new.args), never by hand\nif [ -s password-policy-new.args ]; then aws iam update-account-password-policy $(cat password-policy-new.args); else echo \"STOPPED: password-policy-new.args is missing; run the first two blocks first\"; fi"
         ],
         "verify_after": "aws iam get-account-password-policy",
-        "notes": "ADVERTENCIA: update-account-password-policy REEMPLAZA la política de contraseñas completa y lo que no se pasa vuelve a su valor por defecto de AWS (por ejemplo, la caducidad). Por eso el arreglo lee la política actual (primer bloque), conserva MaxPasswordAge, HardExpiry y el permiso de cambiar la contraseña, sube el largo y el reuso solo si los actuales son menores, y activa los cuatro requisitos de complejidad; revisar password-policy-nuevo.args antes del tercer bloque (si hay que quitar algún requisito, editarlo ahí). Si el primer bloque muestra STOPPED, no seguir: no se genera ningún archivo y el tercer bloque no aplica nada. IAM-006 e IAM-007 se arreglan con el mismo cambio: aplicarlo una sola vez. Las contraseñas existentes no cambian; las reglas aplican al próximo cambio de contraseña. Los comandos usan python3, que CloudShell trae instalado."
+        "notes": "WARNING: update-account-password-policy REPLACES the entire password policy and whatever is not passed goes back to its AWS default (for example, expiration). That is why the fix reads the current policy (first block), preserves MaxPasswordAge, HardExpiry and the permission to change one's password, raises length and reuse only if the current ones are lower, and enables the four complexity requirements; review password-policy-new.args before the third block (if a requirement must be removed, edit it there). If the first block shows STOPPED, do not continue: no file is generated and the third block applies nothing. IAM-006 and IAM-007 are fixed with the same change: apply it only once. Existing passwords do not change; the rules apply at the next password change. The commands use python3, which CloudShell has installed."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828717",
@@ -549,7 +559,7 @@
     },
     {
       "id": "IAM-008",
-      "title": "Las access keys activas se rotan antes de 90 días",
+      "title": "Active access keys are rotated within 90 days",
       "scope": "resource",
       "resource_types": [
         "iam_user"
@@ -578,7 +588,7 @@
         "params": {
           "fail_at_days": 90
         },
-        "pass_when_text": "Ninguna access key activa tiene 90 días o más desde su última rotación (Drata 232 falla desde los 90 días).",
+        "pass_when_text": "No active access key is 90 days or more past its last rotation (Drata 232 fails from 90 days).",
         "needs": [
           "iam:GenerateCredentialReport",
           "iam:GetCredentialReport"
@@ -587,7 +597,9 @@
       "vault_signals": [
         "rotación de keys",
         "access keys",
-        "rotación de credenciales"
+        "rotación de credenciales",
+        "key rotation",
+        "credential rotation"
       ],
       "mappings": {
         "drata": [
@@ -617,18 +629,18 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Identificar qué aplicación o pipeline usa la key del usuario {resource_id} (último uso en el credential report y en CloudTrail).",
-          "Crear una segunda access key (IAM > Users > {resource_id} > Security credentials > Create access key) y guardarla en el gestor de secretos del equipo, nunca en el repo ni en un chat.",
-          "Actualizar la aplicación o el pipeline para que use la key nueva y verificar que funciona.",
-          "Desactivar la key vieja y esperar unos días por si algo falla.",
-          "Borrar la key vieja cuando se confirme que nada la usa."
+          "Identify which application or pipeline uses the key of user {resource_id} (last use in the credential report and in CloudTrail).",
+          "Create a second access key (IAM > Users > {resource_id} > Security credentials > Create access key) and store it in the team's secrets manager, never in the repo or in a chat.",
+          "Update the application or pipeline to use the new key and verify that it works.",
+          "Deactivate the old key and wait a few days in case something fails.",
+          "Delete the old key once it is confirmed that nothing uses it."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__FILL_IN_OLD_ACCESS_KEY_ID__\"\n# Paso 4: desactivar la key vieja\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\" --status Inactive",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__FILL_IN_OLD_ACCESS_KEY_ID__\"\n# Paso 5: solo después de verificar que nada usa la key (irreversible)\naws iam delete-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__FILL_IN_OLD_ACCESS_KEY_ID__\"\n# Step 4: deactivate the old key\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\" --status Inactive",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__FILL_IN_OLD_ACCESS_KEY_ID__\"\n# Step 5: only after verifying that nothing uses the key (irreversible)\naws iam delete-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\""
         ],
         "verify_after": "aws iam list-access-keys --user-name \"{resource_id}\"",
-        "notes": "Si la aplicación sigue usando la key vieja, desactivarla la rompe: primero actualizar la aplicación, después desactivar. Si el usuario es una persona, conviene pasarla a IAM Identity Center en vez de rotar keys de larga vida (IAM-017)."
+        "notes": "If the application still uses the old key, deactivating it breaks the application: update the application first, then deactivate. If the user is a person, it is better to move them to IAM Identity Center instead of rotating long-lived keys (IAM-017)."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828694",
@@ -638,7 +650,7 @@
     },
     {
       "id": "IAM-009",
-      "title": "No hay credenciales activas sin uso por más de 45 días",
+      "title": "There are no active credentials unused for more than 45 days",
       "scope": "resource",
       "resource_types": [
         "iam_user"
@@ -667,7 +679,7 @@
         "params": {
           "max_days": 45
         },
-        "pass_when_text": "Ninguna contraseña ni access key activa lleva más de 45 días sin usarse (una credencial nunca usada cuenta desde su creación).",
+        "pass_when_text": "No active password or access key has gone more than 45 days without being used (a never-used credential counts from its creation).",
         "needs": [
           "iam:GenerateCredentialReport",
           "iam:GetCredentialReport"
@@ -676,7 +688,10 @@
       "vault_signals": [
         "credenciales sin uso",
         "usuarios inactivos",
-        "cuentas inactivas"
+        "cuentas inactivas",
+        "unused credentials",
+        "inactive users",
+        "inactive accounts"
       ],
       "mappings": {
         "drata": [
@@ -712,16 +727,16 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Revisar en el credential report qué credencial del usuario {resource_id} lleva más de 45 días sin uso (contraseña o access key).",
-          "Si es una access key, desactivarla con el comando de abajo.",
-          "Si es la contraseña de consola, deshabilitar el acceso desde la consola: IAM > Users > {resource_id} > Security credentials > Console access > Disable.",
-          "Si el usuario ya no existe en la organización, borrarlo después (fuera de este arreglo)."
+          "Check in the credential report which credential of user {resource_id} has gone more than 45 days without use (password or access key).",
+          "If it is an access key, deactivate it with the command below.",
+          "If it is the console password, disable console access: IAM > Users > {resource_id} > Security credentials > Console access > Disable.",
+          "If the user no longer exists in the organization, delete it afterwards (outside this fix)."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nKEY_ID=\"__FILL_IN_ACCESS_KEY_ID__\"\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$KEY_ID\" --status Inactive"
         ],
         "verify_after": "aws iam list-access-keys --user-name \"{resource_id}\"",
-        "notes": "Desactivar una key que sigue en uso (por ejemplo, un job mensual) rompe esa aplicación: confirmar el último uso antes. Se puede reactivar con --status Active."
+        "notes": "Deactivating a key that is still in use (for example, a monthly job) breaks that application: confirm the last use first. It can be reactivated with --status Active."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828680",
@@ -731,7 +746,7 @@
     },
     {
       "id": "IAM-010",
-      "title": "Cada usuario IAM tiene como máximo una access key activa",
+      "title": "Each IAM user has at most one active access key",
       "scope": "resource",
       "resource_types": [
         "iam_user"
@@ -758,7 +773,7 @@
         ],
         "evaluator": "python:cred_report_multi_keys",
         "params": {},
-        "pass_when_text": "Ningún usuario tiene las dos access keys activas a la vez.",
+        "pass_when_text": "No user has both access keys active at the same time.",
         "needs": [
           "iam:GenerateCredentialReport",
           "iam:GetCredentialReport"
@@ -766,7 +781,8 @@
       },
       "vault_signals": [
         "access keys",
-        "una sola key activa"
+        "una sola key activa",
+        "single active key"
       ],
       "mappings": {
         "drata": [],
@@ -791,15 +807,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Ver cuál de las dos keys de {resource_id} usa la aplicación (último uso en el credential report: access_key_1_last_used_date y access_key_2_last_used_date).",
-          "Si ya se migró la aplicación a la key más nueva, desactivar la más vieja.",
-          "Esperar unos días y, si no hay errores, borrar la key desactivada."
+          "See which of the two keys of {resource_id} the application uses (last use in the credential report: access_key_1_last_used_date and access_key_2_last_used_date).",
+          "If the application has already been migrated to the newer key, deactivate the older one.",
+          "Wait a few days and, if there are no errors, delete the deactivated key."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__FILL_IN_OLD_ACCESS_KEY_ID__\"\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\" --status Inactive"
         ],
         "verify_after": "aws iam list-access-keys --user-name \"{resource_id}\"",
-        "notes": "Dos keys activas son normales durante una rotación; el chequeo falla si quedan así. Desactivar la key equivocada rompe la aplicación: confirmar el último uso de cada una antes."
+        "notes": "Two active keys are normal during a rotation; the check fails if they stay that way. Deactivating the wrong key breaks the application: confirm the last use of each one first."
       },
       "sources": [
         "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
@@ -808,7 +824,7 @@
     },
     {
       "id": "IAM-011",
-      "title": "Los usuarios IAM reciben permisos solo a través de grupos",
+      "title": "IAM users receive permissions only through groups",
       "scope": "resource",
       "resource_types": [
         "iam_user"
@@ -831,7 +847,7 @@
         ],
         "evaluator": "python:user_direct_policies",
         "params": {},
-        "pass_when_text": "Ningún usuario IAM tiene políticas administradas adjuntas ni políticas inline: todo viene de sus grupos.",
+        "pass_when_text": "No IAM user has attached managed policies or inline policies: everything comes from their groups.",
         "needs": [
           "iam:GetAccountAuthorizationDetails"
         ]
@@ -839,7 +855,10 @@
       "vault_signals": [
         "permisos por grupos",
         "políticas inline",
-        "usuarios IAM"
+        "usuarios IAM",
+        "permissions through groups",
+        "inline policies",
+        "IAM users"
       ],
       "mappings": {
         "drata": [
@@ -869,17 +888,17 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Listar las políticas que {resource_id} tiene hoy (adjuntas e inline) con los comandos de verificación.",
-          "Crear un grupo por función (por ejemplo developers) o elegir uno existente, y adjuntarle esas políticas.",
-          "Agregar a {resource_id} al grupo y comprobar que sigue accediendo a lo que necesita.",
-          "Quitar del usuario la política adjunta (detach-user-policy) o la inline (delete-user-policy)."
+          "List the policies that {resource_id} has today (attached and inline) with the verification commands.",
+          "Create a group per function (for example developers) or choose an existing one, and attach those policies to it.",
+          "Add {resource_id} to the group and check that the user can still access what they need.",
+          "Remove the attached policy (detach-user-policy) or the inline one (delete-user-policy) from the user."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nGROUP_NAME=\"__FILL_IN_GROUP__\"\nPOLICY_ARN=\"__FILL_IN_POLICY_ARN__\"\naws iam create-group --group-name \"$GROUP_NAME\"\n# create-group puede fallar si el grupo ya existe: es esperable. Lo que sigue se encadena con && para que quitar el permiso directo solo corra si los pasos anteriores salieron bien\naws iam attach-group-policy --group-name \"$GROUP_NAME\" --policy-arn \"$POLICY_ARN\" && aws iam add-user-to-group --group-name \"$GROUP_NAME\" --user-name \"$USER_NAME\" && aws iam detach-user-policy --user-name \"$USER_NAME\" --policy-arn \"$POLICY_ARN\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nINLINE_POLICY_NAME=\"__FILL_IN_INLINE_POLICY_NAME__\"\n# solo después de verificar que el grupo cubre esos permisos\naws iam delete-user-policy --user-name \"$USER_NAME\" --policy-name \"$INLINE_POLICY_NAME\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nGROUP_NAME=\"__FILL_IN_GROUP__\"\nPOLICY_ARN=\"__FILL_IN_POLICY_ARN__\"\naws iam create-group --group-name \"$GROUP_NAME\"\n# create-group can fail if the group already exists: that is expected. What follows is chained with && so that removing the direct permission only runs if the previous steps succeeded\naws iam attach-group-policy --group-name \"$GROUP_NAME\" --policy-arn \"$POLICY_ARN\" && aws iam add-user-to-group --group-name \"$GROUP_NAME\" --user-name \"$USER_NAME\" && aws iam detach-user-policy --user-name \"$USER_NAME\" --policy-arn \"$POLICY_ARN\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nINLINE_POLICY_NAME=\"__FILL_IN_INLINE_POLICY_NAME__\"\n# only after verifying that the group covers those permissions\naws iam delete-user-policy --user-name \"$USER_NAME\" --policy-name \"$INLINE_POLICY_NAME\""
         ],
         "verify_after": "aws iam list-attached-user-policies --user-name \"{resource_id}\"",
-        "notes": "Quitar los permisos directos antes de que el grupo los cubra deja al usuario sin acceso: agregar al grupo primero, quitar después. Si el grupo ya existe, omitir create-group. Una política inline puede tener permisos que ninguna política administrada cubre: revisar su contenido antes de borrarla."
+        "notes": "Removing the direct permissions before the group covers them leaves the user without access: add to the group first, remove afterwards. If the group already exists, omit create-group. An inline policy may have permissions that no managed policy covers: review its content before deleting it."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828704",
@@ -889,7 +908,7 @@
     },
     {
       "id": "IAM-012",
-      "title": "No hay políticas propias con permisos de administrador total (*:*) adjuntas",
+      "title": "No own policies with full administrator permissions (*:*) are attached",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -910,7 +929,7 @@
         ],
         "evaluator": "python:admin_policies",
         "params": {},
-        "pass_when_text": "Ninguna política administrada propia adjunta a una identidad permite Action * sobre Resource * en su versión por defecto.",
+        "pass_when_text": "No own managed policy attached to an identity allows Action * on Resource * in its default version.",
         "needs": [
           "iam:GetAccountAuthorizationDetails"
         ]
@@ -918,7 +937,9 @@
       "vault_signals": [
         "administrador total",
         "políticas con *",
-        "AdministratorAccess"
+        "AdministratorAccess",
+        "full administrator",
+        "policies with *"
       ],
       "mappings": {
         "drata": [
@@ -946,18 +967,18 @@
         "risk": "high",
         "downtime": false,
         "steps": [
-          "Ver qué usuarios, grupos y roles tienen adjunta la política con el comando de verificación.",
-          "Definir los permisos que realmente se usan (IAM Access Analyzer puede generar una política a partir de CloudTrail).",
-          "Crear una política acotada y adjuntarla a esas identidades.",
-          "Quitar la política de administrador de cada identidad (detach) y comprobar que nada se rompe.",
-          "Si la política ya no se usa, borrarla."
+          "See which users, groups and roles have the policy attached with the verification command.",
+          "Define the permissions that are actually used (IAM Access Analyzer can generate a policy from CloudTrail).",
+          "Create a scoped policy and attach it to those identities.",
+          "Remove the administrator policy from each identity (detach) and check that nothing breaks.",
+          "If the policy is no longer used, delete it."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPOLICY_ARN=\"{resource_id}\"\naws iam list-entities-for-policy --policy-arn \"$POLICY_ARN\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPOLICY_ARN=\"{resource_id}\"\nROLE_NAME=\"__FILL_IN_ROLE__\"\n# Paso 4: solo después de adjuntar la política acotada\naws iam detach-role-policy --role-name \"$ROLE_NAME\" --policy-arn \"$POLICY_ARN\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPOLICY_ARN=\"{resource_id}\"\nROLE_NAME=\"__FILL_IN_ROLE__\"\n# Step 4: only after attaching the scoped policy\naws iam detach-role-policy --role-name \"$ROLE_NAME\" --policy-arn \"$POLICY_ARN\""
         ],
         "verify_after": "aws iam list-entities-for-policy --policy-arn \"{resource_id}\"",
-        "notes": "Quitar el administrador total sin una política que lo reemplace deja a esas identidades sin acceso. Para usuarios usar detach-user-policy y para grupos detach-group-policy. Las políticas administradas de AWS como AdministratorAccess no entran en este chequeo: en Drata se pueden excluir por hallazgo con justificación."
+        "notes": "Removing full administrator without a policy that replaces it leaves those identities without access. For users use detach-user-policy and for groups detach-group-policy. AWS managed policies such as AdministratorAccess are not part of this check: in Drata they can be excluded per finding with a justification."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828707",
@@ -967,7 +988,7 @@
     },
     {
       "id": "IAM-013",
-      "title": "Las políticas propias no usan comodines amplios sin justificación (revisión)",
+      "title": "Own policies do not use broad wildcards without justification (review)",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -987,7 +1008,7 @@
           }
         ],
         "evaluator": "claude",
-        "pass_when_text": "Claude revisa las políticas propias adjuntas y confirma que sus comodines (por ejemplo s3:* sobre un bucket concreto) están acotados y justificados; iam:*, o Resource * con acciones de escritura, no.",
+        "pass_when_text": "Claude reviews the attached own policies and confirms that their wildcards (for example s3:* on a specific bucket) are scoped and justified; iam:*, or Resource * with write actions, are not.",
         "needs": [
           "iam:GetAccountAuthorizationDetails"
         ]
@@ -995,7 +1016,10 @@
       "vault_signals": [
         "mínimo privilegio",
         "comodines",
-        "wildcards en políticas"
+        "wildcards en políticas",
+        "least privilege",
+        "wildcards",
+        "wildcards in policies"
       ],
       "mappings": {
         "drata": [
@@ -1016,15 +1040,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Leer la política con los comandos de abajo y listar qué acciones con comodín usa y sobre qué recursos.",
-          "Reemplazar cada comodín por la lista de acciones y recursos que la aplicación necesita realmente.",
-          "Crear una versión nueva de la política y comprobar que la aplicación sigue funcionando."
+          "Read the policy with the commands below and list which wildcard actions it uses and on which resources.",
+          "Replace each wildcard with the list of actions and resources that the application actually needs.",
+          "Create a new version of the policy and check that the application keeps working."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPOLICY_ARN=\"__FILL_IN_POLICY_ARN__\"\nVERSION_ID=$(aws iam get-policy --policy-arn \"$POLICY_ARN\" --query Policy.DefaultVersionId --output text)\naws iam get-policy-version --policy-arn \"$POLICY_ARN\" --version-id \"$VERSION_ID\""
         ],
         "verify_after": "aws iam get-policy --policy-arn \"__FILL_IN_POLICY_ARN__\"",
-        "notes": "Es una revisión de criterio (la hace Claude, no una regla fija): un comodín puede ser aceptable. Acotar permisos sin probar rompe la aplicación que los usa."
+        "notes": "This is a judgment review (Claude performs it, it is not a fixed rule): a wildcard can be acceptable. Narrowing permissions without testing breaks the application that uses them."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828707",
@@ -1033,7 +1057,7 @@
     },
     {
       "id": "IAM-014",
-      "title": "Existe un rol con AWSSupportAccess para gestionar incidentes con AWS Support",
+      "title": "A role with AWSSupportAccess exists to manage incidents with AWS Support",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -1054,7 +1078,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "length(PolicyRoles) == `0` && [{resource_id: 'account', detail: {policy: 'AWSSupportAccess', roles: length(PolicyRoles)}}] || `[]`",
-        "pass_when_text": "La política AWSSupportAccess está adjunta al menos a un rol.",
+        "pass_when_text": "The AWSSupportAccess policy is attached to at least one role.",
         "needs": [
           "iam:ListEntitiesForPolicy"
         ]
@@ -1062,7 +1086,8 @@
       "vault_signals": [
         "rol de soporte",
         "AWS Support",
-        "AWSSupportAccess"
+        "AWSSupportAccess",
+        "support role"
       ],
       "mappings": {
         "drata": [],
@@ -1092,14 +1117,14 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Decidir quién puede asumir el rol de soporte (un grupo o rol de administradores) y completar su ARN.",
-          "Crear el rol con una política de confianza que exija MFA y adjuntarle AWSSupportAccess."
+          "Decide who can assume the support role (an administrators group or role) and fill in its ARN.",
+          "Create the role with a trust policy that requires MFA and attach AWSSupportAccess to it."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTRUST='{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"__FILL_IN_PRINCIPAL_ARN__\"},\"Action\":\"sts:AssumeRole\",\"Condition\":{\"Bool\":{\"aws:MultiFactorAuthPresent\":\"true\"}}}]}'\naws iam create-role --role-name aws-support-access --assume-role-policy-document \"$TRUST\"\naws iam attach-role-policy --role-name aws-support-access --policy-arn arn:aws:iam::aws:policy/AWSSupportAccess"
         ],
         "verify_after": "aws iam list-entities-for-policy --policy-arn arn:aws:iam::aws:policy/AWSSupportAccess",
-        "notes": "La decisión es el principal que puede asumir el rol (__FILL_IN_PRINCIPAL_ARN__). Si el rol aws-support-access ya existe, omitir create-role y solo adjuntar la política."
+        "notes": "The decision is the principal that can assume the role (__FILL_IN_PRINCIPAL_ARN__). If the aws-support-access role already exists, omit create-role and only attach the policy."
       },
       "sources": [
         "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
@@ -1109,7 +1134,7 @@
     },
     {
       "id": "IAM-015",
-      "title": "IAM Access Analyzer está activo en todas las regiones",
+      "title": "IAM Access Analyzer is active in all regions",
       "scope": "account",
       "resource_types": [],
       "all_regions": true,
@@ -1127,7 +1152,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "length(analyzers[?status == 'ACTIVE' && (type == 'ACCOUNT' || type == 'ORGANIZATION')]) == `0` && [{detail: {active_analyzers: `0`}}] || `[]`",
-        "pass_when_text": "Cada región habilitada tiene un analizador ACCOUNT u ORGANIZATION en estado ACTIVE.",
+        "pass_when_text": "Each enabled region has an ACCOUNT or ORGANIZATION analyzer in ACTIVE state.",
         "needs": [
           "access-analyzer:ListAnalyzers"
         ]
@@ -1135,7 +1160,9 @@
       "vault_signals": [
         "access analyzer",
         "acceso externo",
-        "analizador"
+        "analizador",
+        "external access",
+        "analyzer"
       ],
       "mappings": {
         "drata": [],
@@ -1165,13 +1192,13 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Crear un analizador de acceso externo de cuenta en la región indicada."
+          "Create an account external access analyzer in the indicated region."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws accessanalyzer create-analyzer --analyzer-name external-access-analyzer --type ACCOUNT --region \"$REGION\""
         ],
         "verify_after": "aws accessanalyzer list-analyzers --region \"{region}\"",
-        "notes": "Un analizador de acceso externo no tiene costo adicional; los de acceso no usado (ACCOUNT_UNUSED_ACCESS) sí se cobran y no cuentan para este chequeo. Repetir en cada región que falle."
+        "notes": "An external access analyzer has no additional cost; unused access analyzers (ACCOUNT_UNUSED_ACCESS) are charged and do not count for this check. Repeat in each region that fails."
       },
       "sources": [
         "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
@@ -1181,7 +1208,7 @@
     },
     {
       "id": "IAM-016",
-      "title": "La cuenta tiene un contacto alternativo de seguridad (SECURITY)",
+      "title": "The account has an alternate security contact (SECURITY)",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -1205,7 +1232,7 @@
         ],
         "evaluator": "python:alternate_contact_present",
         "params": {},
-        "pass_when_text": "get-alternate-contact SECURITY devuelve un contacto con email. ResourceNotFoundException significa que no hay y falla.",
+        "pass_when_text": "get-alternate-contact SECURITY returns a contact with an email. ResourceNotFoundException means there is none and it fails.",
         "needs": [
           "account:GetAlternateContact"
         ]
@@ -1213,7 +1240,8 @@
       "vault_signals": [
         "contacto de seguridad",
         "contacto alternativo",
-        "alternate contact"
+        "alternate contact",
+        "security contact"
       ],
       "mappings": {
         "drata": [],
@@ -1236,14 +1264,14 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Decidir el nombre, cargo, email y teléfono del contacto de seguridad (conviene una casilla compartida del equipo, no un email personal).",
-          "Completar los valores y ejecutar el comando."
+          "Decide the name, title, email and phone of the security contact (a shared team mailbox is preferable, not a personal email).",
+          "Fill in the values and run the command."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws account put-alternate-contact --alternate-contact-type SECURITY --name \"__FILL_IN_NAME__\" --title \"__FILL_IN_JOB_TITLE__\" --email-address \"__FILL_IN_SECURITY_EMAIL__\" --phone-number \"__FILL_IN_PHONE__\""
         ],
         "verify_after": "aws account get-alternate-contact --alternate-contact-type SECURITY",
-        "notes": "Es una decisión del equipo quién recibe los avisos de seguridad de AWS. En cuentas de una organización, el contacto de una cuenta miembro se puede administrar desde la cuenta de administración."
+        "notes": "Who receives AWS security notices is a team decision. In accounts of an organization, a member account's contact can be managed from the management account."
       },
       "sources": [
         "https://docs.aws.amazon.com/securityhub/latest/userguide/account-controls.html",
@@ -1252,7 +1280,7 @@
     },
     {
       "id": "IAM-017",
-      "title": "Las personas acceden por IAM Identity Center en vez de usuarios IAM (informativo)",
+      "title": "People access through IAM Identity Center instead of IAM users (informational)",
       "scope": "resource",
       "resource_types": [
         "iam_user"
@@ -1279,7 +1307,7 @@
         ],
         "evaluator": "python:iam_human_users",
         "params": {},
-        "pass_when_text": "Ningún usuario IAM tiene contraseña de consola: las personas entran por IAM Identity Center o un IdP.",
+        "pass_when_text": "No IAM user has a console password: people sign in through IAM Identity Center or an IdP.",
         "needs": [
           "iam:GenerateCredentialReport",
           "iam:GetCredentialReport"
@@ -1288,7 +1316,8 @@
       "vault_signals": [
         "identity center",
         "SSO",
-        "usuarios IAM humanos"
+        "usuarios IAM humanos",
+        "human IAM users"
       ],
       "mappings": {
         "drata": [],
@@ -1309,16 +1338,16 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Habilitar IAM Identity Center y conectarlo al proveedor de identidad del equipo (o usar su directorio propio).",
-          "Crear los permission sets equivalentes a los permisos que {resource_id} tiene hoy.",
-          "Asignar a la persona esos permission sets y confirmar que entra por el portal de acceso.",
-          "Deshabilitar el acceso de consola del usuario IAM y, cuando no quede uso, desactivar sus access keys."
+          "Enable IAM Identity Center and connect it to the team's identity provider (or use its own directory).",
+          "Create the permission sets equivalent to the permissions that {resource_id} has today.",
+          "Assign those permission sets to the person and confirm that they sign in through the access portal.",
+          "Disable the IAM user's console access and, when there is no remaining use, deactivate their access keys."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nKEY_ID=\"__FILL_IN_ACCESS_KEY_ID__\"\n# Paso 4: cuando la persona ya entra por Identity Center\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$KEY_ID\" --status Inactive"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nKEY_ID=\"__FILL_IN_ACCESS_KEY_ID__\"\n# Step 4: when the person already signs in through Identity Center\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$KEY_ID\" --status Inactive"
         ],
         "verify_after": "aws iam list-access-keys --user-name \"{resource_id}\"",
-        "notes": "Es informativo: AWS recomienda no usar usuarios IAM para personas, pero Drata y Vanta no fallan por eso. La migración cambia cómo entra la persona (nuevo portal, nuevo MFA): coordinarla. Si el equipo decide mantener usuarios IAM, documentarlo en la política de acceso."
+        "notes": "It is informational: AWS recommends not using IAM users for people, but Drata and Vanta do not fail for that. The migration changes how the person signs in (new portal, new MFA): coordinate it. If the team decides to keep IAM users, document it in the access policy."
       },
       "sources": [
         "https://docs.aws.amazon.com/prescriptive-guidance/latest/security-reference-architecture/checklist.html",

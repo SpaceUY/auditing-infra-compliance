@@ -859,7 +859,7 @@ class EncryptionCatalogTests(unittest.TestCase):
     def test_enc_004_cannot_be_fixed_in_place(self):
         rem = catalog_check("ENC-004")["remediation"]
         self.assertTrue(rem["downtime"])
-        self.assertRegex(rem["notes"], r"(?i)no se puede")
+        self.assertRegex(rem["notes"], r"(?i)cannot be")
         self.assertIn("create-file-system", "\n".join(rem["commands"]))
         self.assertIn("--encrypted", "\n".join(rem["commands"]))
 
@@ -928,18 +928,18 @@ class EncryptionCatalogTests(unittest.TestCase):
         command = catalog_check("TLS-002")["remediation"]["commands"][0]
         self.assertRegex(command, r"describe-load-balancers [^\n]*\n[^\n]*Protocol==`HTTPS` && Port==`443`[\s\S]*for [^\n]*describe-listeners [^\n]*Protocol==`HTTP`")
         self.assertIn("Type=redirect,RedirectConfig={Protocol=HTTPS,Port=443,StatusCode=HTTP_301}", command)
-        self.assertRegex(catalog_check("TLS-002")["remediation"]["notes"], r"(?i)listener HTTPS")
+        self.assertRegex(catalog_check("TLS-002")["remediation"]["notes"], r"(?i)HTTPS:443 listener")
 
     def test_tls_002_says_that_only_the_default_action_is_evaluated(self):
         check = catalog_check("TLS-002")
-        self.assertRegex(check["verify"]["pass_when_text"], r"acción por defecto del listener; las reglas del listener no")
-        self.assertRegex(check["remediation"]["notes"], r"reglas del listener no se tocan ni se revisan")
+        self.assertRegex(check["verify"]["pass_when_text"], r"default action is evaluated; the listener's rules are not")
+        self.assertRegex(check["remediation"]["notes"], r"listener's rules are neither touched nor reviewed")
 
     def test_tls_003_recommends_the_tls_1_3_policy_and_warns_about_old_clients(self):
         rem = catalog_check("TLS-003")["remediation"]
         self.assertIn("ELBSecurityPolicy-TLS13-1-2-2021-06", rem["commands"][0])
         self.assertIn("--ssl-policy", rem["commands"][0])
-        self.assertRegex(rem["notes"], r"(?i)clientes")
+        self.assertRegex(rem["notes"], r"(?i)clients")
 
     def test_tls_004_creates_a_parameter_group_and_reboots_in_a_separate_command(self):
         rem = catalog_check("TLS-004")["remediation"]

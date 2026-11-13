@@ -3,7 +3,7 @@
   "checks": [
     {
       "id": "DAT-001",
-      "title": "Las instancias RDS tienen backups automáticos con retención mayor a 0 días (recomendado: al menos 7)",
+      "title": "RDS instances have automated backups with retention greater than 0 days (recommended: at least 7)",
       "scope": "resource",
       "resource_types": [
         "rds_instance"
@@ -25,7 +25,7 @@
         "params": {
           "min_days": 7
         },
-        "pass_when_text": "BackupRetentionPeriod mayor a 0 (el test 107 de Drata exige backups automáticos). Una retención de 0 falla con la severidad del chequeo; una de 1 a 6 días se reporta como ofensor con severity_override low, porque el mínimo recomendado de 7 días es un criterio del catálogo y no de Drata. Con 7 o más pasa. Las instancias de Aurora y DocumentDB tienen retención 1 por defecto: pasan el test de Drata y aquí solo figuran como recomendación.",
+        "pass_when_text": "BackupRetentionPeriod greater than 0 (Drata test 107 requires automated backups). A retention of 0 fails with the check's severity; a retention of 1 to 6 days is reported as an offender with severity_override low, because the recommended minimum of 7 days is a catalog criterion and not a Drata one. With 7 or more it passes. Aurora and DocumentDB instances have a default retention of 1: they pass the Drata test and appear here only as a recommendation.",
         "needs": [
           "rds:DescribeDBInstances"
         ]
@@ -36,7 +36,12 @@
         "backup automático",
         "snapshots automáticos",
         "BackupRetentionPeriod",
-        "recuperación de la base"
+        "recuperación de la base",
+        "RDS backups",
+        "backup retention",
+        "automated backup",
+        "automated snapshots",
+        "database recovery"
       ],
       "mappings": {
         "drata": [
@@ -59,16 +64,16 @@
         "risk": "medium",
         "downtime": true,
         "steps": [
-          "Elegir la retención (7 días es el mínimo recomendado) para la base {resource_id}.",
-          "Aplicarla con el primer bloque (instancia independiente) o con el segundo (miembro de un cluster Aurora o Multi-AZ DB cluster, donde la retención es del cluster).",
-          "Verificar con describe-db-instances que BackupRetentionPeriod es el elegido."
+          "Choose the retention (7 days is the recommended minimum) for database {resource_id}.",
+          "Apply it with the first block (standalone instance) or with the second (member of an Aurora cluster or Multi-AZ DB cluster, where retention belongs to the cluster).",
+          "Verify with describe-db-instances that BackupRetentionPeriod is the chosen value."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# instancia que no pertenece a un cluster\naws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --backup-retention-period 7 --apply-immediately --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# miembro de un cluster: la retención se cambia en el cluster\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text)\n[ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ] && aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --backup-retention-period 7 --apply-immediately --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# instance that does not belong to a cluster\naws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --backup-retention-period 7 --apply-immediately --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# cluster member: retention is changed on the cluster\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text)\n[ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ] && aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --backup-retention-period 7 --apply-immediately --region \"$REGION\""
         ],
         "verify_after": "aws rds describe-db-instances --db-instance-identifier \"{resource_id}\" --region \"{region}\" --query 'DBInstances[0].BackupRetentionPeriod'",
-        "notes": "Pasar de 0 a un valor mayor corta la base unos minutos en una instancia Single-AZ (RDS toma un snapshot y suspende el I/O); subir de un valor mayor a 0 a 7 no corta. Aplicarlo en una ventana acordada. Los backups cuestan almacenamiento por encima del tamaño de la base. --apply-immediately aplica también cualquier otro cambio pendiente de la instancia. Una réplica de lectura sin backups también falla este test. 7 días es un criterio de diseño del catálogo, no un umbral de Drata (que solo pide mayor a 0): por eso 1 a 6 se reporta con severity_override low."
+        "notes": "Going from 0 to a higher value interrupts the database for a few minutes on a Single-AZ instance (RDS takes a snapshot and suspends I/O); raising it from a value above 0 to 7 does not. Apply it in an agreed window. Backups cost storage on top of the database size. --apply-immediately also applies any other pending change on the instance. A read replica without backups also fails this test. 7 days is a catalog design criterion, not a Drata threshold (Drata only requires greater than 0): that is why 1 to 6 is reported with severity_override low."
       },
       "sources": [
         "https://help.drata.com/en/articles/4777050",
@@ -78,7 +83,7 @@
     },
     {
       "id": "DAT-002",
-      "title": "Las instancias RDS de producción (o sin tag Environment) son Multi-AZ",
+      "title": "Production RDS instances (or those without an Environment tag) are Multi-AZ",
       "scope": "resource",
       "resource_types": [
         "rds_instance"
@@ -97,7 +102,7 @@
           }
         ],
         "evaluator": "python:rds_multi_az",
-        "pass_when_text": "MultiAZ=true en la instancia. Aplica a las de producción (tag Environment con valor prod o production, sin distinguir mayúsculas) y a las que no tienen el tag Environment; las de otros entornos (staging, dev...) no aplican. Los miembros de un cluster (Aurora, Multi-AZ DB cluster) se juzgan por la alta disponibilidad del cluster y no se evalúan aquí. Test 30 de Drata.",
+        "pass_when_text": "MultiAZ=true on the instance. It applies to production instances (Environment tag with value prod or production, case-insensitive) and to those without the Environment tag; instances from other environments (staging, dev...) do not apply. Cluster members (Aurora, Multi-AZ DB cluster) are judged by the cluster's high availability and are not evaluated here. Drata test 30.",
         "needs": [
           "rds:DescribeDBInstances"
         ]
@@ -108,7 +113,12 @@
         "failover de RDS",
         "zonas de disponibilidad",
         "réplica standby",
-        "tag Environment"
+        "tag Environment",
+        "database high availability",
+        "RDS failover",
+        "Availability Zones",
+        "standby replica",
+        "Environment tag"
       ],
       "mappings": {
         "drata": [
@@ -133,15 +143,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Confirmar que la base {resource_id} es de producción (o etiquetarla con Environment si no lo está) y elegir una ventana de mantenimiento.",
-          "Convertir la instancia a Multi-AZ (comando): RDS crea un standby en otra zona a partir de un snapshot y lo sincroniza.",
-          "Esperar a que el estado vuelva a available y verificar MultiAZ=true."
+          "Confirm that database {resource_id} is a production one (or tag it with Environment if it is not) and choose a maintenance window.",
+          "Convert the instance to Multi-AZ (command): RDS creates a standby in another zone from a snapshot and synchronizes it.",
+          "Wait for the status to return to available and verify MultiAZ=true."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\naws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --multi-az --apply-immediately --region \"$REGION\""
         ],
         "verify_after": "aws rds describe-db-instances --db-instance-identifier \"{resource_id}\" --region \"{region}\" --query 'DBInstances[0].[MultiAZ,DBInstanceStatus]'",
-        "notes": "Costo: la instancia pasa a cobrar el doble (standby de la misma clase y almacenamiento). La conversión tarda desde varios minutos hasta horas según el tamaño y tiene impacto de rendimiento (I/O) mientras se sincroniza el standby; hacerla fuera de horario pico, o sin --apply-immediately para que se aplique en la ventana de mantenimiento. La base sigue disponible durante la conversión, y en los motores que lo requieren puede haber un reinicio breve. --apply-immediately aplica también cualquier otro cambio pendiente. Una base de otro entorno no se evalúa: etiquetar bien el tag Environment evita falsos positivos. Para un cluster Aurora, la alta disponibilidad se logra agregando una réplica en otra zona (create-db-instance en el cluster)."
+        "notes": "Cost: the instance is charged double (a standby of the same class and storage). The conversion takes from several minutes to hours depending on size and has a performance (I/O) impact while the standby synchronizes; do it outside peak hours, or without --apply-immediately so that it is applied in the maintenance window. The database stays available during the conversion, and for engines that require it there may be a brief reboot. --apply-immediately also applies any other pending change. A database from another environment is not evaluated: tagging Environment correctly avoids false positives. For an Aurora cluster, high availability is achieved by adding a replica in another zone (create-db-instance in the cluster)."
       },
       "sources": [
         "https://help.drata.com/en/articles/4776928",
@@ -151,7 +161,7 @@
     },
     {
       "id": "DAT-003",
-      "title": "Las instancias RDS tienen activado el auto minor version upgrade",
+      "title": "RDS instances have auto minor version upgrade enabled",
       "scope": "resource",
       "resource_types": [
         "rds_instance"
@@ -171,7 +181,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "DBInstances[?AutoMinorVersionUpgrade!=`true`].{resource_id: DBInstanceIdentifier, detail: {engine: Engine, engine_version: EngineVersion}}",
-        "pass_when_text": "AutoMinorVersionUpgrade=true en cada instancia. Un valor false o ausente falla (test 219 de Drata y 22 de Vanta).",
+        "pass_when_text": "AutoMinorVersionUpgrade=true on every instance. A value of false or a missing value fails (Drata test 219 and Vanta test 22).",
         "needs": [
           "rds:DescribeDBInstances"
         ]
@@ -181,7 +191,11 @@
         "auto minor version upgrade",
         "parches de la base",
         "ventana de mantenimiento",
-        "versiones del motor"
+        "versiones del motor",
+        "RDS minor upgrades",
+        "database patches",
+        "maintenance window",
+        "engine versions"
       ],
       "mappings": {
         "drata": [
@@ -211,14 +225,14 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Activar el auto minor version upgrade en la base {resource_id}; las actualizaciones se aplican desde ahora en su ventana de mantenimiento.",
-          "Verificar con describe-db-instances que AutoMinorVersionUpgrade es true."
+          "Enable auto minor version upgrade on database {resource_id}; upgrades will be applied from now on in its maintenance window.",
+          "Verify with describe-db-instances that AutoMinorVersionUpgrade is true."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\naws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --auto-minor-version-upgrade --region \"$REGION\""
         ],
         "verify_after": "aws rds describe-db-instances --db-instance-identifier \"{resource_id}\" --region \"{region}\" --query 'DBInstances[0].AutoMinorVersionUpgrade'",
-        "notes": "El cambio es inmediato y sin downtime, pero a partir de entonces RDS aplica las versiones menores en la ventana de mantenimiento (PreferredMaintenanceWindow) y esa actualización sí puede reiniciar la base (en Multi-AZ, un failover). Revisar la ventana. Si una aplicación depende de una versión menor concreta, probar antes en staging. No se usa --apply-immediately para no aplicar otros cambios pendientes."
+        "notes": "The change is immediate and has no downtime, but from then on RDS applies minor versions in the maintenance window (PreferredMaintenanceWindow) and that upgrade can restart the database (in Multi-AZ, a failover). Review the window. If an application depends on a specific minor version, test in staging first. --apply-immediately is not used so as not to apply other pending changes."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828785",
@@ -229,7 +243,7 @@
     },
     {
       "id": "DAT-004",
-      "title": "Las instancias RDS tienen deletion protection",
+      "title": "RDS instances have deletion protection",
       "scope": "resource",
       "resource_types": [
         "rds_instance"
@@ -249,7 +263,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "DBInstances[?DeletionProtection!=`true`].{resource_id: DBInstanceIdentifier, detail: {engine: Engine, cluster: DBClusterIdentifier}}",
-        "pass_when_text": "DeletionProtection=true en cada instancia. Un valor false o ausente falla. En Aurora la protección es del cluster.",
+        "pass_when_text": "DeletionProtection=true on every instance. A value of false or a missing value fails. In Aurora the protection belongs to the cluster.",
         "needs": [
           "rds:DescribeDBInstances"
         ]
@@ -258,7 +272,8 @@
         "deletion protection",
         "protección contra borrado",
         "borrado accidental de la base",
-        "DeletionProtection"
+        "DeletionProtection",
+        "accidental database deletion"
       ],
       "mappings": {
         "drata": [],
@@ -279,14 +294,14 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Activar la protección contra borrado en la base {resource_id}: el comando la aplica a la instancia o, si es miembro de un cluster, al cluster.",
-          "Verificar con describe-db-instances que DeletionProtection es true."
+          "Enable deletion protection on database {resource_id}: the command applies it to the instance or, if it is a cluster member, to the cluster.",
+          "Verify with describe-db-instances that DeletionProtection is true."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# miembro de un cluster: la protección es del cluster; si no pertenece a ninguno, es de la instancia\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text) || CLUSTER_ID=\"READ_FAILED\"\nif [ \"$CLUSTER_ID\" = \"READ_FAILED\" ]; then echo \"STOPPED: no se pudo leer la instancia $DB_ID (rds:DescribeDBInstances); no se cambió nada\"; elif [ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ]; then aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --deletion-protection --region \"$REGION\"; else aws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --deletion-protection --region \"$REGION\"; fi"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# cluster member: the protection belongs to the cluster; if it does not belong to any, it belongs to the instance\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text) || CLUSTER_ID=\"READ_FAILED\"\nif [ \"$CLUSTER_ID\" = \"READ_FAILED\" ]; then echo \"STOPPED: could not read instance $DB_ID (rds:DescribeDBInstances); nothing was changed\"; elif [ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ]; then aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --deletion-protection --region \"$REGION\"; else aws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --deletion-protection --region \"$REGION\"; fi"
         ],
         "verify_after": "aws rds describe-db-instances --db-instance-identifier \"{resource_id}\" --region \"{region}\" --query 'DBInstances[0].DeletionProtection'",
-        "notes": "Sin downtime y reversible con --no-deletion-protection. Mientras esté activa, delete-db-instance falla: para borrar la base a propósito (o con terraform destroy) hay que desactivarla antes. Se aplica de inmediato, por eso no lleva --apply-immediately."
+        "notes": "No downtime and reversible with --no-deletion-protection. While it is active, delete-db-instance fails: to delete the database on purpose (or with terraform destroy) it must be disabled first. It is applied immediately, which is why it does not use --apply-immediately."
       },
       "sources": [
         "https://docs.aws.amazon.com/securityhub/latest/userguide/rds-controls.html",
@@ -295,7 +310,7 @@
     },
     {
       "id": "DAT-005",
-      "title": "Las tablas de DynamoDB tienen point-in-time recovery (PITR) habilitado",
+      "title": "DynamoDB tables have point-in-time recovery (PITR) enabled",
       "scope": "resource",
       "resource_types": [
         "dynamodb_table"
@@ -323,7 +338,7 @@
           }
         ],
         "evaluator": "python:ddb_pitr",
-        "pass_when_text": "PointInTimeRecoveryStatus=ENABLED en cada tabla (test 301 de Drata). Una tabla borrada entre el listado y la lectura no aplica; una tabla que no se puede leer queda NOT_VERIFIED sin ocultar las demás.",
+        "pass_when_text": "PointInTimeRecoveryStatus=ENABLED on every table (Drata test 301). A table deleted between listing and reading does not apply; a table that cannot be read ends up NOT_VERIFIED without hiding the others.",
         "needs": [
           "dynamodb:DescribeContinuousBackups"
         ]
@@ -333,7 +348,9 @@
         "point-in-time recovery",
         "backups de DynamoDB",
         "recuperación de tablas",
-        "DynamoDB"
+        "DynamoDB",
+        "DynamoDB backups",
+        "table recovery"
       ],
       "mappings": {
         "drata": [
@@ -356,14 +373,14 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Habilitar PITR en la tabla {resource_id}.",
-          "Verificar con describe-continuous-backups que PointInTimeRecoveryStatus es ENABLED."
+          "Enable PITR on table {resource_id}.",
+          "Verify with describe-continuous-backups that PointInTimeRecoveryStatus is ENABLED."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws dynamodb update-continuous-backups --table-name \"{resource_id}\" --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true --region \"$REGION\""
         ],
         "verify_after": "aws dynamodb describe-continuous-backups --table-name \"{resource_id}\" --region \"{region}\" --query 'ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus'",
-        "notes": "Sin downtime ni impacto de rendimiento y reversible con PointInTimeRecoveryEnabled=false (se pierde el historial). Costo: se cobra por GB de la tabla (backup continuo, 35 días de retención). Drata necesita además el permiso inline backup:ListRecoveryPointsByResource en el rol DrataAutopilotRole para evaluar este test."
+        "notes": "No downtime or performance impact, and reversible with PointInTimeRecoveryEnabled=false (the history is lost). Cost: charged per GB of the table (continuous backup, 35 days of retention). Drata additionally needs the inline permission backup:ListRecoveryPointsByResource on the DrataAutopilotRole role to evaluate this test."
       },
       "sources": [
         "https://help.drata.com/en/articles/9999538",
@@ -373,7 +390,7 @@
     },
     {
       "id": "DAT-006",
-      "title": "Los buckets de S3 tienen el versionado habilitado",
+      "title": "S3 buckets have versioning enabled",
       "scope": "resource",
       "resource_types": [
         "s3_bucket"
@@ -401,7 +418,7 @@
           }
         ],
         "evaluator": "python:s3_versioning",
-        "pass_when_text": "Status=Enabled en cada bucket (test 108 de Drata). Un bucket con el versionado suspendido o nunca habilitado falla. Un bucket borrado entre el listado y la lectura no aplica; un bucket que no se puede leer queda NOT_VERIFIED sin ocultar los demás.",
+        "pass_when_text": "Status=Enabled on every bucket (Drata test 108). A bucket with versioning suspended or never enabled fails. A bucket deleted between listing and reading does not apply; a bucket that cannot be read ends up NOT_VERIFIED without hiding the others.",
         "needs": [
           "s3:GetBucketVersioning"
         ]
@@ -411,7 +428,10 @@
         "bucket versioning",
         "versiones de objetos",
         "recuperación de objetos",
-        "S3"
+        "S3",
+        "S3 versioning",
+        "object versions",
+        "object recovery"
       ],
       "mappings": {
         "drata": [
@@ -432,15 +452,15 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Habilitar el versionado en el bucket {resource_id}.",
-          "Agregar una regla de ciclo de vida que expire las versiones no vigentes (noncurrent) para acotar el costo.",
-          "Verificar con get-bucket-versioning que Status es Enabled."
+          "Enable versioning on bucket {resource_id}.",
+          "Add a lifecycle rule that expires noncurrent versions to bound the cost.",
+          "Verify with get-bucket-versioning that Status is Enabled."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws s3api put-bucket-versioning --bucket \"{resource_id}\" --versioning-configuration Status=Enabled --region \"$REGION\""
         ],
         "verify_after": "aws s3api get-bucket-versioning --bucket \"{resource_id}\" --region \"{region}\"",
-        "notes": "Atención: put-bucket-versioning reemplaza la configuración de versionado del bucket (por ejemplo MFA Delete). Sin downtime. Costo: las versiones anteriores y los marcadores de borrado ocupan almacenamiento hasta que una regla de ciclo de vida (NoncurrentVersionExpiration) las expire; definirla en el mismo cambio. El versionado no se puede deshabilitar una vez activo, solo suspender. Algunos buckets (de logs, temporales o de caché) pueden no necesitarlo: si Drata los marca, excluirlos con justificación."
+        "notes": "Caution: put-bucket-versioning replaces the bucket's versioning configuration (for example MFA Delete). No downtime. Cost: previous versions and delete markers take up storage until a lifecycle rule (NoncurrentVersionExpiration) expires them; define it in the same change. Versioning cannot be disabled once enabled, only suspended. Some buckets (logs, temporary or cache) may not need it: if Drata flags them, exclude them with a justification."
       },
       "sources": [
         "https://help.drata.com/en/articles/4778759",
@@ -449,7 +469,7 @@
     },
     {
       "id": "DAT-007",
-      "title": "Los buckets de S3 tienen Block Public Access activo en sus 4 ajustes",
+      "title": "S3 buckets have Block Public Access enabled on all 4 settings",
       "scope": "resource",
       "resource_types": [
         "s3_bucket"
@@ -478,7 +498,7 @@
           }
         ],
         "evaluator": "python:s3_bpa",
-        "pass_when_text": "BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy y RestrictPublicBuckets son true en la configuración propia del bucket (test 104 de Drata, que no evalúa el Block Public Access de la cuenta). Un bucket sin configuración (NoSuchPublicAccessBlockConfiguration) falla. Un bucket borrado entre el listado y la lectura no aplica; un bucket que no se puede leer queda NOT_VERIFIED sin ocultar los demás.",
+        "pass_when_text": "BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy and RestrictPublicBuckets are true in the bucket's own configuration (Drata test 104, which does not evaluate the account-level Block Public Access). A bucket without a configuration (NoSuchPublicAccessBlockConfiguration) fails. A bucket deleted between listing and reading does not apply; a bucket that cannot be read ends up NOT_VERIFIED without hiding the others.",
         "needs": [
           "s3:GetBucketPublicAccessBlock"
         ]
@@ -488,7 +508,10 @@
         "bucket público",
         "acceso público a S3",
         "S3 público",
-        "BlockPublicAcls"
+        "BlockPublicAcls",
+        "public bucket",
+        "public access to S3",
+        "public S3"
       ],
       "mappings": {
         "drata": [
@@ -518,16 +541,16 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Revisar si el bucket {resource_id} sirve contenido público a propósito (sitio web estático o ACL pública) y, si es así, ponerlo detrás de CloudFront con acceso privado antes de bloquear.",
-          "Activar los 4 ajustes de Block Public Access en el bucket.",
-          "Verificar con get-public-access-block que los 4 ajustes son true."
+          "Check whether bucket {resource_id} serves public content on purpose (static website or public ACL) and, if so, put it behind CloudFront with private access before blocking.",
+          "Enable the 4 Block Public Access settings on the bucket.",
+          "Verify with get-public-access-block that the 4 settings are true."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# solo lectura: si el bucket es público según su policy\naws s3api get-bucket-policy-status --bucket \"{resource_id}\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# read-only: whether the bucket is public according to its policy\naws s3api get-bucket-policy-status --bucket \"{resource_id}\" --region \"$REGION\"",
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws s3api put-public-access-block --bucket \"{resource_id}\" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --region \"$REGION\""
         ],
         "verify_after": "aws s3api get-public-access-block --bucket \"{resource_id}\" --region \"{region}\"",
-        "notes": "ADVERTENCIA: put-public-access-block reemplaza la configuración de Block Public Access del bucket; si el bucket sirve contenido público a propósito, deja de ser accesible. Sin downtime, pero si el bucket sirve contenido público a propósito (sitio web estático con acceso anónimo, ACL públicas), deja de ser accesible: pasarlo antes a CloudFront con Origin Access Control. get-bucket-policy-status responde NoSuchBucketPolicy si el bucket no tiene policy: no es un error. Reversible con put-public-access-block en false. El Block Public Access de la cuenta (aws s3control put-public-access-block) se recomienda también, pero Drata no lo evalúa."
+        "notes": "WARNING: put-public-access-block replaces the bucket's Block Public Access configuration; if the bucket serves public content on purpose, it stops being accessible. No downtime, but if the bucket serves public content on purpose (static website with anonymous access, public ACLs), it stops being accessible: move it to CloudFront with Origin Access Control first. get-bucket-policy-status answers NoSuchBucketPolicy if the bucket has no policy: that is not an error. Reversible with put-public-access-block set to false. The account-level Block Public Access (aws s3control put-public-access-block) is also recommended, but Drata does not evaluate it."
       },
       "sources": [
         "https://help.drata.com/en/articles/4777046",
@@ -538,7 +561,7 @@
     },
     {
       "id": "DAT-008",
-      "title": "Los jobs de AWS Backup de las últimas 24 horas terminaron bien",
+      "title": "AWS Backup jobs from the last 24 hours completed successfully",
       "scope": "resource",
       "resource_types": [
         "backup_vault"
@@ -567,7 +590,7 @@
         "params": {
           "window_hours": 24
         },
-        "pass_when_text": "Un veredicto por bóveda de AWS Backup: cada recurso con jobs creados en las últimas 24 horas (ventana móvil, no el día calendario) tiene al menos uno COMPLETED; los jobs en curso no cuentan como fallo. Una bóveda con puntos de recuperación y ningún job en esa ventana también falla. Una bóveda vacía sin jobs no aplica. Sin ninguna bóveda de AWS Backup, el chequeo es N/A. Test 132 de Drata.",
+        "pass_when_text": "One verdict per AWS Backup vault: each resource with jobs created in the last 24 hours (a rolling window, not the calendar day) has at least one COMPLETED; jobs in progress do not count as a failure. A vault with recovery points and no job in that window also fails. An empty vault with no jobs does not apply. With no AWS Backup vault at all, the check is N/A. Drata test 132.",
         "needs": [
           "backup:ListBackupJobs",
           "backup:ListBackupVaults"
@@ -578,7 +601,11 @@
         "jobs de backup",
         "backup diario",
         "monitoreo de backups",
-        "backup fallido"
+        "backup fallido",
+        "backup jobs",
+        "daily backup",
+        "backup monitoring",
+        "failed backup"
       ],
       "mappings": {
         "drata": [
@@ -599,16 +626,16 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Revisar por qué fallaron los jobs de la bóveda {resource_id} (primer bloque, solo lectura; detail.resources lista los recursos afectados): StatusMessage suele indicar un problema de permisos del rol, de la bóveda o del recurso.",
-          "Corregir la causa (rol de AWS Backup, política de la bóveda, estado del recurso) y volver a lanzar un backup a pedido del recurso afectado (segundo bloque).",
-          "Verificar que el nuevo job termina en COMPLETED y que el plan lo repite cada día."
+          "Find out why the jobs of vault {resource_id} failed (first block, read-only; detail.resources lists the affected resources): StatusMessage usually points to a permissions problem in the role, the vault or the resource.",
+          "Fix the cause (AWS Backup role, vault policy, resource state) and start an on-demand backup of the affected resource again (second block).",
+          "Verify that the new job ends in COMPLETED and that the plan repeats it every day."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\n# solo lectura: jobs de la bóveda que no terminaron bien\naws backup list-backup-jobs --by-backup-vault-name \"$VAULT_NAME\" --region \"$REGION\" --query 'BackupJobs[?State!=`COMPLETED`].[BackupJobId,ResourceArn,State,StatusMessage,CreationDate]' --output table",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\n# read-only: vault jobs that did not finish successfully\naws backup list-backup-jobs --by-backup-vault-name \"$VAULT_NAME\" --region \"$REGION\" --query 'BackupJobs[?State!=`COMPLETED`].[BackupJobId,ResourceArn,State,StatusMessage,CreationDate]' --output table",
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\nRESOURCE_ARN=\"__FILL_IN_RESOURCE_ARN__\"\nROLE_ARN=\"__FILL_IN_BACKUP_ROLE_ARN__\"\naws backup start-backup-job --backup-vault-name \"$VAULT_NAME\" --resource-arn \"$RESOURCE_ARN\" --iam-role-arn \"$ROLE_ARN\" --region \"$REGION\""
         ],
         "verify_after": "aws backup list-backup-jobs --by-backup-vault-name \"{resource_id}\" --by-state COMPLETED --region \"{region}\" --query 'BackupJobs[0].[BackupJobId,State,CreationDate]'",
-        "notes": "Si el hallazgo dice que la bóveda no tuvo ningún job, revisar que los planes tengan una regla diaria que use esta bóveda (DAT-010) y que los recursos estén asignados al plan (backup selection). Un backup a pedido consume almacenamiento y puede cargar el recurso (RDS, EFS): hacerlo fuera de horario pico. Drata necesita backup:ListRecoveryPointsByResource y backup:ListBackupJobs inline en el rol DrataAutopilotRole; sin ellos el test da AccessDenied. El test 134 de Drata exige además relanzar un backup fallido dentro de las 24 horas."
+        "notes": "If the finding says the vault had no job at all, check that the plans have a daily rule that uses this vault (DAT-010) and that the resources are assigned to the plan (backup selection). An on-demand backup consumes storage and can load the resource (RDS, EFS): do it outside peak hours. Drata needs backup:ListRecoveryPointsByResource and backup:ListBackupJobs inline on the DrataAutopilotRole role; without them the test returns AccessDenied. Drata test 134 additionally requires re-running a failed backup within 24 hours."
       },
       "sources": [
         "https://help.drata.com/en/articles/9999495",
@@ -617,7 +644,7 @@
     },
     {
       "id": "DAT-009",
-      "title": "Las bóvedas de AWS Backup envían alertas de fallo de backup a un tópico de SNS",
+      "title": "AWS Backup vaults send backup failure alerts to an SNS topic",
       "scope": "resource",
       "resource_types": [
         "backup_vault"
@@ -652,7 +679,7 @@
           }
         ],
         "evaluator": "python:backup_vault_notifications",
-        "pass_when_text": "Cada bóveda con puntos de recuperación tiene configuradas notificaciones con un tópico de SNS y el evento BACKUP_JOB_FAILED. Una bóveda sin notificaciones falla; las bóvedas vacías (sin puntos de recuperación) no aplican. Sin ninguna bóveda de AWS Backup (o con todas vacías), el chequeo es N/A. Test 133 de Drata.",
+        "pass_when_text": "Each vault with recovery points has notifications configured with an SNS topic and the BACKUP_JOB_FAILED event. A vault without notifications fails; empty vaults (no recovery points) do not apply. With no AWS Backup vault at all (or only empty ones), the check is N/A. Drata test 133.",
         "needs": [
           "backup:ListBackupVaults",
           "backup:GetBackupVaultNotifications"
@@ -663,7 +690,12 @@
         "notificaciones de AWS Backup",
         "SNS de backup",
         "fallos de backup",
-        "bóveda de backup"
+        "bóveda de backup",
+        "backup alerts",
+        "AWS Backup notifications",
+        "backup SNS",
+        "backup failures",
+        "backup vault"
       ],
       "mappings": {
         "drata": [
@@ -684,18 +716,18 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Decidir el destino de las alertas: un tópico de SNS existente o uno nuevo con suscriptores (email, chat o pager) del equipo que atiende los fallos.",
-          "Si el tópico es nuevo, crearlo y suscribir un email (primer bloque) y permitir que AWS Backup publique (segundo bloque).",
-          "Configurar las notificaciones de la bóveda {resource_id} (tercer bloque) y confirmar la suscripción desde el email.",
-          "Verificar con get-backup-vault-notifications."
+          "Decide the destination of the alerts: an existing SNS topic or a new one with subscribers (email, chat or pager) from the team that handles failures.",
+          "If the topic is new, create it and subscribe an email (first block) and allow AWS Backup to publish (second block).",
+          "Configure the notifications of vault {resource_id} (third block) and confirm the subscription from the email.",
+          "Verify with get-backup-vault-notifications."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_NAME=\"__FILL_IN_TOPIC_NAME__\"\nALERT_EMAIL=\"__FILL_IN_ALERTS_EMAIL__\"\nTOPIC_ARN=$(aws sns create-topic --name \"$TOPIC_NAME\" --region \"$REGION\" --query 'TopicArn' --output text) && aws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"$ALERT_EMAIL\" --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__FILL_IN_TOPIC_ARN__\"\n# solo para un tópico NUEVO: set-topic-attributes reemplaza la policy completa; en un tópico existente, agregar la statement a su policy actual\naws sns set-topic-attributes --topic-arn \"$TOPIC_ARN\" --attribute-name Policy --attribute-value '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AllowAwsBackupPublish\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"backup.amazonaws.com\"},\"Action\":\"sns:Publish\",\"Resource\":\"'\"$TOPIC_ARN\"'\"}]}' --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__FILL_IN_TOPIC_ARN__\"\n# only for a NEW topic: set-topic-attributes replaces the whole policy; on an existing topic, add the statement to its current policy\naws sns set-topic-attributes --topic-arn \"$TOPIC_ARN\" --attribute-name Policy --attribute-value '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AllowAwsBackupPublish\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"backup.amazonaws.com\"},\"Action\":\"sns:Publish\",\"Resource\":\"'\"$TOPIC_ARN\"'\"}]}' --region \"$REGION\"",
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\nTOPIC_ARN=\"__FILL_IN_TOPIC_ARN__\"\naws backup put-backup-vault-notifications --backup-vault-name \"$VAULT_NAME\" --sns-topic-arn \"$TOPIC_ARN\" --backup-vault-events BACKUP_JOB_FAILED --region \"$REGION\""
         ],
         "verify_after": "aws backup get-backup-vault-notifications --backup-vault-name \"{resource_id}\" --region \"{region}\"",
-        "notes": "put-backup-vault-notifications reemplaza la configuración de notificaciones de la bóveda: si ya tenía otros eventos (por ejemplo COPY_JOB_FAILED o BACKUP_JOB_EXPIRED), incluirlos en --backup-vault-events. El tópico necesita una policy que permita sns:Publish al servicio backup.amazonaws.com; set-topic-attributes pisa la policy entera, por eso el segundo bloque es solo para tópicos nuevos. Recomendado: acotar la policy con la condición aws:SourceAccount. Un tópico cifrado con KMS necesita además que la clave permita a AWS Backup. Drata puede aceptar otros mecanismos de alerta (por ejemplo una regla de EventBridge sobre los jobs fallidos); si ya existe uno, confirmar en el test 133 antes de duplicar."
+        "notes": "put-backup-vault-notifications replaces the vault's notification configuration: if it already had other events (for example COPY_JOB_FAILED or BACKUP_JOB_EXPIRED), include them in --backup-vault-events. The topic needs a policy that allows sns:Publish to the backup.amazonaws.com service; set-topic-attributes overwrites the entire policy, which is why the second block is only for new topics. Recommended: scope the policy with the aws:SourceAccount condition. A topic encrypted with KMS additionally needs the key to allow AWS Backup. Drata may accept other alerting mechanisms (for example an EventBridge rule on failed jobs); if one already exists, confirm against test 133 before duplicating it."
       },
       "sources": [
         "https://help.drata.com/en/articles/4778878",
@@ -704,7 +736,7 @@
     },
     {
       "id": "DAT-010",
-      "title": "Al menos un plan de AWS Backup tiene una regla diaria con retención de al menos 7 días",
+      "title": "At least one AWS Backup plan has a daily rule with retention of at least 7 days",
       "scope": "account",
       "resource_types": [],
       "all_regions": false,
@@ -740,7 +772,7 @@
         "params": {
           "min_days": 7
         },
-        "pass_when_text": "A nivel de cuenta: al menos un plan de AWS Backup, en cualquier región evaluada, tiene una regla con ScheduleExpression diaria o más frecuente (cron con día del mes, mes y día de la semana sin restricción) y retención (Lifecycle.DeleteAfterDays) de 7 días o más; sin expiración se considera retención indefinida. Los planes semanales o de archivo no fallan mientras exista un plan diario que cumpla. Si ningún plan cumple (o no hay ninguno) falla una sola vez, con el recurso aws-backup. Las expresiones que no se modelan (rate(), semanas parciales) no cuentan. Los 7 días son un criterio de diseño del catálogo.",
+        "pass_when_text": "At account level: at least one AWS Backup plan, in any evaluated region, has a rule with a daily or more frequent ScheduleExpression (cron with day of month, month and day of week unrestricted) and retention (Lifecycle.DeleteAfterDays) of 7 days or more; no expiration is treated as indefinite retention. Weekly or archive plans do not fail as long as a compliant daily plan exists. If no plan complies (or there are none) it fails once, with the aws-backup resource. Expressions that are not modeled (rate(), partial weeks) do not count. The 7 days are a catalog design criterion.",
         "needs": [
           "backup:ListBackupPlans",
           "backup:GetBackupPlan"
@@ -751,7 +783,11 @@
         "AWS Backup",
         "regla diaria",
         "retención de backups",
-        "política de backups"
+        "política de backups",
+        "backup plan",
+        "daily rule",
+        "backup retention",
+        "backup policy"
       ],
       "mappings": {
         "drata": [],
@@ -770,18 +806,18 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Decidir el alcance: qué recursos protege el plan (por tag o por ARN), la bóveda destino, el rol de AWS Backup y la retención (35 días es un valor habitual).",
-          "Si no hay ningún plan, crearlo con una regla diaria y asignarle los recursos (primer bloque).",
-          "Si ya hay planes pero ninguno tiene una regla diaria que cumpla (detail.plans), ver las reglas del plan elegido (segundo bloque) y agregar una regla diaria con update-backup-plan (tercer bloque).",
-          "Verificar con get-backup-plan que existe la regla diaria con la retención elegida."
+          "Decide the scope: which resources the plan protects (by tag or by ARN), the destination vault, the AWS Backup role and the retention (35 days is a common value).",
+          "If there is no plan, create it with a daily rule and assign the resources to it (first block).",
+          "If there are plans but none has a compliant daily rule (detail.plans), look at the rules of the chosen plan (second block) and add a daily rule with update-backup-plan (third block).",
+          "Verify with get-backup-plan that the daily rule exists with the chosen retention."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\nVAULT_NAME=\"__FILL_IN_VAULT_NAME__\"\nROLE_ARN=\"__FILL_IN_BACKUP_ROLE_ARN__\"\nRESOURCE_ARN=\"__FILL_IN_RESOURCE_ARN__\"\nPLAN_ID=$(aws backup create-backup-plan --backup-plan \"{\\\"BackupPlanName\\\":\\\"$PLAN_NAME\\\",\\\"Rules\\\":[{\\\"RuleName\\\":\\\"diario\\\",\\\"TargetBackupVaultName\\\":\\\"$VAULT_NAME\\\",\\\"ScheduleExpression\\\":\\\"cron(0 5 ? * * *)\\\",\\\"Lifecycle\\\":{\\\"DeleteAfterDays\\\":35}}]}\" --region \"$REGION\" --query 'BackupPlanId' --output text) && aws backup create-backup-selection --backup-plan-id \"$PLAN_ID\" --backup-selection \"{\\\"SelectionName\\\":\\\"$PLAN_NAME-recursos\\\",\\\"IamRoleArn\\\":\\\"$ROLE_ARN\\\",\\\"Resources\\\":[\\\"$RESOURCE_ARN\\\"]}\" --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\n# solo lectura: reglas actuales del plan\nPLAN_ID=$(aws backup list-backup-plans --region \"$REGION\" --query \"BackupPlansList[?BackupPlanName=='$PLAN_NAME'].BackupPlanId | [0]\" --output text) && aws backup get-backup-plan --backup-plan-id \"$PLAN_ID\" --region \"$REGION\" --query 'BackupPlan.Rules'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_ID=\"__FILL_IN_PLAN_ID__\"\n# update-backup-plan REEMPLAZA todo el plan: el JSON debe traer las reglas actuales más la nueva regla diaria\nPLAN_JSON='__FILL_IN_PLAN_JSON__'\naws backup update-backup-plan --backup-plan-id \"$PLAN_ID\" --backup-plan \"$PLAN_JSON\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\n# read-only: current rules of the plan\nPLAN_ID=$(aws backup list-backup-plans --region \"$REGION\" --query \"BackupPlansList[?BackupPlanName=='$PLAN_NAME'].BackupPlanId | [0]\" --output text) && aws backup get-backup-plan --backup-plan-id \"$PLAN_ID\" --region \"$REGION\" --query 'BackupPlan.Rules'",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_ID=\"__FILL_IN_PLAN_ID__\"\n# update-backup-plan REPLACES the whole plan: the JSON must contain the current rules plus the new daily rule\nPLAN_JSON='__FILL_IN_PLAN_JSON__'\naws backup update-backup-plan --backup-plan-id \"$PLAN_ID\" --backup-plan \"$PLAN_JSON\" --region \"$REGION\""
         ],
         "verify_after": "aws backup list-backup-plans --region \"{region}\" --query 'BackupPlansList[].[BackupPlanName,BackupPlanId]'",
-        "notes": "update-backup-plan reemplaza el plan completo (cada llamada crea una versión nueva): si el JSON omite una regla existente, esa regla se pierde; partir siempre de la salida del segundo bloque. Un plan sin backup selection no protege nada: el primer bloque crea también la asignación de recursos, que puede hacerse por tag. Costo: los puntos de recuperación ocupan almacenamiento durante toda la retención. El rol de AWS Backup necesita la política AWSBackupServiceRolePolicyForBackup. 7 días es un criterio de diseño del catálogo, no de Drata ni de Vanta."
+        "notes": "update-backup-plan replaces the entire plan (each call creates a new version): if the JSON omits an existing rule, that rule is lost; always start from the output of the second block. A plan without a backup selection protects nothing: the first block also creates the resource assignment, which can be done by tag. Cost: recovery points take up storage for the whole retention. The AWS Backup role needs the AWSBackupServiceRolePolicyForBackup policy. 7 days is a catalog design criterion, not a Drata or Vanta one."
       },
       "sources": [
         "https://docs.aws.amazon.com/aws-backup/latest/devguide/about-backup-plans.html",
@@ -790,7 +826,7 @@
     },
     {
       "id": "DAT-011",
-      "title": "Los replication groups de ElastiCache son Multi-AZ",
+      "title": "ElastiCache replication groups are Multi-AZ",
       "scope": "resource",
       "resource_types": [
         "elasticache_group"
@@ -810,7 +846,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "ReplicationGroups[?MultiAZ!='enabled'].{resource_id: ReplicationGroupId, detail: {multi_az: MultiAZ, automatic_failover: AutomaticFailover}}",
-        "pass_when_text": "MultiAZ=enabled en cada replication group de Redis (test 30 de Drata). Un valor disabled o ausente falla. Memcached y los clusters sin replication group no se evalúan.",
+        "pass_when_text": "MultiAZ=enabled on every Redis replication group (Drata test 30). A value of disabled or a missing value fails. Memcached and clusters without a replication group are not evaluated.",
         "needs": [
           "elasticache:DescribeReplicationGroups"
         ]
@@ -820,7 +856,10 @@
         "Redis con réplica",
         "alta disponibilidad de la caché",
         "failover automático",
-        "replication group"
+        "replication group",
+        "Redis with replica",
+        "cache high availability",
+        "automatic failover"
       ],
       "mappings": {
         "drata": [
@@ -843,16 +882,16 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Si el replication group {resource_id} no tiene réplicas, agregar al menos una (primer bloque), que queda en otra zona de disponibilidad, y esperar a que esté disponible.",
-          "Habilitar el failover automático y Multi-AZ en el grupo: el primer bloque ya lo encadena; si el grupo ya tenía réplicas, usar solo el segundo bloque.",
-          "Verificar que MultiAZ y AutomaticFailover figuran enabled."
+          "If replication group {resource_id} has no replicas, add at least one (first block), which ends up in another Availability Zone, and wait for it to be available.",
+          "Enable automatic failover and Multi-AZ on the group: the first block already chains it; if the group already had replicas, use only the second block.",
+          "Verify that MultiAZ and AutomaticFailover are listed as enabled."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRG_ID=\"{resource_id}\"\naws elasticache increase-replica-count --replication-group-id \"$RG_ID\" --new-replica-count 1 --apply-immediately --region \"$REGION\" && aws elasticache wait replication-group-available --replication-group-id \"$RG_ID\" --region \"$REGION\" && aws elasticache modify-replication-group --replication-group-id \"$RG_ID\" --automatic-failover-enabled --multi-az-enabled --apply-immediately --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRG_ID=\"{resource_id}\"\n# solo para un grupo que ya tiene al menos una réplica: no agrega nodos\naws elasticache modify-replication-group --replication-group-id \"$RG_ID\" --automatic-failover-enabled --multi-az-enabled --apply-immediately --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRG_ID=\"{resource_id}\"\n# only for a group that already has at least one replica: it does not add nodes\naws elasticache modify-replication-group --replication-group-id \"$RG_ID\" --automatic-failover-enabled --multi-az-enabled --apply-immediately --region \"$REGION\""
         ],
         "verify_after": "aws elasticache describe-replication-groups --replication-group-id \"{resource_id}\" --region \"{region}\" --query 'ReplicationGroups[0].[MultiAZ,AutomaticFailover]'",
-        "notes": "Costo: cada réplica es un nodo más con la misma clase que el primario. Si el grupo ya tiene réplicas, increase-replica-count falla porque --new-replica-count debe superar la cantidad actual: usar solo el segundo bloque (modify-replication-group). La réplica nueva se sincroniza copiando el dataset (impacto de rendimiento en el primario, más en cachés grandes). Hacerlo fuera de horario pico. Los clusters con cluster mode habilitado agregan la réplica en cada shard. Multi-AZ aplica a Redis/Valkey; Memcached no tiene replication group."
+        "notes": "Cost: each replica is one more node of the same class as the primary. If the group already has replicas, increase-replica-count fails because --new-replica-count must exceed the current count: use only the second block (modify-replication-group). The new replica synchronizes by copying the dataset (performance impact on the primary, larger on big caches). Do it outside peak hours. Clusters with cluster mode enabled add the replica in each shard. Multi-AZ applies to Redis/Valkey; Memcached has no replication group."
       },
       "sources": [
         "https://help.drata.com/en/articles/4776928",

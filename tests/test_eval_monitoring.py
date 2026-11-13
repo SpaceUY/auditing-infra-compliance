@@ -607,14 +607,14 @@ class AlarmCoverageCatalogTests(unittest.TestCase):
 
     def test_notes_say_that_composite_alarms_are_not_honoured(self):
         for check in self.checks:
-            self.assertRegex(check["remediation"]["notes"], r"alarmas compuestas", check["id"])
-            self.assertRegex(check["remediation"]["notes"], r"action faltante", check["id"])
+            self.assertRegex(check["remediation"]["notes"], r"(?i)composite alarms", check["id"])
+            self.assertRegex(check["remediation"]["notes"], r"missing action", check["id"])
 
     def test_mon_009_is_elasticache_only_and_says_so(self):
         check = catalog_check("MON-009")
         self.assertEqual(check["verify"]["params"], {"namespace": "AWS/ElastiCache", "metric": "DatabaseMemoryUsagePercentage",
                                                      "resource_dimension": "ReplicationGroupId"})
-        self.assertRegex(check["verify"]["pass_when_text"], r"DynamoDB no se evalúan|tablas DynamoDB no se evalúan")
+        self.assertRegex(check["verify"]["pass_when_text"], r"DynamoDB tables are not evaluated")
         self.assertNotIn("DynamoDB", json.dumps(check["remediation"]))
 
     def test_mon_008_has_no_article_for_test_300(self):
@@ -624,7 +624,7 @@ class AlarmCoverageCatalogTests(unittest.TestCase):
 
     def test_notes_state_that_no_threshold_is_dictated(self):
         for check in self.checks:
-            self.assertRegex(check["remediation"]["notes"], r"umbral", check["id"])
+            self.assertRegex(check["remediation"]["notes"], r"threshold", check["id"])
 
     def test_no_threshold_is_hardcoded(self):
         for check in self.checks:

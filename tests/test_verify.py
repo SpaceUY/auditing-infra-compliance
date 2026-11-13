@@ -253,7 +253,7 @@ class ConflictRuleTests(unittest.TestCase):
         self.assertIn("rule_conflict", kinds(result, "F-0001"))
         conflict = next(c for c in result["conflicts"] if c["rule_id"] == "CR-001")
         self.assertEqual((conflict["status"], conflict["findings"]), ("CONFLICT", ["F-0001"]))
-        self.assertRegex(conflict["message"], r"(?i)redirecci[oó]n|redirect")
+        self.assertRegex(conflict["message"], r"(?i)redirect")
 
     def test_cr001_needs_a_load_balancer_attachment_not_just_one_in_the_region(self):
         ec2_only = self.alb_sg((INSTANCE, ""))
@@ -535,7 +535,7 @@ class ReviewTwoEvidenceTests(unittest.TestCase):
         rule = next(r for r in RULES if r["id"] == "CR-001")
         for word in ("ALB", "NLB"):
             self.assertIn(word, rule["message"])
-        self.assertRegex(rule["message"], r"(?i)cl[aá]sico|classic")
+        self.assertRegex(rule["message"], r"(?i)classic")
 
 
 class ReviewTwoRiskAndWarningTests(unittest.TestCase):
@@ -558,13 +558,11 @@ class ReviewTwoRiskAndWarningTests(unittest.TestCase):
 
     def test_notes_must_contain_a_warning_to_silence_the_destructive_check(self):
         command = "aws ec2 revoke-security-group-ingress --group-id g"
-        for notes in ("Decidir.", "Ver el vault.", "Ojo.", "n", "Ejecutar en CloudShell", "Decide.", "See the vault.", "Heads up.", "Run in CloudShell"):
+        for notes in ("n", "Decide.", "See the vault.", "Heads up.", "Run in CloudShell"):
             result = run(finding(1, "DAT-007", [command], kind="cli_with_decision", notes=notes))
             self.assertIn("destructive_without_warning", kinds(result, "F-0001"), notes)
-        for notes in ("ADVERTENCIA: corta el tráfico.", "Riesgo: deja sin acceso a la subnet.", "Reemplaza toda la política.",
-                      "Warning: this cannot be undone, data loss.", "Es irreversible.", "Borra la regla actual.",
-                      "WARNING: cuts the traffic.", "Risk: leaves the subnet without access.", "This replaces the whole policy.",
-                      "It is irreversible.", "Deletes the current rule."):
+        for notes in ("Warning: this cannot be undone, data loss.", "WARNING: cuts the traffic.", "Risk: leaves the subnet without access.",
+                      "This replaces the whole policy.", "It is irreversible.", "Deletes the current rule."):
             result = run(finding(1, "DAT-007", [command], kind="cli_with_decision", notes=notes))
             self.assertNotIn("destructive_without_warning", kinds(result, "F-0001"), notes)
 

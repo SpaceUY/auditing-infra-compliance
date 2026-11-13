@@ -403,12 +403,12 @@ class DetectionCatalogTests(unittest.TestCase):
         commands = "\n".join(catalog_check("DET-005")["remediation"]["commands"])
         self.assertRegex(commands, r"put-configuration-recorder [^\n]*&& aws configservice put-delivery-channel [^\n]*"
                                    r"&& aws configservice start-configuration-recorder")
-        self.assertRegex(catalog_check("DET-005")["remediation"]["notes"], r"(?i)costo")
+        self.assertRegex(catalog_check("DET-005")["remediation"]["notes"], r"(?i)cost")
 
     def test_det_007_is_a_planned_change_with_a_warning(self):
         rem = catalog_check("DET-007")["remediation"]
         self.assertEqual(rem["kind"], "planned_change")
-        self.assertRegex(rem["notes"], r"(?i)reinici")
+        self.assertRegex(rem["notes"], r"(?i)reboot")
 
     def test_enablement_checks_treat_a_disabled_service_as_a_failure(self):
         for check_id in ("DET-001", "DET-004", "DET-005", "DET-006"):

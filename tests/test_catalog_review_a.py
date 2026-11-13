@@ -163,8 +163,8 @@ class Iam004NotesTests(unittest.TestCase):
         check = one("IAM-004")
         self.assertTrue(check["all_regions"])
         notes = check["remediation"]["notes"]
-        self.assertNotRegex(notes, r"(?i)solo us-east-1|only us-east-1")
-        self.assertRegex(notes, r"(?i)todas las regiones|all regions")
+        self.assertNotRegex(notes, r"(?i)only us-east-1")
+        self.assertRegex(notes, r"(?i)all (enabled )?regions")
 
 
 class CliTests(unittest.TestCase):

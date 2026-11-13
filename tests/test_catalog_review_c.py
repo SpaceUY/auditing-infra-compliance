@@ -133,8 +133,8 @@ class RemediationBlockTests(unittest.TestCase):
 
     def test_log_006_notes_warn_that_the_merge_is_scoped_to_one_trail(self):
         notes = CHECKS["LOG-006"]["remediation"]["notes"]
-        self.assertIn("ESTE trail", notes)
-        self.assertIn("varios trails", notes)
+        self.assertIn("THIS trail", notes)
+        self.assertIn("several trails", notes)
 
     def test_log_006_merge_refuses_unfilled_placeholders(self):
         if not HAS_BASH:
@@ -166,7 +166,7 @@ class RemediationBlockTests(unittest.TestCase):
         self.assertIn("instance store", rem["notes"])
 
     def test_eml_001_first_block_says_when_to_use_it(self):
-        self.assertIn("solo si la identidad usa BYODKIM o no tiene Easy DKIM", commands("EML-001")[0])
+        self.assertIn("only if the identity uses BYODKIM or has no Easy DKIM", commands("EML-001")[0])
 
     def test_dat_003_is_medium_risk_so_it_leaves_the_low_risk_bulk_copy(self):
         self.assertEqual(CHECKS["DAT-003"]["remediation"]["risk"], "medium")
@@ -174,7 +174,7 @@ class RemediationBlockTests(unittest.TestCase):
     def test_eml_005_notes_mention_inheritance_from_the_organizational_domain(self):
         notes = CHECKS["EML-005"]["remediation"]["notes"]
         self.assertIn("RFC 7489", notes)
-        self.assertRegex(notes, r"(?i)dominio padre")
+        self.assertRegex(notes, r"(?i)parent domain")
 
 
 def fix_findings(check_ids=None):
@@ -231,7 +231,7 @@ class CatalogWideSweepTests(unittest.TestCase):
 
     def test_a_cli_fix_with_several_blocks_has_no_alternative_blocks(self):
         # "Copy all" pastes every block of a cli card: blocks that are alternatives of each other must be one conditional block
-        alternative = re.compile(r"#\s*(solo (si|para)|instancia que no|miembro de un cluster|alternativ)", re.I)
+        alternative = re.compile(r"#\s*(only (if|for)|instance that does not|cluster member|alternativ)", re.I)
         for check_id, check in CHECKS.items():
             rem = check["remediation"]
             if rem and rem["kind"] == "cli" and len(rem.get("commands") or []) > 1:
@@ -402,7 +402,7 @@ class PasswordPolicyFixTests(unittest.TestCase):
         for check_id in ("IAM-006", "IAM-007"):
             outcomes, calls, files = run_blocks(catalog_blocks(check_id), self.stub(self.CURRENT))
             self.assertEqual([o[0] for o in outcomes], [0, 0, 0], outcomes)
-            args = files["password-policy-nuevo.args"].split()
+            args = files["password-policy-new.args"].split()
             self.assertEqual(args[args.index("--max-password-age") + 1], "90")
             self.assertIn("--hard-expiry", args)
             self.assertIn("--no-allow-users-to-change-password", args)
@@ -415,7 +415,7 @@ class PasswordPolicyFixTests(unittest.TestCase):
 
     def test_a_stronger_current_length_and_reuse_are_never_lowered(self):
         outcomes, calls, files = run_blocks(catalog_blocks("IAM-006"), self.stub({"MinimumPasswordLength": 20, "PasswordReusePrevention": 30}))
-        args = files["password-policy-nuevo.args"].split()
+        args = files["password-policy-new.args"].split()
         self.assertEqual(args[args.index("--minimum-password-length") + 1], "20")
         self.assertEqual(args[args.index("--password-reuse-prevention") + 1], "30")
         self.assertEqual(args[args.index("--max-password-age") + 1], "0")  # no expiry stays no expiry
@@ -426,7 +426,7 @@ class PasswordPolicyFixTests(unittest.TestCase):
         error = "An error occurred (NoSuchEntity) when calling the GetAccountPasswordPolicy operation"
         outcomes, calls, files = run_blocks(catalog_blocks("IAM-006"), self.stub(error=error))
         self.assertEqual([o[0] for o in outcomes], [0, 0, 0], outcomes)
-        self.assertIn("--minimum-password-length 14", files["password-policy-nuevo.args"])
+        self.assertIn("--minimum-password-length 14", files["password-policy-new.args"])
         self.assertEqual(len(aws_calls(calls, "iam update-account-password-policy")), 1)
 
     def test_a_read_error_stops_everything_and_nothing_is_applied(self):
@@ -435,13 +435,13 @@ class PasswordPolicyFixTests(unittest.TestCase):
         self.assertIn("STOPPED", outcomes[0][1])
         self.assertIn("STOPPED", outcomes[1][1])
         self.assertIn("STOPPED", outcomes[2][1])
-        self.assertNotIn("password-policy-nuevo.args", files)
+        self.assertNotIn("password-policy-new.args", files)
         self.assertEqual(aws_calls(calls, "iam update-account-password-policy"), [])
 
     def test_a_stale_args_file_from_an_earlier_run_is_never_applied_after_a_failed_read(self):
         error = "An error occurred (AccessDenied) when calling the GetAccountPasswordPolicy operation"
         blocks = catalog_blocks("IAM-006")
-        outcomes, calls, files = run_blocks([blocks[0], blocks[2]], self.stub(error=error), files={"password-policy-nuevo.args": "--minimum-password-length 5\n"})
+        outcomes, calls, files = run_blocks([blocks[0], blocks[2]], self.stub(error=error), files={"password-policy-new.args": "--minimum-password-length 5\n"})
         self.assertEqual(aws_calls(calls, "iam update-account-password-policy"), [])
         self.assertIn("STOPPED", outcomes[1][1])
 
@@ -599,8 +599,8 @@ class Enc002OrderTests(unittest.TestCase):
 
     def test_notes_say_the_old_volume_keeps_the_latest_data(self):
         notes = CHECKS["ENC-002"]["remediation"]["notes"]
-        self.assertIn("ANTES del snapshot", notes)
-        self.assertIn("datos más recientes", notes)
+        self.assertIn("BEFORE the snapshot", notes)
+        self.assertIn("most recent data", notes)
         self.assertEqual(CHECKS["ENC-002"]["remediation"]["kind"], "planned_change")
 
 
@@ -614,7 +614,7 @@ class Enc003ExposureTests(unittest.TestCase):
 
     def test_the_notes_list_what_the_restore_does_not_inherit_including_exposure_settings(self):
         notes = CHECKS["ENC-003"]["remediation"]["notes"]
-        for word in ("acceso público", "protección contra borrado", "versiones menores", "exportación de logs", "ventana de mantenimiento", "Multi-AZ"):
+        for word in ("Public access", "deletion protection", "minor version", "log export", "maintenance window", "Multi-AZ"):
             self.assertIn(word, notes)
 
     def test_verify_after_is_scoped_to_the_resource_not_region_wide(self):
@@ -625,7 +625,7 @@ class Enc003ExposureTests(unittest.TestCase):
 
     @unittest.skipUnless(HAS_BASH, "bash is not available")
     def test_the_instance_restore_runs_in_order_with_the_flag(self):
-        blocks = [b.replace("__FILL_IN_NEW_DB_ID__", "res-1-nueva").replace("__FILL_IN_KMS_KEY_ID__", "alias/aws/rds")
+        blocks = [b.replace("__FILL_IN_NEW_DB_ID__", "res-1-new").replace("__FILL_IN_KMS_KEY_ID__", "alias/aws/rds")
                    .replace("__FILL_IN_DB_SUBNET_GROUP__", "sg-db").replace("__FILL_IN_SECURITY_GROUP_ID__", "sg-0123")
                    .replace("__FILL_IN_PARAMETER_GROUP__", "default.postgres16") for b in catalog_blocks("ENC-003", 0)]
         _, calls, _ = run_blocks(blocks, "return 0")
@@ -649,13 +649,13 @@ class SmallCatalogFixTests(unittest.TestCase):
         for key in (uuid, f"arn:aws:kms:us-east-1:111122223333:key/{uuid}"):
             blocks = [instantiate(c.replace("{resource_id}", key)) for c in commands("INT-004")]
             outcomes, calls, files = run_blocks(blocks, stub)
-            self.assertEqual(sorted(files), [f"key-policy-{uuid}-nuevo.json", f"key-policy-{uuid}.json"], key)
-            statements = json.loads(files[f"key-policy-{uuid}-nuevo.json"])["Statement"]
+            self.assertEqual(sorted(files), [f"key-policy-{uuid}-new.json", f"key-policy-{uuid}.json"], key)
+            statements = json.loads(files[f"key-policy-{uuid}-new.json"])["Statement"]
             self.assertEqual([s["Sid"] for s in statements], ["Root", "AllowAuditorRead"])
             self.assertEqual(len(aws_calls(calls, "kms put-key-policy")), 1)
 
     def test_int_004_does_not_apply_a_file_left_by_another_key(self):
-        _, calls, _ = run_blocks([instantiate(commands("INT-004")[2])], "return 0", files={"key-policy-nuevo.json": "{}", "key-policy-otra-clave-nuevo.json": "{}"})
+        _, calls, _ = run_blocks([instantiate(commands("INT-004")[2])], "return 0", files={"key-policy-new.json": "{}", "key-policy-other-key-new.json": "{}"})
         self.assertEqual(aws_calls(calls, "kms put-key-policy"), [])
 
     def test_det_005_stops_when_the_region_already_has_a_delivery_channel(self):
@@ -667,7 +667,7 @@ class SmallCatalogFixTests(unittest.TestCase):
         self.assertEqual(len(aws_calls(calls, "configservice put-delivery-channel")), 1)
 
     def test_cmp_002_and_net_005_notes_mention_the_side_effects(self):
-        self.assertIn("TODOS los que lo usan", CHECKS["CMP-002"]["remediation"]["notes"])
+        self.assertIn("ALL of its users", CHECKS["CMP-002"]["remediation"]["notes"])
         notes = CHECKS["NET-005"]["remediation"]["notes"]
         for word in ("ESP", "GRE"):
             self.assertIn(word, notes)

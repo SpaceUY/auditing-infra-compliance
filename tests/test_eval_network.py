@@ -579,15 +579,15 @@ class NetworkCatalogTests(unittest.TestCase):
     def test_security_group_checks_follow_drata_and_evaluate_every_group_of_a_region_with_active_enis(self):
         for check_id in ("NET-001", "NET-002", "NET-003", "NET-004"):
             text = catalog_check(check_id)["verify"]["pass_when_text"]
-            self.assertRegex(text, r"(?i)esté o no adjunto", check_id)
-            self.assertRegex(text, r"(?i)región", check_id)
+            self.assertRegex(text, r"(?i)whether or not the group is attached", check_id)
+            self.assertRegex(text, r"(?i)region", check_id)
 
     def test_net_003_notes_say_that_an_alb_redirect_still_fails_drata_291(self):
         rem = catalog_check("NET-003")["remediation"]
-        self.assertRegex(rem["notes"], r"(?i)redirig")
+        self.assertRegex(rem["notes"], r"(?i)redirect")
         self.assertIn("291", rem["notes"])
-        self.assertRegex(rem["notes"], r"(?i)excluir el recurso en Drata")
-        self.assertRegex(" ".join(rem["steps"]), r"(?i)solo 443|solo el 443|443")
+        self.assertRegex(rem["notes"], r"(?i)exclude the resource in Drata")
+        self.assertRegex(" ".join(rem["steps"]), r"(?i)only 443|443")
 
     def test_default_sg_remediation_revokes_only_the_rules_of_the_default_group_it_just_read(self):
         text = "\n".join(catalog_check("NET-006")["remediation"]["commands"])
@@ -621,7 +621,7 @@ class NetworkCatalogTests(unittest.TestCase):
         self.assertIn("--protocol 1 ", splits[0])
         self.assertIn("--protocol 58 ", splits[1])
         self.assertEqual(sum("--ipv6-cidr-block ::/0" in c for c in splits), 1)
-        self.assertRegex(commands[1], r"(?i)ADVERTENCIA")
+        self.assertRegex(commands[1], r"(?i)WARNING")
 
     def test_net_006_blocks_stop_when_network_interfaces_use_the_default_group(self):
         rem = catalog_check("NET-006")["remediation"]
@@ -637,8 +637,8 @@ class NetworkCatalogTests(unittest.TestCase):
 
     def test_net_005_notes_warn_about_the_default_nacl_and_statelessness(self):
         notes = catalog_check("NET-005")["remediation"]["notes"]
-        self.assertRegex(notes, r"(?i)por defecto")
-        self.assertRegex(notes, r"(?i)stateless|sin estado")
+        self.assertRegex(notes, r"(?i)default")
+        self.assertRegex(notes, r"(?i)stateless")
 
     def test_net_008_associates_the_acl_with_the_resource(self):
         text = "\n".join(catalog_check("NET-008")["remediation"]["commands"])

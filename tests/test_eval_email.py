@@ -289,7 +289,7 @@ class EmailCatalogTests(unittest.TestCase):
 
     def test_the_texts_say_no_drata_or_vanta_test_covers_ses(self):
         for check in self.checks:
-            self.assertRegex(check["verify"]["pass_when_text"], r"(?i)ni Drata ni Vanta|ni Vanta ni Drata|Drata y Vanta no", check["id"])
+            self.assertRegex(check["verify"]["pass_when_text"], r"(?i)Neither Drata nor Vanta", check["id"])
 
 
 class DigRunner:
