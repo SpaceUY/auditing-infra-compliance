@@ -275,6 +275,18 @@ class ReviewTwoPageTests(PageCase):
             self.assertEqual(self.run_page(document)["toolFilter"], wanted, tool)
         self.assertIn("['drata', 'Drata'], ['vanta', 'Vanta']", TEMPLATE)  # both stay available
 
+    def test_the_tool_filter_never_hides_findings_without_a_test_mapping(self):
+        document = self.document()
+        document["meta"] = {"tool": "drata"}
+        drata, vanta_only, unmapped = document["findings"][:3]
+        drata["mappings"] = {"drata": [{"test": "1", "name": "Drata test"}]}
+        vanta_only["mappings"] = {"vanta": [{"test": "vanta-test"}]}
+        unmapped["mappings"] = {}  # e.g. a plain-text secret: it must stay visible with the preselected filter
+        visible = {card["id"] for card in self.run_page(document)["cards"]}
+        self.assertIn(drata["id"], visible)
+        self.assertIn(unmapped["id"], visible)
+        self.assertNotIn(vanta_only["id"], visible)
+
     def test_a_findings_file_without_a_verdict_hides_the_banner(self):
         self.assertTrue(self.run_page(self.document())["verdict"]["hidden"])
 

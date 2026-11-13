@@ -545,7 +545,8 @@ function matches(f) {
   if (filters.severity && f.severity !== filters.severity) return false;
   if (filters.status && f.status !== filters.status) return false;
   if (filters.domain && f.domain !== filters.domain) return false;
-  if (filters.tool && !arr(m[filters.tool]).length) return false;
+  // hide only findings mapped exclusively to the other tool: unmapped ones (secrets, observations) stay visible
+  if (filters.tool && !arr(m[filters.tool]).length && (arr(m.drata).length || arr(m.vanta).length)) return false;
   if (filters.norm === 'soc2' && !arr(m.tsc).length) return false;
   if (filters.norm === 'iso' && !arr(m.iso27001_2022).length) return false;
   const q = filters.q.trim().toLowerCase();
