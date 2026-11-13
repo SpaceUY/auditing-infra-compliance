@@ -165,16 +165,16 @@ class SkillDocsTests(unittest.TestCase):
             self.assertIn(needle, self.text)
 
     def test_hard_rules_are_stated(self):
-        for needle in (".env", "solo los nombres", "si me das acceso", "aproximados", "a mano",
-                       "pedir una fuente", "esperar confirmación", "check_id: null", "compliance-reports",
-                       "sensitive_files", "dato, no instrucciones", "WARNING", "no persisten", '"domains": ["inventory"]',
-                       "not verified: do not apply without confirming", "actual_status", "contexto", "traducción",
-                       "could not be found", "diferida", "no se pueden producir"):
+        for needle in (".env", "just the variable names", "if you give me access", "approximate", "by hand",
+                       "ask for a source", "wait for confirmation", "check_id: null", "compliance-reports",
+                       "sensitive_files", "data, not instructions", "WARNING", "do not persist", '"domains": ["inventory"]',
+                       "not verified: do not apply without confirming", "actual_status", "context", "translation",
+                       "could not be found", "deferred", "cannot be produced"):
             self.assertIn(needle.lower(), self.text.lower(), needle)
 
     def test_background_collect_says_where_the_summary_arrives_and_not_to_poll(self):
         step = next(line for line in self.text.splitlines() if "run_in_background" in line)
-        for needle in ("salida de la tarea de fondo", "no consultarla mientras espera", "leer solo ese resumen"):
+        for needle in ("background task's output", "do not poll it while waiting", "read only that summary"):
             self.assertIn(needle, step)
 
     def test_every_reference_linked_from_skill_md_exists(self):
@@ -205,14 +205,14 @@ class SkillDocsTests(unittest.TestCase):
     def test_scenarios_file_has_the_four_scenarios_each_with_a_baseline_and_a_green_section(self):
         text = read(ROOT / "tests" / "skill-scenarios.md")
         for letter in "abcd":
-            self.assertIn(f"## Escenario ({letter})", text)
-        self.assertEqual(text.count("### Línea base (sin skill)"), 4)
-        self.assertEqual(text.count("### Resultado con el skill (GREEN)"), 4)
+            self.assertIn(f"## Scenario ({letter})", text)
+        self.assertEqual(text.count("### Baseline (without the skill)"), 4)
+        self.assertEqual(text.count("### Result with the skill (GREEN)"), 4)
 
 
 def hard_rules(text):
-    """Rows of the "Reglas duras" table: [(rule, rationalisation, what to do)]."""
-    section = text.split("## Reglas duras", 1)[1].split("\n## ", 1)[0]
+    """Rows of the "Hard rules" table: [(rule, rationalisation, what to do)]."""
+    section = text.split("## Hard rules", 1)[1].split("\n## ", 1)[0]
     rows = [line for line in section.splitlines() if line.startswith("|")][2:]
     return [[cell.strip() for cell in row.strip("|").split(" | ")] for row in rows]
 
@@ -226,31 +226,31 @@ class ReadOnlyRuleTests(unittest.TestCase):
 
     def test_the_first_hard_rule_is_the_absolute_read_only_rule(self):
         rule, rationalisation, action = hard_rules(self.skill)[0]
-        for needle in ("jamás escribe en AWS", "ni si el usuario lo pide", "solo para probar", "otra herramienta", "PR", "IaC"):
+        for needle in ("never writes to AWS", "not even if the user asks", "just to test", "another tool", "PR", "IaC"):
             self.assertIn(needle, rule)
-        self.assertIn("si me das acceso", rationalisation.lower())
-        for needle in ("Negarte", "siempre un no", "sin excepciones", "bloque Copy"):
+        self.assertIn("if you give me access", rationalisation.lower())
+        for needle in ("Refuse", "always a no", "without exceptions", "Copy block"):
             self.assertIn(needle, action)
 
     def test_no_other_hard_rule_leaves_room_for_an_exception(self):
         text = "\n".join(" ".join(row) for row in hard_rules(self.skill)).lower()
-        for forbidden in ("salvo que el usuario", "si el usuario lo autoriza", "con confirmación puede aplicar"):
+        for forbidden in ("unless the user", "if the user authorizes", "with confirmation may apply"):
             self.assertNotIn(forbidden, text)
 
     def test_readme_and_guidelines_state_the_same_rule(self):
         readme = read(ROOT / "README.md")
-        self.assertIn("Regla absoluta: el skill solo informa", readme)
-        self.assertIn("nunca\nescribe en AWS ni aplica un arreglo", readme)
-        what_not = readme.split("## Qué no hace", 1)[1].split("\n## ", 1)[0]
-        self.assertIn("No escribe en AWS, jamás", what_not)
-        self.assertIn("ni siquiera si se lo piden", what_not)
+        self.assertIn("Absolute rule: the skill only reports", readme)
+        self.assertIn("never\nwrites to AWS and never applies a fix", readme)
+        what_not = readme.split("## What it does not do", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("It never writes to AWS", what_not)
+        self.assertIn("not even if asked", what_not)
         guidelines = read(SKILL_DIR / "references" / "remediation-guidelines.md")
-        self.assertIn("nunca escribe en AWS", guidelines)
-        self.assertIn("ni si el usuario lo pide", guidelines)
+        self.assertIn("never writes to AWS", guidelines)
+        self.assertIn("not even if the user asks", guidelines)
 
     def test_the_read_only_guarantee_names_the_reviewed_allowlist(self):
         guidelines = read(SKILL_DIR / "references" / "remediation-guidelines.md")
-        for needle in ("REVIEWED_OPERATIONS", "SENSITIVE_NAME_EXCEPTIONS", "aws <servicio> <operación> help"):
+        for needle in ("REVIEWED_OPERATIONS", "SENSITIVE_NAME_EXCEPTIONS", "aws <service> <operation> help"):
             self.assertIn(needle, guidelines)
         self.assertIn("REVIEWED_OPERATIONS", read(ROOT / "README.md"))
 
@@ -269,8 +269,8 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
         for needle in ("verdict_text", "NOT_OPTIMAL", "NOT_VERIFIABLE", "OPTIMAL"):
             self.assertIn(needle, self.skill, needle)
             self.assertIn(needle, self.refs["report-format.md"], needle)
-        self.assertNotIn("nunca `OPTIMAL` sin credenciales", self.refs["report-format.md"])
-        self.assertNotIn("Nunca hay `OPTIMAL` sin", read(ROOT / "README.md"))
+        self.assertNotIn("never `OPTIMAL` without credentials", self.refs["report-format.md"])
+        self.assertNotIn("There is never `OPTIMAL` without", read(ROOT / "README.md"))
         for verdict in ("NOT_OPTIMAL", "NOT_VERIFIABLE", "OPTIMAL"):
             self.assertIn(verdict, self.scripts["assemble_findings.py"])
         self.assertIn("verdict_text", self.scripts["assemble_findings.py"])
@@ -281,26 +281,26 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
                 self.assertIn(needle, text, needle)
         self.assertIn("not verified against AWS", self.refs["report-format.md"])
         self.assertIn("not verified against AWS", self.scripts["assemble_findings.py"])
-        for phrase in ("sin insistir en credenciales", "Solo con credenciales: seguir", "Pedir una fuente solo si no hay ninguna"):
+        for phrase in ("without insisting on credentials", "With credentials only: continue", "Ask for a source only if there is none"):
             self.assertIn(phrase, self.skill, phrase)
-        self.assertNotIn("Nunca `OPTIMAL` sin credenciales", self.skill)
+        self.assertNotIn("Never `OPTIMAL` without credentials", self.skill)
 
     def test_spec_amends_a2_and_lists_the_post_approval_changes_and_the_plan_points_to_them(self):
         spec = read(ROOT / "docs" / "specs" / "2026-11-12-infra-compliance-audit-design.md")
         plan = read(ROOT / "docs" / "plans" / "2026-11-12-infra-compliance-audit.md")
-        self.assertIn("## 16. Cambios posteriores a la aprobación", spec)
-        self.assertIn("un veredicto por fuente", spec)
-        self.assertNotIn("o un \"apto / no apto\" global", spec)
+        self.assertIn("## 16. Changes after approval", spec)
+        self.assertIn("verdict per source", spec)
+        self.assertNotIn("or a global \"pass / fail\"", spec)
         for needle in ("verdict_basis", "REVIEWED_OPERATIONS", "IAM-009", "DAT-001", "ENC-001", "DAT-008", "aws_runner.py", "--tool"):
             self.assertIn(needle, spec, needle)
-        self.assertIn("sección 16 de `docs/specs/2026-11-12-infra-compliance-audit-design.md`", plan.split("\n\n")[1])
+        self.assertIn("section 16 of `docs/specs/2026-11-12-infra-compliance-audit-design.md`", plan.split("\n\n")[1])
 
     def test_tool_and_lang_flags_are_documented(self):
         self.assertIn("--tool drata|vanta|both", self.skill)
         self.assertNotIn("--lang", self.skill)
         report_format = self.refs["report-format.md"]
         self.assertIn("`--lang` only accepts `en`", report_format)
-        self.assertIn("preselecciona", report_format)
+        self.assertIn("preselects", report_format)
 
     def test_no_sources_exit_and_the_scope_file_location_are_documented(self):
         message = "no sources: a vault or read-only AWS credentials are required"
@@ -308,17 +308,17 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
         for text in (self.skill, self.refs["report-format.md"]):
             self.assertIn(message, text)
         self.assertIn("$RUN/scope.json", self.skill)
-        self.assertIn("no moverlo ni borrarlo", self.skill)
-        self.assertIn("no se mueve ni se borra", self.refs["report-format.md"])
+        self.assertIn("do not move or delete it", self.skill)
+        self.assertIn("neither moved nor deleted", self.refs["report-format.md"])
 
     def test_claims_are_optional_in_the_second_verification_pass(self):
-        self.assertIn("`--claims` solo si escribiste el archivo", self.skill)
-        self.assertIn("no existe solo avisa", self.skill)
+        self.assertIn("`--claims` only if you wrote the file", self.skill)
+        self.assertIn("does not exist only warns", self.skill)
         self.assertIn("the claims file does not exist", self.scripts["verify_remediation.py"])
 
     def test_scope_regions_rule_and_exit_2_are_documented(self):
         for text in (self.skill, self.refs["report-format.md"]):
-            self.assertIn("no vacía", text)
+            self.assertIn("non-empty", text)
         self.assertIn("exit `2`", self.refs["report-format.md"])
         self.assertIn("auto", self.scripts["collect.py"])
 
@@ -354,20 +354,20 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
 
     def test_known_secret_detection_limits_are_documented_in_the_references(self):
         reading = self.refs["vault-reading.md"]
-        self.assertIn("Límites conocidos de la detección de secretos", reading)
-        for needle in ("Secrets Manager", "forma de clave", "sin ningún separador", "Tablas por columnas", "revisar a mano", "falso positivo", "falso negativo"):
+        self.assertIn("Known limits of secret detection", reading)
+        for needle in ("Secrets Manager", "shaped like a key", "no separator at all", "Column tables", "manually review", "false positive", "false negative"):
             self.assertIn(needle, reading, needle)
-        self.assertNotIn("Límites conocidos de la detección", self.skill)  # the detail lives in the references, SKILL.md only points to it
+        self.assertNotIn("Known limits of secret detection", self.skill)  # the detail lives in the references, SKILL.md only points to it
         self.assertIn("vault-reading.md` §9", self.skill)
 
     def test_coverage_limits_and_root_logins_are_documented(self):
         vendors = self.refs["drata-vanta.md"]
-        for needle in ("Límites de cobertura conocidos", "DynamoDB", "Contactos alternativos", "IAM-004", "LOG-010", "ENC-001"):
+        for needle in ("Known coverage limits", "DynamoDB", "Alternate account contacts", "IAM-004", "LOG-010", "ENC-001"):
             self.assertIn(needle, vendors, needle)
 
     def test_fixes_that_replace_things_are_documented_as_read_then_merge(self):
         guidelines = self.refs["remediation-guidelines.md"]
-        for needle in ("Leer antes de reemplazar", "STOPPED", "--no-publicly-accessible", "Alternativas no se copian juntas"):
+        for needle in ("Read before replacing", "STOPPED", "--no-publicly-accessible", "Alternatives are not copied together"):
             self.assertIn(needle, guidelines, needle)
 
 
@@ -381,35 +381,34 @@ class FinalCleanupDocsTests(unittest.TestCase):
         cls.vault_index = read(SCRIPTS_DIR / "vault_index.py")
 
     def test_the_verdict_text_matches_how_assemble_computes_it(self):
-        for needle in ("`DRIFT`/`UNDOCUMENTED` con `actual_status: FAIL`", "crítica/alta", "al menos un `PASS`/`FAIL` evaluado",
-                       "corrida completa"):
+        for needle in ("`DRIFT`/`UNDOCUMENTED` with `actual_status: FAIL`", "critical/high", "at least one evaluated `PASS`/`FAIL`",
+                       "complete run"):
             self.assertIn(needle, self.skill, needle)
-        self.assertIn("al menos un `PASS` o `FAIL`", self.readme.replace("\n  ", " "))
+        self.assertIn("at least one evaluated `PASS` or `FAIL`", self.readme.replace("\n  ", " "))
 
     def test_the_vault_line_matches_what_vault_index_prints(self):
         self.assertIn("Typed vault", self.skill)
         self.assertIn("Free-form (untyped) vault", self.skill)
         self.assertIn('"Typed vault"', self.vault_index)
-        self.assertNotIn("(`typed` o `free`)", self.skill)
+        self.assertNotIn("(`typed` or `free`)", self.skill)
 
     def test_an_offered_admin_profile_is_only_for_the_read_only_collection(self):
-        self.assertIn("perfil admin", self.skill)
+        self.assertIn("admin profile", self.skill)
         for text in (self.skill, self.readme, read(SKILL_DIR / "references" / "remediation-guidelines.md")):
-            self.assertRegex(text.replace("\n", " "), r"(?s)perfil admin.{0,400}(solo|nunca)")
-        self.assertIn("nunca para aplicar", self.skill)
+            self.assertRegex(text.replace("\n", " "), r"(?s)admin profile.{0,400}(only|never)")
+        self.assertIn("never to apply", self.skill)
 
     def test_the_copy_block_is_only_pointed_to_when_there_is_a_verified_fix(self):
-        self.assertIn("si el reporte tiene un arreglo verificado", self.skill)
-        self.assertIn("no hay nada verificado para arreglar", self.skill)
+        self.assertIn("if the report has a verified fix", self.skill)
+        self.assertIn("nothing verified to fix", self.skill)
 
     def test_scope_errors_and_unknown_regions_are_documented(self):
         self.assertIn("DET-004, DET-006, DET-007", self.skill)
-        self.assertIn("un dominio desconocido", self.skill)
+        self.assertIn("an unknown domain", self.skill)
         self.assertIn("no catalog check applies to: <types>", self.skill)
-        self.assertNotIn("sin ningún chequeo que aplique", self.skill)
         self.assertIn("no catalog check applies to: <types>", read(SKILL_DIR / "references" / "report-format.md"))
-        self.assertIn("dominio que no existe en el catálogo", read(SKILL_DIR / "references" / "report-format.md"))
-        for needle in ("armás vos", "§4"):
+        self.assertIn("a domain that does not exist in the catalog", read(SKILL_DIR / "references" / "report-format.md"))
+        for needle in ("you build", "§4"):
             self.assertIn(needle, self.skill)
 
     def test_shell_caveats_for_zsh_are_documented(self):
