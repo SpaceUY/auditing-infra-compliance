@@ -2,13 +2,14 @@
 
 import json
 
-from evaluators import DEFAULT_REGION, _first, _for_each_pairs, _offender, _unverified, register
+from evaluators import DEFAULT_REGION, _first, _for_each_pairs, _not_applicable, _offender, _unverified, register
 
 
 # ---------------------------------------------------------------- Detection: GuardDuty
 
 GLOBAL_INVENTORY_TYPES = frozenset({"s3_bucket", "iam_user", "iam_role"})
 S3_PROTECTION_FEATURE = "S3_DATA_EVENTS"
+NO_BUCKETS_REASON = "no S3 buckets in scope"
 
 
 def _regions_with_resources(responses: dict, params: dict) -> set[str]:
@@ -51,9 +52,10 @@ def guardduty_regions(responses: dict, params: dict) -> list[dict]:
 
 @register("guardduty_s3_protection")
 def guardduty_s3_protection(responses: dict, params: dict) -> list[dict]:
-    """Drata 105 passes without S3 buckets; with buckets every enabled detector needs S3 protection."""
+    """With buckets every enabled detector needs S3 protection; without them nothing is evaluated: the account-level
+    "not applicable" entry (reason "no S3 buckets in scope") makes the engine report N/A instead of a vacuous PASS."""
     if not any(i["type"] == "s3_bucket" for i in responses.get("__inventory__", [])):
-        return []
+        return [{**_not_applicable("account", _first(responses, "detectors")[0]), "detail": {"reason": NO_BUCKETS_REASON}}]
     enabled = {k: d for k, d in _detectors(responses).items() if d.get("Status") == "ENABLED"}
     if not enabled:
         region = _first(responses, "detectors")[0]

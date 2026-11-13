@@ -324,8 +324,10 @@ class ComputeCatalogTests(unittest.TestCase):
 
     def test_cmp_001_requires_tokens_and_warns_about_apps_that_still_use_imdsv1(self):
         rem = catalog_check("CMP-001")["remediation"]
-        (command,) = rem["commands"]
-        self.assertIn('aws ec2 modify-instance-metadata-options --instance-id "{resource_id}" --http-tokens required', command)
+        (check_block, apply_block, hop_block) = rem["commands"]
+        self.assertIn("MetadataNoToken", check_block)
+        self.assertIn('aws ec2 modify-instance-metadata-options --instance-id "{resource_id}" --http-tokens required', apply_block)
+        self.assertIn("--http-put-response-hop-limit 2", hop_block)
         self.assertRegex(rem["notes"], r"MetadataNoToken")
 
     def test_cmp_002_new_version_becomes_the_default_only_after_it_was_created(self):
@@ -403,7 +405,7 @@ class ComputeCatalogTests(unittest.TestCase):
         self.assertEqual({c["id"]: c["severity"] for c in self.checks}, expected)
 
     def test_remediation_kinds_follow_the_brief(self):
-        expected = {"CMP-001": "cli", "CMP-002": "planned_change", "CMP-003": "cli_with_decision",
+        expected = {"CMP-001": "cli_with_decision", "CMP-002": "planned_change", "CMP-003": "cli_with_decision",
                     "CMP-004": "planned_change", "CMP-005": "planned_change", "CMP-006": "planned_change"}
         self.assertEqual({c["id"]: c["remediation"]["kind"] for c in self.checks}, expected)
 

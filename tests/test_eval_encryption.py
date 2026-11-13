@@ -777,7 +777,7 @@ class EncryptionCatalogTests(unittest.TestCase):
 
     def test_drata_mapped_checks_resolve_from_the_dcf_file(self):
         drata = catalog.load_drata_map(REFS / "mappings" / "drata-dcf.json")
-        expected = {"ENC-001": 218, "ENC-002": 218, "ENC-003": 68, "ENC-004": 231, "ENC-005": 69, "ENC-006": 223,
+        expected = {"ENC-001": 218, "ENC-003": 68, "ENC-004": 231, "ENC-005": 69, "ENC-006": 223,
                     "TLS-001": 234, "TLS-002": 299}
         for check_id, test in expected.items():
             resolved = catalog.resolve_mappings(catalog_check(check_id), drata)
@@ -786,7 +786,7 @@ class EncryptionCatalogTests(unittest.TestCase):
 
     def test_checks_without_a_resolvable_drata_test_carry_inferred_mappings(self):
         drata = catalog.load_drata_map(REFS / "mappings" / "drata-dcf.json")
-        for check_id in ("ENC-007", "ENC-008", "TLS-003", "TLS-004", "TLS-005"):
+        for check_id in ("ENC-002", "ENC-007", "ENC-008", "TLS-003", "TLS-004", "TLS-005"):
             resolved = catalog.resolve_mappings(catalog_check(check_id), drata)
             self.assertTrue(resolved["tsc"] and resolved["iso27001_2022"], check_id)
             self.assertTrue(all(m["sourced"] is False for m in resolved["tsc"] + resolved["iso27001_2022"]), check_id)
@@ -945,7 +945,7 @@ class EncryptionCatalogTests(unittest.TestCase):
         rem = catalog_check("TLS-004")["remediation"]
         self.assertTrue(rem["downtime"])
         first = rem["commands"][0]
-        self.assertRegex(first, r"create-db-parameter-group [^\n]*&&[^\n]*modify-db-parameter-group [^\n]*&&[^\n]*modify-db-instance ")
+        self.assertRegex(first, r"copy-db-parameter-group [^\n]*&&[^\n]*modify-db-parameter-group [^\n]*&&[^\n]*modify-db-instance ")
         self.assertTrue(any("reboot-db-instance" in c and "create-db-parameter-group" not in c for c in rem["commands"]))
         self.assertTrue(any("modify-db-cluster-parameter-group" in c for c in rem["commands"]))
 

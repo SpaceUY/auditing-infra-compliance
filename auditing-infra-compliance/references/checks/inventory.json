@@ -425,15 +425,15 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Agree with the team on the values of Project, Environment and Owner for {resource_id} (adapt the commands if the check uses other keys).",
-          "Set the tags with tag-resources.",
+          "Agree with the team on the values of the tags that {resource_id} is missing (detail.missing): only fill in the variables of those keys (adapt the commands if the check uses other keys).",
+          "Set the missing tags with tag-resources (each line is skipped while its variable is still __FILL_IN_*): tag-resources REPLACES the value of every key it is given, so never fill in a key that already has the right value.",
           "Verify the tags."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRESOURCE_ARN=\"{resource_arn}\"\nPROJECT=\"__FILL_IN_PROJECT__\"\nENVIRONMENT=\"__FILL_IN_ENVIRONMENT__\"\nOWNER=\"__FILL_IN_OWNER__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"Project=$PROJECT,Environment=$ENVIRONMENT,Owner=$OWNER\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRESOURCE_ARN=\"{resource_arn}\"\nPROJECT=\"__FILL_IN_PROJECT__\"\nENVIRONMENT=\"__FILL_IN_ENVIRONMENT__\"\nOWNER=\"__FILL_IN_OWNER__\"\n# one line per key: fill in ONLY the keys listed in detail.missing (tag-resources REPLACES the existing value of the keys it is given); a line whose variable is still unfilled is skipped\ncase \"$PROJECT\" in __FILL_IN_*) echo \"Project: skipped\";; *) aws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"Project=$PROJECT\" --region \"$REGION\";; esac\ncase \"$ENVIRONMENT\" in __FILL_IN_*) echo \"Environment: skipped\";; *) aws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"Environment=$ENVIRONMENT\" --region \"$REGION\";; esac\ncase \"$OWNER\" in __FILL_IN_*) echo \"Owner: skipped\";; *) aws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"Owner=$OWNER\" --region \"$REGION\";; esac"
         ],
         "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"{resource_arn}\" --region \"{region}\" --query 'ResourceTagMappingList[].Tags'",
-        "notes": "{resource_arn} is the ARN of resource {resource_id}, taken from the inventory. tag-resources adds or overwrites only the tags given and leaves the rest (S3 put-bucket-tagging replaces all of them). For an S3 bucket use the bucket's region in REGION. No downtime. Values with commas break the shorthand syntax of --tags: use JSON if needed. Environment should use prod or production in production, because INV-003 and DAT-002 read that value. If params.keys changes, adjust the command to the new keys."
+        "notes": "{resource_arn} is the ARN of resource {resource_id}, taken from the inventory. tag-resources adds or overwrites only the tags given and leaves the rest, which is why each key has its own line: fill in only the keys of detail.missing, because a key that already has a value is OVERWRITTEN with what you give it (S3 put-bucket-tagging replaces all of them). For an S3 bucket use the bucket's region in REGION. No downtime. Values with commas break the shorthand syntax of --tags: use JSON if needed. Environment should use prod or production in production, because INV-003 and DAT-002 read that value. If params.keys changes, adjust the command to the new keys."
       },
       "sources": [
         "https://docs.aws.amazon.com/whitepapers/latest/tagging-best-practices/tagging-best-practices.html",
