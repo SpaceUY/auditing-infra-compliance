@@ -1,0 +1,18 @@
+{
+  "Rules": [
+    {
+      "Name": "acme-notes-nightly-report",
+      "Arn": "arn:aws:events:us-east-1:111122223333:rule/acme-notes-nightly-report",
+      "State": "ENABLED",
+      "EventBusName": "default",
+      "ScheduleExpression": "cron(0 3 * * ? *)"
+    },
+    {
+      "Name": "acme-notes-ec2-state",
+      "Arn": "arn:aws:events:us-east-1:111122223333:rule/acme-notes-ec2-state",
+      "State": "ENABLED",
+      "EventBusName": "default",
+      "EventPattern": "{\"source\": [\"aws.ec2\"], \"detail-type\": [\"EC2 Instance State-change Notification\"]}"
+    }
+  ]
+}

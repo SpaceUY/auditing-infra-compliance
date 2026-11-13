@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "id": "a1b2c3d4e5",
+      "name": "acme-notes-api",
+      "endpointConfiguration": {
+        "types": [
+          "REGIONAL"
+        ]
+      }
+    },
+    {
+      "id": "b2c3d4e5f6",
+      "name": "acme-notes-edge",
+      "endpointConfiguration": {
+        "types": [
+          "EDGE"
+        ]
+      }
+    },
+    {
+      "id": "c3d4e5f6a7",
+      "name": "acme-notes-private",
+      "endpointConfiguration": {
+        "types": [
+          "PRIVATE"
+        ]
+      }
+    }
+  ]
+}

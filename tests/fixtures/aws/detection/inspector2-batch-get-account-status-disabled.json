@@ -1,0 +1,25 @@
+{
+  "accounts": [
+    {
+      "accountId": "111122223333",
+      "resourceState": {
+        "ec2": {
+          "status": "DISABLED"
+        },
+        "ecr": {
+          "status": "DISABLED"
+        },
+        "lambda": {
+          "status": "DISABLED"
+        },
+        "lambdaCode": {
+          "status": "DISABLED"
+        }
+      },
+      "state": {
+        "status": "DISABLED"
+      }
+    }
+  ],
+  "failedAccounts": []
+}

@@ -1,0 +1,957 @@
+{
+  "domain": "monitoring",
+  "checks": [
+    {
+      "id": "MON-001",
+      "title": "Las instancias RDS tienen una alarma de CloudWatch sobre CPUUtilization con notificación SNS confirmada",
+      "scope": "resource",
+      "resource_types": [
+        "rds_instance"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "alarms",
+            "service": "cloudwatch",
+            "operation": "describe-alarms",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "subs",
+            "service": "sns",
+            "operation": "list-subscriptions-by-topic",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "alarms",
+              "path": "MetricAlarms[].AlarmActions[]",
+              "arg": "--topic-arn"
+            },
+            "ok_errors": [
+              "NotFound"
+            ],
+            "item_errors": "evaluator"
+          },
+          {
+            "name": "instances",
+            "service": "rds",
+            "operation": "describe-db-instances",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:alarm_coverage",
+        "params": {
+          "namespace": "AWS/RDS",
+          "metric": "CPUUtilization",
+          "resource_dimension": "DBInstanceIdentifier",
+          "not_applicable_engines": [
+            "neptune",
+            "docdb"
+          ]
+        },
+        "pass_when_text": "Cada instancia RDS tiene una alarma de CloudWatch en su región sobre AWS/RDS CPUUtilization con la dimensión DBInstanceIdentifier igual a su identificador (la alarma puede tener dimensiones adicionales), con las acciones habilitadas y un topic SNS entre las AlarmActions, y ese topic tiene al menos una suscripción confirmada (SubscriptionArn distinto de PendingConfirmation y de Deleted). No se exige un umbral: Drata y Vanta no lo fijan. detail.missing_part indica qué falta: alarm (no hay alarma), action (la alarma no notifica a un topic SNS) o confirmed_subscription (el topic no tiene una suscripción confirmada). Si el topic está en otra cuenta o región, o no se puede leer con los permisos del auditor, el recurso queda NO_VERIFICADO y no FAIL. Drata 112 pide la alarma en la instancia (y en el cluster, para Aurora); este chequeo evalúa las instancias. Las instancias de Neptune y DocumentDB (Engine neptune o docdb) no se evalúan: tienen sus propias métricas y no son bases RDS para estos tests; el motor sale de describe-db-instances.",
+        "needs": [
+          "cloudwatch:DescribeAlarms",
+          "sns:ListSubscriptionsByTopic",
+          "rds:DescribeDBInstances"
+        ]
+      },
+      "vault_signals": [
+        "CPU de la base de datos",
+        "alarma de CPU",
+        "alarma de base de datos",
+        "monitoreo de RDS",
+        "CloudWatch",
+        "SNS",
+        "alertas de base de datos"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 112,
+            "name": "Database CPU Monitored",
+            "source": "https://help.drata.com/en/articles/4776977"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el umbral de la alarma (Drata y Vanta no lo fijan) y el topic SNS que recibirá los avisos; si no hay un topic, crearlo con aws sns create-topic.",
+          "Crear la alarma de CloudWatch sobre AWS/RDS CPUUtilization con la dimensión DBInstanceIdentifier = {resource_id} y poner el topic SNS como acción de la alarma.",
+          "Suscribir un email del equipo al topic con aws sns subscribe y confirmar el correo que envía AWS: la suscripción queda en PendingConfirmation hasta que alguien abre el enlace.",
+          "Verificar que la alarma tiene la acción SNS y que la suscripción del topic ya no está en PendingConfirmation."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\naws cloudwatch put-metric-alarm --alarm-name \"$DB_ID-CPUUtilization\" --namespace AWS/RDS --metric-name CPUUtilization --dimensions Name=DBInstanceIdentifier,Value=\"$DB_ID\" --statistic Average --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"__COMPLETAR_OWNER_EMAIL__\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudwatch describe-alarms-for-metric --namespace AWS/RDS --metric-name CPUUtilization --dimensions Name=DBInstanceIdentifier,Value=\"{resource_id}\" --region \"{region}\" --query 'MetricAlarms[].[AlarmName,AlarmActions]'\naws sns list-subscriptions-by-topic --topic-arn \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"{region}\" --query 'Subscriptions[].[Protocol,SubscriptionArn]'",
+        "notes": "No cambia el servicio monitoreado ni genera downtime; solo agrega alarmas (costo aproximado por alarma de métrica estándar al mes) y avisos. CPUUtilization es un porcentaje (0 a 100). Reemplazar __COMPLETAR_UMBRAL__ por el valor que el equipo considere un problema: ni Drata ni Vanta fijan un umbral (los ejemplos como >10% son ilustrativos). Reemplazar __COMPLETAR_SNS_TOPIC_ARN__ por el ARN de un topic de la misma cuenta y región que la alarma (si está en otra cuenta o región, este chequeo no puede verificarlo y queda NO_VERIFICADO). put-metric-alarm con un nombre que ya existe reemplaza esa alarma. La suscripción por email queda en PendingConfirmation hasta que el destinatario confirma el correo de AWS; Drata y este chequeo la tratan como no confirmada, y una alarma sin suscripción confirmada no avisa a nadie. Reemplazar __COMPLETAR_OWNER_EMAIL__ por una casilla del equipo (no personal) y confirmar el email. Si el topic ya tiene una suscripción confirmada, omitir el bloque de sns subscribe. Las alarmas compuestas (composite alarms) no se consideran: una alarma de métrica sin acción SNS que está envuelta por una alarma compuesta que sí notifica se reporta como action faltante; para pasar el chequeo, poner la acción SNS en la propia alarma de métrica."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4776977",
+        "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-metrics.html",
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html",
+        "https://docs.aws.amazon.com/sns/latest/dg/sns-create-subscribe-endpoint-to-topic.html",
+        "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
+      ]
+    },
+    {
+      "id": "MON-002",
+      "title": "Las instancias RDS tienen una alarma de CloudWatch sobre FreeStorageSpace con notificación SNS confirmada",
+      "scope": "resource",
+      "resource_types": [
+        "rds_instance"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "alarms",
+            "service": "cloudwatch",
+            "operation": "describe-alarms",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "subs",
+            "service": "sns",
+            "operation": "list-subscriptions-by-topic",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "alarms",
+              "path": "MetricAlarms[].AlarmActions[]",
+              "arg": "--topic-arn"
+            },
+            "ok_errors": [
+              "NotFound"
+            ],
+            "item_errors": "evaluator"
+          },
+          {
+            "name": "instances",
+            "service": "rds",
+            "operation": "describe-db-instances",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:alarm_coverage",
+        "params": {
+          "namespace": "AWS/RDS",
+          "metric": "FreeStorageSpace",
+          "resource_dimension": "DBInstanceIdentifier",
+          "not_applicable_engines": [
+            "aurora",
+            "neptune",
+            "docdb"
+          ]
+        },
+        "pass_when_text": "Cada instancia RDS tiene una alarma de CloudWatch en su región sobre AWS/RDS FreeStorageSpace con la dimensión DBInstanceIdentifier igual a su identificador (la alarma puede tener dimensiones adicionales), con las acciones habilitadas y un topic SNS entre las AlarmActions, y ese topic tiene al menos una suscripción confirmada (SubscriptionArn distinto de PendingConfirmation y de Deleted). No se exige un umbral: Drata y Vanta no lo fijan. detail.missing_part indica qué falta: alarm (no hay alarma), action (la alarma no notifica a un topic SNS) o confirmed_subscription (el topic no tiene una suscripción confirmada). Si el topic está en otra cuenta o región, o no se puede leer con los permisos del auditor, el recurso queda NO_VERIFICADO y no FAIL. Las instancias de Aurora no se evalúan (no publican FreeStorageSpace: usan FreeLocalStorage y VolumeBytesUsed), ni las de Neptune y DocumentDB; el motor sale de describe-db-instances.",
+        "needs": [
+          "cloudwatch:DescribeAlarms",
+          "sns:ListSubscriptionsByTopic",
+          "rds:DescribeDBInstances"
+        ]
+      },
+      "vault_signals": [
+        "espacio libre de la base de datos",
+        "alarma de almacenamiento",
+        "alarma de base de datos",
+        "monitoreo de RDS",
+        "CloudWatch",
+        "SNS",
+        "alertas de base de datos"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 113,
+            "name": "Database Free Storage Space Monitored",
+            "source": "https://help.drata.com/en/articles/4776980"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el umbral de la alarma (Drata y Vanta no lo fijan) y el topic SNS que recibirá los avisos; si no hay un topic, crearlo con aws sns create-topic.",
+          "Crear la alarma de CloudWatch sobre AWS/RDS FreeStorageSpace con la dimensión DBInstanceIdentifier = {resource_id} y poner el topic SNS como acción de la alarma.",
+          "Suscribir un email del equipo al topic con aws sns subscribe y confirmar el correo que envía AWS: la suscripción queda en PendingConfirmation hasta que alguien abre el enlace.",
+          "Verificar que la alarma tiene la acción SNS y que la suscripción del topic ya no está en PendingConfirmation."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\naws cloudwatch put-metric-alarm --alarm-name \"$DB_ID-FreeStorageSpace\" --namespace AWS/RDS --metric-name FreeStorageSpace --dimensions Name=DBInstanceIdentifier,Value=\"$DB_ID\" --statistic Average --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator LessThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"__COMPLETAR_OWNER_EMAIL__\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudwatch describe-alarms-for-metric --namespace AWS/RDS --metric-name FreeStorageSpace --dimensions Name=DBInstanceIdentifier,Value=\"{resource_id}\" --region \"{region}\" --query 'MetricAlarms[].[AlarmName,AlarmActions]'\naws sns list-subscriptions-by-topic --topic-arn \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"{region}\" --query 'Subscriptions[].[Protocol,SubscriptionArn]'",
+        "notes": "No cambia el servicio monitoreado ni genera downtime; solo agrega alarmas (costo aproximado por alarma de métrica estándar al mes) y avisos. FreeStorageSpace se mide en bytes y la alarma dispara cuando queda menos que el umbral (LessThanThreshold). Reemplazar __COMPLETAR_UMBRAL__ por el valor que el equipo considere un problema: ni Drata ni Vanta fijan un umbral (los ejemplos como >10% son ilustrativos). Reemplazar __COMPLETAR_SNS_TOPIC_ARN__ por el ARN de un topic de la misma cuenta y región que la alarma (si está en otra cuenta o región, este chequeo no puede verificarlo y queda NO_VERIFICADO). put-metric-alarm con un nombre que ya existe reemplaza esa alarma. La suscripción por email queda en PendingConfirmation hasta que el destinatario confirma el correo de AWS; Drata y este chequeo la tratan como no confirmada, y una alarma sin suscripción confirmada no avisa a nadie. Reemplazar __COMPLETAR_OWNER_EMAIL__ por una casilla del equipo (no personal) y confirmar el email. Si el topic ya tiene una suscripción confirmada, omitir el bloque de sns subscribe. Las alarmas compuestas (composite alarms) no se consideran: una alarma de métrica sin acción SNS que está envuelta por una alarma compuesta que sí notifica se reporta como action faltante; para pasar el chequeo, poner la acción SNS en la propia alarma de métrica. Las instancias de Aurora no se evalúan porque no publican FreeStorageSpace; si Drata marca el test para una instancia Aurora, documentar la excepción en Drata."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4776980",
+        "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-metrics.html",
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html",
+        "https://docs.aws.amazon.com/sns/latest/dg/sns-create-subscribe-endpoint-to-topic.html",
+        "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
+      ]
+    },
+    {
+      "id": "MON-003",
+      "title": "Las instancias RDS tienen alarmas de CloudWatch sobre ReadIOPS y WriteIOPS con notificación SNS confirmada",
+      "scope": "resource",
+      "resource_types": [
+        "rds_instance"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "alarms",
+            "service": "cloudwatch",
+            "operation": "describe-alarms",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "subs",
+            "service": "sns",
+            "operation": "list-subscriptions-by-topic",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "alarms",
+              "path": "MetricAlarms[].AlarmActions[]",
+              "arg": "--topic-arn"
+            },
+            "ok_errors": [
+              "NotFound"
+            ],
+            "item_errors": "evaluator"
+          },
+          {
+            "name": "instances",
+            "service": "rds",
+            "operation": "describe-db-instances",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:alarm_coverage",
+        "params": {
+          "namespace": "AWS/RDS",
+          "metric": [
+            "ReadIOPS",
+            "WriteIOPS"
+          ],
+          "resource_dimension": "DBInstanceIdentifier",
+          "not_applicable_engines": [
+            "neptune",
+            "docdb"
+          ]
+        },
+        "pass_when_text": "Cada instancia RDS tiene una alarma de CloudWatch en su región sobre AWS/RDS ReadIOPS y sobre WriteIOPS (dos alarmas) con la dimensión DBInstanceIdentifier igual a su identificador (la alarma puede tener dimensiones adicionales), con las acciones habilitadas y un topic SNS entre las AlarmActions, y ese topic tiene al menos una suscripción confirmada (SubscriptionArn distinto de PendingConfirmation y de Deleted). No se exige un umbral: Drata y Vanta no lo fijan. detail.missing_part indica qué falta: alarm (no hay alarma), action (la alarma no notifica a un topic SNS) o confirmed_subscription (el topic no tiene una suscripción confirmada). Si el topic está en otra cuenta o región, o no se puede leer con los permisos del auditor, el recurso queda NO_VERIFICADO y no FAIL. Si faltan las dos métricas se reportan dos hallazgos para la misma instancia, uno por métrica (detail.metric). Las instancias de Neptune y DocumentDB (Engine neptune o docdb) no se evalúan: tienen sus propias métricas y no son bases RDS para estos tests; el motor sale de describe-db-instances.",
+        "needs": [
+          "cloudwatch:DescribeAlarms",
+          "sns:ListSubscriptionsByTopic",
+          "rds:DescribeDBInstances"
+        ]
+      },
+      "vault_signals": [
+        "IOPS de la base de datos",
+        "alarma de lectura y escritura",
+        "alarma de base de datos",
+        "monitoreo de RDS",
+        "CloudWatch",
+        "SNS",
+        "alertas de base de datos"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 114,
+            "name": "Database Read I/O Monitored",
+            "source": "https://help.drata.com/en/articles/4776984"
+          },
+          {
+            "test": 290,
+            "name": "AWS Database Writes I/O Monitored",
+            "source": "https://help.drata.com/en/articles/9828793"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el umbral de la alarma (Drata y Vanta no lo fijan) y el topic SNS que recibirá los avisos; si no hay un topic, crearlo con aws sns create-topic.",
+          "Crear la alarma de CloudWatch sobre AWS/RDS ReadIOPS y otra sobre WriteIOPS, las dos con la dimensión DBInstanceIdentifier = {resource_id} y poner el topic SNS como acción de la alarma.",
+          "Suscribir un email del equipo al topic con aws sns subscribe y confirmar el correo que envía AWS: la suscripción queda en PendingConfirmation hasta que alguien abre el enlace.",
+          "Verificar que la alarma tiene la acción SNS y que la suscripción del topic ya no está en PendingConfirmation."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\naws cloudwatch put-metric-alarm --alarm-name \"$DB_ID-ReadIOPS\" --namespace AWS/RDS --metric-name ReadIOPS --dimensions Name=DBInstanceIdentifier,Value=\"$DB_ID\" --statistic Average --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\naws cloudwatch put-metric-alarm --alarm-name \"$DB_ID-WriteIOPS\" --namespace AWS/RDS --metric-name WriteIOPS --dimensions Name=DBInstanceIdentifier,Value=\"$DB_ID\" --statistic Average --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"__COMPLETAR_OWNER_EMAIL__\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudwatch describe-alarms-for-metric --namespace AWS/RDS --metric-name ReadIOPS --dimensions Name=DBInstanceIdentifier,Value=\"{resource_id}\" --region \"{region}\" --query 'MetricAlarms[].[AlarmName,AlarmActions]'\naws cloudwatch describe-alarms-for-metric --namespace AWS/RDS --metric-name WriteIOPS --dimensions Name=DBInstanceIdentifier,Value=\"{resource_id}\" --region \"{region}\" --query 'MetricAlarms[].[AlarmName,AlarmActions]'\naws sns list-subscriptions-by-topic --topic-arn \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"{region}\" --query 'Subscriptions[].[Protocol,SubscriptionArn]'",
+        "notes": "No cambia el servicio monitoreado ni genera downtime; solo agrega alarmas (costo aproximado por alarma de métrica estándar al mes) y avisos. ReadIOPS y WriteIOPS se miden en operaciones por segundo. Reemplazar __COMPLETAR_UMBRAL__ por el valor que el equipo considere un problema: ni Drata ni Vanta fijan un umbral (los ejemplos como >10% son ilustrativos). Reemplazar __COMPLETAR_SNS_TOPIC_ARN__ por el ARN de un topic de la misma cuenta y región que la alarma (si está en otra cuenta o región, este chequeo no puede verificarlo y queda NO_VERIFICADO). put-metric-alarm con un nombre que ya existe reemplaza esa alarma. La suscripción por email queda en PendingConfirmation hasta que el destinatario confirma el correo de AWS; Drata y este chequeo la tratan como no confirmada, y una alarma sin suscripción confirmada no avisa a nadie. Reemplazar __COMPLETAR_OWNER_EMAIL__ por una casilla del equipo (no personal) y confirmar el email. Si el topic ya tiene una suscripción confirmada, omitir el bloque de sns subscribe. Las alarmas compuestas (composite alarms) no se consideran: una alarma de métrica sin acción SNS que está envuelta por una alarma compuesta que sí notifica se reporta como action faltante; para pasar el chequeo, poner la acción SNS en la propia alarma de métrica. Ejecutar solo el bloque de la métrica que indica detail.metric del hallazgo (hay un bloque por métrica)."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4776984",
+        "https://help.drata.com/en/articles/9828793",
+        "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-metrics.html",
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html",
+        "https://docs.aws.amazon.com/sns/latest/dg/sns-create-subscribe-endpoint-to-topic.html",
+        "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
+      ]
+    },
+    {
+      "id": "MON-004",
+      "title": "Las instancias RDS tienen una alarma de CloudWatch sobre FreeableMemory con notificación SNS confirmada",
+      "scope": "resource",
+      "resource_types": [
+        "rds_instance"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "alarms",
+            "service": "cloudwatch",
+            "operation": "describe-alarms",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "subs",
+            "service": "sns",
+            "operation": "list-subscriptions-by-topic",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "alarms",
+              "path": "MetricAlarms[].AlarmActions[]",
+              "arg": "--topic-arn"
+            },
+            "ok_errors": [
+              "NotFound"
+            ],
+            "item_errors": "evaluator"
+          },
+          {
+            "name": "instances",
+            "service": "rds",
+            "operation": "describe-db-instances",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:alarm_coverage",
+        "params": {
+          "namespace": "AWS/RDS",
+          "metric": "FreeableMemory",
+          "resource_dimension": "DBInstanceIdentifier",
+          "not_applicable_engines": [
+            "neptune",
+            "docdb"
+          ]
+        },
+        "pass_when_text": "Cada instancia RDS tiene una alarma de CloudWatch en su región sobre AWS/RDS FreeableMemory con la dimensión DBInstanceIdentifier igual a su identificador (la alarma puede tener dimensiones adicionales), con las acciones habilitadas y un topic SNS entre las AlarmActions, y ese topic tiene al menos una suscripción confirmada (SubscriptionArn distinto de PendingConfirmation y de Deleted). No se exige un umbral: Drata y Vanta no lo fijan. detail.missing_part indica qué falta: alarm (no hay alarma), action (la alarma no notifica a un topic SNS) o confirmed_subscription (el topic no tiene una suscripción confirmada). Si el topic está en otra cuenta o región, o no se puede leer con los permisos del auditor, el recurso queda NO_VERIFICADO y no FAIL. Las instancias de Neptune y DocumentDB (Engine neptune o docdb) no se evalúan: tienen sus propias métricas y no son bases RDS para estos tests; el motor sale de describe-db-instances.",
+        "needs": [
+          "cloudwatch:DescribeAlarms",
+          "sns:ListSubscriptionsByTopic",
+          "rds:DescribeDBInstances"
+        ]
+      },
+      "vault_signals": [
+        "memoria libre de la base de datos",
+        "alarma de memoria",
+        "alarma de base de datos",
+        "monitoreo de RDS",
+        "CloudWatch",
+        "SNS",
+        "alertas de base de datos"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 206,
+            "name": "SQL freeable memory monitored",
+            "source": "https://help.drata.com/en/articles/10029047"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el umbral de la alarma (Drata y Vanta no lo fijan) y el topic SNS que recibirá los avisos; si no hay un topic, crearlo con aws sns create-topic.",
+          "Crear la alarma de CloudWatch sobre AWS/RDS FreeableMemory con la dimensión DBInstanceIdentifier = {resource_id} y poner el topic SNS como acción de la alarma.",
+          "Suscribir un email del equipo al topic con aws sns subscribe y confirmar el correo que envía AWS: la suscripción queda en PendingConfirmation hasta que alguien abre el enlace.",
+          "Verificar que la alarma tiene la acción SNS y que la suscripción del topic ya no está en PendingConfirmation."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\naws cloudwatch put-metric-alarm --alarm-name \"$DB_ID-FreeableMemory\" --namespace AWS/RDS --metric-name FreeableMemory --dimensions Name=DBInstanceIdentifier,Value=\"$DB_ID\" --statistic Average --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator LessThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"__COMPLETAR_OWNER_EMAIL__\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudwatch describe-alarms-for-metric --namespace AWS/RDS --metric-name FreeableMemory --dimensions Name=DBInstanceIdentifier,Value=\"{resource_id}\" --region \"{region}\" --query 'MetricAlarms[].[AlarmName,AlarmActions]'\naws sns list-subscriptions-by-topic --topic-arn \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"{region}\" --query 'Subscriptions[].[Protocol,SubscriptionArn]'",
+        "notes": "No cambia el servicio monitoreado ni genera downtime; solo agrega alarmas (costo aproximado por alarma de métrica estándar al mes) y avisos. FreeableMemory se mide en bytes y la alarma dispara cuando queda menos que el umbral (LessThanThreshold). Reemplazar __COMPLETAR_UMBRAL__ por el valor que el equipo considere un problema: ni Drata ni Vanta fijan un umbral (los ejemplos como >10% son ilustrativos). Reemplazar __COMPLETAR_SNS_TOPIC_ARN__ por el ARN de un topic de la misma cuenta y región que la alarma (si está en otra cuenta o región, este chequeo no puede verificarlo y queda NO_VERIFICADO). put-metric-alarm con un nombre que ya existe reemplaza esa alarma. La suscripción por email queda en PendingConfirmation hasta que el destinatario confirma el correo de AWS; Drata y este chequeo la tratan como no confirmada, y una alarma sin suscripción confirmada no avisa a nadie. Reemplazar __COMPLETAR_OWNER_EMAIL__ por una casilla del equipo (no personal) y confirmar el email. Si el topic ya tiene una suscripción confirmada, omitir el bloque de sns subscribe. Las alarmas compuestas (composite alarms) no se consideran: una alarma de métrica sin acción SNS que está envuelta por una alarma compuesta que sí notifica se reporta como action faltante; para pasar el chequeo, poner la acción SNS en la propia alarma de métrica."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/10029047",
+        "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-metrics.html",
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html",
+        "https://docs.aws.amazon.com/sns/latest/dg/sns-create-subscribe-endpoint-to-topic.html",
+        "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
+      ]
+    },
+    {
+      "id": "MON-005",
+      "title": "Las instancias EC2 (o su grupo de Auto Scaling) tienen una alarma de CloudWatch sobre CPUUtilization con notificación SNS confirmada",
+      "scope": "resource",
+      "resource_types": [
+        "ec2_instance"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "alarms",
+            "service": "cloudwatch",
+            "operation": "describe-alarms",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "subs",
+            "service": "sns",
+            "operation": "list-subscriptions-by-topic",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "alarms",
+              "path": "MetricAlarms[].AlarmActions[]",
+              "arg": "--topic-arn"
+            },
+            "ok_errors": [
+              "NotFound"
+            ],
+            "item_errors": "evaluator"
+          },
+          {
+            "name": "instances",
+            "service": "ec2",
+            "operation": "describe-instances",
+            "args": [
+              "--filters",
+              "Name=instance-state-name,Values=pending,running,stopping,stopped"
+            ],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:alarm_coverage",
+        "params": {
+          "namespace": "AWS/EC2",
+          "metric": "CPUUtilization",
+          "resource_dimension": "InstanceId"
+        },
+        "pass_when_text": "Cada instancia EC2 tiene una alarma de CloudWatch en su región sobre AWS/EC2 CPUUtilization con la dimensión InstanceId igual a su identificador (la alarma puede tener dimensiones adicionales), con las acciones habilitadas y un topic SNS entre las AlarmActions, y ese topic tiene al menos una suscripción confirmada (SubscriptionArn distinto de PendingConfirmation y de Deleted). No se exige un umbral: Drata y Vanta no lo fijan. detail.missing_part indica qué falta: alarm (no hay alarma), action (la alarma no notifica a un topic SNS) o confirmed_subscription (el topic no tiene una suscripción confirmada). Si el topic está en otra cuenta o región, o no se puede leer con los permisos del auditor, el recurso queda NO_VERIFICADO y no FAIL. Una instancia que pertenece a un grupo de Auto Scaling (tag aws:autoscaling:groupName) también cumple si la alarma está sobre la dimensión AutoScalingGroupName de su grupo. Las instancias que no están en estado running (detenidas, en transición) no se evalúan.",
+        "needs": [
+          "cloudwatch:DescribeAlarms",
+          "sns:ListSubscriptionsByTopic",
+          "ec2:DescribeInstances"
+        ]
+      },
+      "vault_signals": [
+        "CPU de los servidores",
+        "alarma de CPU",
+        "monitoreo de EC2",
+        "Auto Scaling",
+        "CloudWatch",
+        "SNS"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 118,
+            "name": "Infrastructure Instance CPU Monitored",
+            "source": "https://help.drata.com/en/articles/4776997"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el umbral de la alarma (Drata y Vanta no lo fijan) y el topic SNS que recibirá los avisos; si no hay un topic, crearlo con aws sns create-topic.",
+          "Crear la alarma de CloudWatch sobre AWS/EC2 CPUUtilization con la dimensión InstanceId = {resource_id} o, si la instancia es de un grupo de Auto Scaling, con AutoScalingGroupName = el nombre del grupo y poner el topic SNS como acción de la alarma.",
+          "Suscribir un email del equipo al topic con aws sns subscribe y confirmar el correo que envía AWS: la suscripción queda en PendingConfirmation hasta que alguien abre el enlace.",
+          "Verificar que la alarma tiene la acción SNS y que la suscripción del topic ya no está en PendingConfirmation."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nINSTANCE_ID=\"{resource_id}\"\naws cloudwatch put-metric-alarm --alarm-name \"$INSTANCE_ID-CPUUtilization\" --namespace AWS/EC2 --metric-name CPUUtilization --dimensions Name=InstanceId,Value=\"$INSTANCE_ID\" --statistic Average --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nASG_NAME=\"$(aws autoscaling describe-auto-scaling-instances --instance-ids \"{resource_id}\" --region \"$REGION\" --query 'AutoScalingInstances[0].AutoScalingGroupName' --output text)\"\naws cloudwatch put-metric-alarm --alarm-name \"$ASG_NAME-CPUUtilization\" --namespace AWS/EC2 --metric-name CPUUtilization --dimensions Name=AutoScalingGroupName,Value=\"$ASG_NAME\" --statistic Average --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"__COMPLETAR_OWNER_EMAIL__\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudwatch describe-alarms --region \"{region}\" --query \"MetricAlarms[?Namespace=='AWS/EC2' && MetricName=='CPUUtilization'].[AlarmName,Dimensions[0].Value,AlarmActions]\"\naws sns list-subscriptions-by-topic --topic-arn \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"{region}\" --query 'Subscriptions[].[Protocol,SubscriptionArn]'",
+        "notes": "No cambia el servicio monitoreado ni genera downtime; solo agrega alarmas (costo aproximado por alarma de métrica estándar al mes) y avisos. CPUUtilization es un porcentaje (0 a 100). Reemplazar __COMPLETAR_UMBRAL__ por el valor que el equipo considere un problema: ni Drata ni Vanta fijan un umbral (los ejemplos como >10% son ilustrativos). Reemplazar __COMPLETAR_SNS_TOPIC_ARN__ por el ARN de un topic de la misma cuenta y región que la alarma (si está en otra cuenta o región, este chequeo no puede verificarlo y queda NO_VERIFICADO). put-metric-alarm con un nombre que ya existe reemplaza esa alarma. La suscripción por email queda en PendingConfirmation hasta que el destinatario confirma el correo de AWS; Drata y este chequeo la tratan como no confirmada, y una alarma sin suscripción confirmada no avisa a nadie. Reemplazar __COMPLETAR_OWNER_EMAIL__ por una casilla del equipo (no personal) y confirmar el email. Si el topic ya tiene una suscripción confirmada, omitir el bloque de sns subscribe. Las alarmas compuestas (composite alarms) no se consideran: una alarma de métrica sin acción SNS que está envuelta por una alarma compuesta que sí notifica se reporta como action faltante; para pasar el chequeo, poner la acción SNS en la propia alarma de métrica. Hay dos bloques de alarma: el primero crea la alarma sobre la instancia; el segundo, solo para instancias de un grupo de Auto Scaling, crea una alarma sobre el grupo que cubre a todas sus instancias (una alarma por grupo alcanza). Elegir uno."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/viewing_metrics_with_cloudwatch.html",
+        "https://help.drata.com/en/articles/4776997",
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html",
+        "https://docs.aws.amazon.com/sns/latest/dg/sns-create-subscribe-endpoint-to-topic.html",
+        "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
+      ]
+    },
+    {
+      "id": "MON-006",
+      "title": "Los Application Load Balancer tienen alarmas de CloudWatch sobre HTTPCode_Target_5XX_Count, UnHealthyHostCount y TargetResponseTime con notificación SNS confirmada",
+      "scope": "resource",
+      "resource_types": [
+        "elbv2"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "alarms",
+            "service": "cloudwatch",
+            "operation": "describe-alarms",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "subs",
+            "service": "sns",
+            "operation": "list-subscriptions-by-topic",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "alarms",
+              "path": "MetricAlarms[].AlarmActions[]",
+              "arg": "--topic-arn"
+            },
+            "ok_errors": [
+              "NotFound"
+            ],
+            "item_errors": "evaluator"
+          }
+        ],
+        "evaluator": "python:alarm_coverage",
+        "params": {
+          "namespace": "AWS/ApplicationELB",
+          "metric": [
+            "HTTPCode_Target_5XX_Count",
+            "UnHealthyHostCount",
+            "TargetResponseTime"
+          ],
+          "resource_dimension": "LoadBalancer"
+        },
+        "pass_when_text": "Cada Application Load Balancer tiene una alarma de CloudWatch en su región sobre AWS/ApplicationELB HTTPCode_Target_5XX_Count, sobre UnHealthyHostCount y sobre TargetResponseTime (tres alarmas) con la dimensión LoadBalancer igual a su identificador (la alarma puede tener dimensiones adicionales), con las acciones habilitadas y un topic SNS entre las AlarmActions, y ese topic tiene al menos una suscripción confirmada (SubscriptionArn distinto de PendingConfirmation y de Deleted). No se exige un umbral: Drata y Vanta no lo fijan. detail.missing_part indica qué falta: alarm (no hay alarma), action (la alarma no notifica a un topic SNS) o confirmed_subscription (el topic no tiene una suscripción confirmada). Si el topic está en otra cuenta o región, o no se puede leer con los permisos del auditor, el recurso queda NO_VERIFICADO y no FAIL. El valor de la dimensión LoadBalancer no es el nombre sino el sufijo del ARN (app/<nombre>/<id>); la alarma de UnHealthyHostCount lleva además la dimensión TargetGroup. Los Network y Gateway Load Balancer no se evalúan (no publican estas métricas). Si faltan varias métricas se reporta un hallazgo por cada una (detail.metric).",
+        "needs": [
+          "cloudwatch:DescribeAlarms",
+          "sns:ListSubscriptionsByTopic"
+        ]
+      },
+      "vault_signals": [
+        "balanceador de carga",
+        "ALB",
+        "errores 5xx",
+        "hosts no saludables",
+        "tiempo de respuesta",
+        "alarma de latencia",
+        "CloudWatch",
+        "SNS"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 296,
+            "name": "AWS Application Load Balancer Server Errors Monitored"
+          },
+          {
+            "test": 298,
+            "name": "AWS Application Load Balancer Unhealthy Hosts Monitored",
+            "source": "https://help.drata.com/en/articles/9828822-test-298-aws-application-load-balancer-unhealthy-hosts-monitored"
+          },
+          {
+            "test": 294,
+            "name": "AWS Application Load Balancer Target Response Time Monitored"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el umbral de la alarma (Drata y Vanta no lo fijan) y el topic SNS que recibirá los avisos; si no hay un topic, crearlo con aws sns create-topic.",
+          "Crear la alarma de CloudWatch sobre AWS/ApplicationELB HTTPCode_Target_5XX_Count, otra sobre UnHealthyHostCount (una por target group) y otra sobre TargetResponseTime, con la dimensión LoadBalancer = el sufijo app/<nombre>/<id> del ARN del balanceador y poner el topic SNS como acción de la alarma.",
+          "Suscribir un email del equipo al topic con aws sns subscribe y confirmar el correo que envía AWS: la suscripción queda en PendingConfirmation hasta que alguien abre el enlace.",
+          "Verificar que la alarma tiene la acción SNS y que la suscripción del topic ya no está en PendingConfirmation."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nLB_NAME=\"{resource_id}\"\nLB_ARN=\"$(aws elbv2 describe-load-balancers --names \"$LB_NAME\" --region \"$REGION\" --query 'LoadBalancers[0].LoadBalancerArn' --output text)\"\nLB_DIM=\"${LB_ARN#*:loadbalancer/}\"\naws cloudwatch put-metric-alarm --alarm-name \"$LB_NAME-HTTPCode_Target_5XX_Count\" --namespace AWS/ApplicationELB --metric-name HTTPCode_Target_5XX_Count --dimensions Name=LoadBalancer,Value=\"$LB_DIM\" --statistic Sum --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nLB_NAME=\"{resource_id}\"\nLB_ARN=\"$(aws elbv2 describe-load-balancers --names \"$LB_NAME\" --region \"$REGION\" --query 'LoadBalancers[0].LoadBalancerArn' --output text)\"\nLB_DIM=\"${LB_ARN#*:loadbalancer/}\"\nfor TG_ARN in $(aws elbv2 describe-target-groups --load-balancer-arn \"$LB_ARN\" --region \"$REGION\" --query 'TargetGroups[].TargetGroupArn' --output text); do\n  TG_DIM=\"${TG_ARN##*:}\"\n  TG_NAME=\"$(echo \"$TG_DIM\" | cut -d/ -f2)\"\n  aws cloudwatch put-metric-alarm --alarm-name \"$LB_NAME-$TG_NAME-UnHealthyHostCount\" --namespace AWS/ApplicationELB --metric-name UnHealthyHostCount --dimensions Name=TargetGroup,Value=\"$TG_DIM\" Name=LoadBalancer,Value=\"$LB_DIM\" --statistic Maximum --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"\ndone",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nLB_NAME=\"{resource_id}\"\nLB_ARN=\"$(aws elbv2 describe-load-balancers --names \"$LB_NAME\" --region \"$REGION\" --query 'LoadBalancers[0].LoadBalancerArn' --output text)\"\nLB_DIM=\"${LB_ARN#*:loadbalancer/}\"\naws cloudwatch put-metric-alarm --alarm-name \"$LB_NAME-TargetResponseTime\" --namespace AWS/ApplicationELB --metric-name TargetResponseTime --dimensions Name=LoadBalancer,Value=\"$LB_DIM\" --statistic Average --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"__COMPLETAR_OWNER_EMAIL__\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudwatch describe-alarms --region \"{region}\" --query \"MetricAlarms[?Namespace=='AWS/ApplicationELB' && Dimensions[?Name=='LoadBalancer' && Value=='$(aws elbv2 describe-load-balancers --names \"{resource_id}\" --region \"{region}\" --query 'LoadBalancers[0].LoadBalancerArn' --output text | cut -d/ -f2-)']].[AlarmName,MetricName,AlarmActions]\"\naws sns list-subscriptions-by-topic --topic-arn \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"{region}\" --query 'Subscriptions[].[Protocol,SubscriptionArn]'",
+        "notes": "No cambia el servicio monitoreado ni genera downtime; solo agrega alarmas (costo aproximado por alarma de métrica estándar al mes) y avisos. HTTPCode_Target_5XX_Count es un conteo por período (estadística Sum), UnHealthyHostCount es la cantidad de targets no saludables (Maximum) y TargetResponseTime se mide en segundos (Average). Reemplazar __COMPLETAR_UMBRAL__ por el valor que el equipo considere un problema: ni Drata ni Vanta fijan un umbral (los ejemplos como >10% son ilustrativos). Reemplazar __COMPLETAR_SNS_TOPIC_ARN__ por el ARN de un topic de la misma cuenta y región que la alarma (si está en otra cuenta o región, este chequeo no puede verificarlo y queda NO_VERIFICADO). put-metric-alarm con un nombre que ya existe reemplaza esa alarma. La suscripción por email queda en PendingConfirmation hasta que el destinatario confirma el correo de AWS; Drata y este chequeo la tratan como no confirmada, y una alarma sin suscripción confirmada no avisa a nadie. Reemplazar __COMPLETAR_OWNER_EMAIL__ por una casilla del equipo (no personal) y confirmar el email. Si el topic ya tiene una suscripción confirmada, omitir el bloque de sns subscribe. Las alarmas compuestas (composite alarms) no se consideran: una alarma de métrica sin acción SNS que está envuelta por una alarma compuesta que sí notifica se reporta como action faltante; para pasar el chequeo, poner la acción SNS en la propia alarma de métrica. Ejecutar solo el bloque de la métrica que indica detail.metric del hallazgo (hay un bloque por métrica). El valor de la dimensión LoadBalancer se calcula desde el ARN real del balanceador (app/<nombre>/<id>), no es el nombre."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-cloudwatch-metrics.html",
+        "https://help.drata.com/en/articles/9828822-test-298-aws-application-load-balancer-unhealthy-hosts-monitored",
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html",
+        "https://docs.aws.amazon.com/sns/latest/dg/sns-create-subscribe-endpoint-to-topic.html",
+        "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
+      ]
+    },
+    {
+      "id": "MON-007",
+      "title": "Las colas SQS tienen una alarma de CloudWatch sobre ApproximateAgeOfOldestMessage con notificación SNS confirmada",
+      "scope": "resource",
+      "resource_types": [
+        "sqs_queue"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "alarms",
+            "service": "cloudwatch",
+            "operation": "describe-alarms",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "subs",
+            "service": "sns",
+            "operation": "list-subscriptions-by-topic",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "alarms",
+              "path": "MetricAlarms[].AlarmActions[]",
+              "arg": "--topic-arn"
+            },
+            "ok_errors": [
+              "NotFound"
+            ],
+            "item_errors": "evaluator"
+          }
+        ],
+        "evaluator": "python:alarm_coverage",
+        "params": {
+          "namespace": "AWS/SQS",
+          "metric": "ApproximateAgeOfOldestMessage",
+          "resource_dimension": "QueueName"
+        },
+        "pass_when_text": "Cada cola SQS tiene una alarma de CloudWatch en su región sobre AWS/SQS ApproximateAgeOfOldestMessage con la dimensión QueueName igual a su identificador (la alarma puede tener dimensiones adicionales), con las acciones habilitadas y un topic SNS entre las AlarmActions, y ese topic tiene al menos una suscripción confirmada (SubscriptionArn distinto de PendingConfirmation y de Deleted). No se exige un umbral: Drata y Vanta no lo fijan. detail.missing_part indica qué falta: alarm (no hay alarma), action (la alarma no notifica a un topic SNS) o confirmed_subscription (el topic no tiene una suscripción confirmada). Si el topic está en otra cuenta o región, o no se puede leer con los permisos del auditor, el recurso queda NO_VERIFICADO y no FAIL. El valor de QueueName es el último tramo de la URL de la cola (las colas FIFO conservan el sufijo .fifo).",
+        "needs": [
+          "cloudwatch:DescribeAlarms",
+          "sns:ListSubscriptionsByTopic"
+        ]
+      },
+      "vault_signals": [
+        "cola SQS",
+        "antigüedad del mensaje más viejo",
+        "alarma de cola",
+        "mensajes atascados",
+        "CloudWatch",
+        "SNS"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 115,
+            "name": "Messaging Queue Message Age Monitored",
+            "source": "https://help.drata.com/en/articles/4776986"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el umbral de la alarma (Drata y Vanta no lo fijan) y el topic SNS que recibirá los avisos; si no hay un topic, crearlo con aws sns create-topic.",
+          "Crear la alarma de CloudWatch sobre AWS/SQS ApproximateAgeOfOldestMessage con la dimensión QueueName = el nombre de la cola (último tramo de {resource_id}) y poner el topic SNS como acción de la alarma.",
+          "Suscribir un email del equipo al topic con aws sns subscribe y confirmar el correo que envía AWS: la suscripción queda en PendingConfirmation hasta que alguien abre el enlace.",
+          "Verificar que la alarma tiene la acción SNS y que la suscripción del topic ya no está en PendingConfirmation."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nQUEUE_URL=\"{resource_id}\"\nQUEUE_NAME=\"${QUEUE_URL##*/}\"\naws cloudwatch put-metric-alarm --alarm-name \"$QUEUE_NAME-ApproximateAgeOfOldestMessage\" --namespace AWS/SQS --metric-name ApproximateAgeOfOldestMessage --dimensions Name=QueueName,Value=\"$QUEUE_NAME\" --statistic Maximum --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"__COMPLETAR_OWNER_EMAIL__\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudwatch describe-alarms-for-metric --namespace AWS/SQS --metric-name ApproximateAgeOfOldestMessage --dimensions Name=QueueName,Value=\"$(basename \"{resource_id}\")\" --region \"{region}\" --query 'MetricAlarms[].[AlarmName,AlarmActions]'\naws sns list-subscriptions-by-topic --topic-arn \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"{region}\" --query 'Subscriptions[].[Protocol,SubscriptionArn]'",
+        "notes": "No cambia el servicio monitoreado ni genera downtime; solo agrega alarmas (costo aproximado por alarma de métrica estándar al mes) y avisos. ApproximateAgeOfOldestMessage se mide en segundos (estadística Maximum). Una cola sin mensajes no publica la métrica: la alarma queda en INSUFFICIENT_DATA, y eso es normal. Reemplazar __COMPLETAR_UMBRAL__ por el valor que el equipo considere un problema: ni Drata ni Vanta fijan un umbral (los ejemplos como >10% son ilustrativos). Reemplazar __COMPLETAR_SNS_TOPIC_ARN__ por el ARN de un topic de la misma cuenta y región que la alarma (si está en otra cuenta o región, este chequeo no puede verificarlo y queda NO_VERIFICADO). put-metric-alarm con un nombre que ya existe reemplaza esa alarma. La suscripción por email queda en PendingConfirmation hasta que el destinatario confirma el correo de AWS; Drata y este chequeo la tratan como no confirmada, y una alarma sin suscripción confirmada no avisa a nadie. Reemplazar __COMPLETAR_OWNER_EMAIL__ por una casilla del equipo (no personal) y confirmar el email. Si el topic ya tiene una suscripción confirmada, omitir el bloque de sns subscribe. Las alarmas compuestas (composite alarms) no se consideran: una alarma de métrica sin acción SNS que está envuelta por una alarma compuesta que sí notifica se reporta como action faltante; para pasar el chequeo, poner la acción SNS en la propia alarma de métrica."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-available-cloudwatch-metrics.html",
+        "https://help.drata.com/en/articles/4776986",
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html",
+        "https://docs.aws.amazon.com/sns/latest/dg/sns-create-subscribe-endpoint-to-topic.html",
+        "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
+      ]
+    },
+    {
+      "id": "MON-008",
+      "title": "Las funciones Lambda tienen una alarma de CloudWatch sobre Errors con notificación SNS confirmada",
+      "scope": "resource",
+      "resource_types": [
+        "lambda_function"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "alarms",
+            "service": "cloudwatch",
+            "operation": "describe-alarms",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "subs",
+            "service": "sns",
+            "operation": "list-subscriptions-by-topic",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "alarms",
+              "path": "MetricAlarms[].AlarmActions[]",
+              "arg": "--topic-arn"
+            },
+            "ok_errors": [
+              "NotFound"
+            ],
+            "item_errors": "evaluator"
+          }
+        ],
+        "evaluator": "python:alarm_coverage",
+        "params": {
+          "namespace": "AWS/Lambda",
+          "metric": "Errors",
+          "resource_dimension": "FunctionName"
+        },
+        "pass_when_text": "Cada función Lambda tiene una alarma de CloudWatch en su región sobre AWS/Lambda Errors con la dimensión FunctionName igual a su identificador (la alarma puede tener dimensiones adicionales), con las acciones habilitadas y un topic SNS entre las AlarmActions, y ese topic tiene al menos una suscripción confirmada (SubscriptionArn distinto de PendingConfirmation y de Deleted). No se exige un umbral: Drata y Vanta no lo fijan. detail.missing_part indica qué falta: alarm (no hay alarma), action (la alarma no notifica a un topic SNS) o confirmed_subscription (el topic no tiene una suscripción confirmada). Si el topic está en otra cuenta o región, o no se puede leer con los permisos del auditor, el recurso queda NO_VERIFICADO y no FAIL.",
+        "needs": [
+          "cloudwatch:DescribeAlarms",
+          "sns:ListSubscriptionsByTopic"
+        ]
+      },
+      "vault_signals": [
+        "función Lambda",
+        "errores de Lambda",
+        "alarma de errores",
+        "CloudWatch",
+        "SNS"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 300,
+            "name": "AWS Lambda Error Rate Monitored"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el umbral de la alarma (Drata y Vanta no lo fijan) y el topic SNS que recibirá los avisos; si no hay un topic, crearlo con aws sns create-topic.",
+          "Crear la alarma de CloudWatch sobre AWS/Lambda Errors con la dimensión FunctionName = {resource_id} y poner el topic SNS como acción de la alarma.",
+          "Suscribir un email del equipo al topic con aws sns subscribe y confirmar el correo que envía AWS: la suscripción queda en PendingConfirmation hasta que alguien abre el enlace.",
+          "Verificar que la alarma tiene la acción SNS y que la suscripción del topic ya no está en PendingConfirmation."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nFUNCTION_NAME=\"{resource_id}\"\naws cloudwatch put-metric-alarm --alarm-name \"$FUNCTION_NAME-Errors\" --namespace AWS/Lambda --metric-name Errors --dimensions Name=FunctionName,Value=\"$FUNCTION_NAME\" --statistic Sum --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"__COMPLETAR_OWNER_EMAIL__\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudwatch describe-alarms-for-metric --namespace AWS/Lambda --metric-name Errors --dimensions Name=FunctionName,Value=\"{resource_id}\" --region \"{region}\" --query 'MetricAlarms[].[AlarmName,AlarmActions]'\naws sns list-subscriptions-by-topic --topic-arn \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"{region}\" --query 'Subscriptions[].[Protocol,SubscriptionArn]'",
+        "notes": "No cambia el servicio monitoreado ni genera downtime; solo agrega alarmas (costo aproximado por alarma de métrica estándar al mes) y avisos. Errors es un conteo de invocaciones con error por período (estadística Sum); una alarma sobre ese conteo cumple el test de tasa de errores. Reemplazar __COMPLETAR_UMBRAL__ por el valor que el equipo considere un problema: ni Drata ni Vanta fijan un umbral (los ejemplos como >10% son ilustrativos). Reemplazar __COMPLETAR_SNS_TOPIC_ARN__ por el ARN de un topic de la misma cuenta y región que la alarma (si está en otra cuenta o región, este chequeo no puede verificarlo y queda NO_VERIFICADO). put-metric-alarm con un nombre que ya existe reemplaza esa alarma. La suscripción por email queda en PendingConfirmation hasta que el destinatario confirma el correo de AWS; Drata y este chequeo la tratan como no confirmada, y una alarma sin suscripción confirmada no avisa a nadie. Reemplazar __COMPLETAR_OWNER_EMAIL__ por una casilla del equipo (no personal) y confirmar el email. Si el topic ya tiene una suscripción confirmada, omitir el bloque de sns subscribe. Las alarmas compuestas (composite alarms) no se consideran: una alarma de métrica sin acción SNS que está envuelta por una alarma compuesta que sí notifica se reporta como action faltante; para pasar el chequeo, poner la acción SNS en la propia alarma de métrica."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/lambda/latest/dg/monitoring-metrics-types.html",
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html",
+        "https://docs.aws.amazon.com/sns/latest/dg/sns-create-subscribe-endpoint-to-topic.html",
+        "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
+      ]
+    },
+    {
+      "id": "MON-009",
+      "title": "Los grupos de replicación ElastiCache tienen una alarma de CloudWatch sobre DatabaseMemoryUsagePercentage con notificación SNS confirmada",
+      "scope": "resource",
+      "resource_types": [
+        "elasticache_group"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "alarms",
+            "service": "cloudwatch",
+            "operation": "describe-alarms",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "subs",
+            "service": "sns",
+            "operation": "list-subscriptions-by-topic",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "alarms",
+              "path": "MetricAlarms[].AlarmActions[]",
+              "arg": "--topic-arn"
+            },
+            "ok_errors": [
+              "NotFound"
+            ],
+            "item_errors": "evaluator"
+          },
+          {
+            "name": "groups",
+            "service": "elasticache",
+            "operation": "describe-replication-groups",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:alarm_coverage",
+        "params": {
+          "namespace": "AWS/ElastiCache",
+          "metric": "DatabaseMemoryUsagePercentage",
+          "resource_dimension": "ReplicationGroupId"
+        },
+        "pass_when_text": "Cada grupo de replicación ElastiCache tiene una alarma de CloudWatch en su región sobre AWS/ElastiCache DatabaseMemoryUsagePercentage con la dimensión ReplicationGroupId igual a su identificador (la alarma puede tener dimensiones adicionales), con las acciones habilitadas y un topic SNS entre las AlarmActions, y ese topic tiene al menos una suscripción confirmada (SubscriptionArn distinto de PendingConfirmation y de Deleted). No se exige un umbral: Drata y Vanta no lo fijan. detail.missing_part indica qué falta: alarm (no hay alarma), action (la alarma no notifica a un topic SNS) o confirmed_subscription (el topic no tiene una suscripción confirmada). Si el topic está en otra cuenta o región, o no se puede leer con los permisos del auditor, el recurso queda NO_VERIFICADO y no FAIL. También cumple una alarma con CacheClusterId de alguno de los nodos del grupo (MemberClusters de describe-replication-groups); una alarma sobre un nodo de otro grupo no cuenta. Es el test de Drata 117 (NoSQL Cluster Storage Utilization): en ElastiCache el almacenamiento es la memoria, y el nombre de la métrica es una inferencia del catálogo, no un nombre publicado por Drata. Las tablas DynamoDB no se evalúan: DynamoDB no publica en CloudWatch una métrica de almacenamiento ni de CPU.",
+        "needs": [
+          "cloudwatch:DescribeAlarms",
+          "sns:ListSubscriptionsByTopic",
+          "elasticache:DescribeReplicationGroups"
+        ]
+      },
+      "vault_signals": [
+        "ElastiCache",
+        "Redis",
+        "Valkey",
+        "memoria de la caché",
+        "alarma de memoria",
+        "CloudWatch",
+        "SNS"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 117,
+            "name": "NoSQL Cluster Storage Utilization Monitored",
+            "source": "https://help.drata.com/en/articles/4776995"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el umbral de la alarma (Drata y Vanta no lo fijan) y el topic SNS que recibirá los avisos; si no hay un topic, crearlo con aws sns create-topic.",
+          "Crear la alarma de CloudWatch sobre AWS/ElastiCache DatabaseMemoryUsagePercentage con CacheClusterId de cada nodo del grupo de replicación {resource_id} y poner el topic SNS como acción de la alarma.",
+          "Suscribir un email del equipo al topic con aws sns subscribe y confirmar el correo que envía AWS: la suscripción queda en PendingConfirmation hasta que alguien abre el enlace.",
+          "Verificar que la alarma tiene la acción SNS y que la suscripción del topic ya no está en PendingConfirmation."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nfor CLUSTER_ID in $(aws elasticache describe-replication-groups --replication-group-id \"{resource_id}\" --region \"$REGION\" --query 'ReplicationGroups[0].MemberClusters[]' --output text); do\n  aws cloudwatch put-metric-alarm --alarm-name \"$CLUSTER_ID-DatabaseMemoryUsagePercentage\" --namespace AWS/ElastiCache --metric-name DatabaseMemoryUsagePercentage --dimensions Name=CacheClusterId,Value=\"$CLUSTER_ID\" Name=CacheNodeId,Value=0001 --statistic Average --period 300 --evaluation-periods 3 --threshold __COMPLETAR_UMBRAL__ --comparison-operator GreaterThanThreshold --alarm-actions \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"$REGION\"\ndone",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"__COMPLETAR_OWNER_EMAIL__\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudwatch describe-alarms --region \"{region}\" --query \"MetricAlarms[?Namespace=='AWS/ElastiCache'].[AlarmName,MetricName,AlarmActions]\"\naws sns list-subscriptions-by-topic --topic-arn \"__COMPLETAR_SNS_TOPIC_ARN__\" --region \"{region}\" --query 'Subscriptions[].[Protocol,SubscriptionArn]'",
+        "notes": "No cambia el servicio monitoreado ni genera downtime; solo agrega alarmas (costo aproximado por alarma de métrica estándar al mes) y avisos. DatabaseMemoryUsagePercentage es un porcentaje (0 a 100). Reemplazar __COMPLETAR_UMBRAL__ por el valor que el equipo considere un problema: ni Drata ni Vanta fijan un umbral (los ejemplos como >10% son ilustrativos). Reemplazar __COMPLETAR_SNS_TOPIC_ARN__ por el ARN de un topic de la misma cuenta y región que la alarma (si está en otra cuenta o región, este chequeo no puede verificarlo y queda NO_VERIFICADO). put-metric-alarm con un nombre que ya existe reemplaza esa alarma. La suscripción por email queda en PendingConfirmation hasta que el destinatario confirma el correo de AWS; Drata y este chequeo la tratan como no confirmada, y una alarma sin suscripción confirmada no avisa a nadie. Reemplazar __COMPLETAR_OWNER_EMAIL__ por una casilla del equipo (no personal) y confirmar el email. Si el topic ya tiene una suscripción confirmada, omitir el bloque de sns subscribe. Las alarmas compuestas (composite alarms) no se consideran: una alarma de métrica sin acción SNS que está envuelta por una alarma compuesta que sí notifica se reporta como action faltante; para pasar el chequeo, poner la acción SNS en la propia alarma de métrica. El bloque crea una alarma por nodo del grupo (la alarma usa CacheNodeId 0001, el nodo único de cada cluster)."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/CacheMetrics.html",
+        "https://help.drata.com/en/articles/4776995",
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html",
+        "https://docs.aws.amazon.com/sns/latest/dg/sns-create-subscribe-endpoint-to-topic.html",
+        "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
+      ]
+    }
+  ]
+}

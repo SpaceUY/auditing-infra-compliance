@@ -1,0 +1,15 @@
+{
+  "EventDestinations": [
+    {
+      "Name": "to-sns",
+      "Enabled": true,
+      "MatchingEventTypes": [
+        "BOUNCE",
+        "COMPLAINT"
+      ],
+      "SnsDestination": {
+        "TopicArn": "arn:aws:sns:us-east-1:111122223333:acme-notes-ses-events"
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "resource_id": "acme-notes-legacy",
+    "detail": {
+      "LogFileValidationEnabled": false
+    }
+  },
+  {
+    "resource_id": "acme-notes-audit",
+    "detail": {
+      "LogFileValidationEnabled": false
+    }
+  }
+]

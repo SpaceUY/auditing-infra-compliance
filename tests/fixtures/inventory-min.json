@@ -1,0 +1,6 @@
+{
+  "s3_bucket": {"service": "s3api", "operation": "list-buckets", "args": [], "region": "global",
+                "items_path": "Buckets[]", "id_path": "Name", "name_path": "Name", "tags_path": "", "arn_path": ""},
+  "ec2_instance": {"service": "ec2", "operation": "describe-instances", "args": [], "region": "each",
+                   "items_path": "Reservations[].Instances[]", "id_path": "InstanceId", "name_path": "", "tags_path": "Tags[]", "arn_path": ""}
+}

@@ -1,0 +1,20 @@
+{
+  "IdentityType": "DOMAIN",
+  "FeedbackForwardingStatus": true,
+  "VerifiedForSendingStatus": false,
+  "DkimAttributes": {
+    "SigningEnabled": true,
+    "Status": "PENDING",
+    "Tokens": [
+      "tok1",
+      "tok2",
+      "tok3"
+    ],
+    "SigningAttributesOrigin": "AWS_SES"
+  },
+  "MailFromAttributes": {
+    "BehaviorOnMxFailure": "USE_DEFAULT_VALUE"
+  },
+  "Policies": {},
+  "Tags": []
+}

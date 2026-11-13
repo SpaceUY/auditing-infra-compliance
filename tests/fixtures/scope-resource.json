@@ -1,0 +1,2 @@
+{"platform": "Acme Notes", "mode": "resource", "target": "acme-notes-logs", "regions": ["us-east-1"], "profile": null,
+ "resources": [{"type": "s3_bucket", "id": "acme-notes-logs", "region": "us-east-1"}], "domains": null}

@@ -1,0 +1,9 @@
+{
+  "BackupVaultName": "acme-notes-vault",
+  "BackupVaultArn": "arn:aws:backup:us-east-1:111122223333:backup-vault:acme-notes-vault",
+  "SNSTopicArn": "arn:aws:sns:us-east-1:111122223333:acme-notes-backup-alerts",
+  "BackupVaultEvents": [
+    "BACKUP_JOB_FAILED",
+    "RESTORE_JOB_COMPLETED"
+  ]
+}

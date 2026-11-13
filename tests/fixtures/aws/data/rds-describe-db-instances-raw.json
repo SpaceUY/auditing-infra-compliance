@@ -1,0 +1,85 @@
+{
+  "DBInstances": [
+    {
+      "DBInstanceIdentifier": "acme-notes-db",
+      "Engine": "postgres",
+      "DBInstanceStatus": "available",
+      "BackupRetentionPeriod": 7,
+      "MultiAZ": true,
+      "AutoMinorVersionUpgrade": true,
+      "DeletionProtection": true,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-db",
+      "EngineVersion": "15.4",
+      "TagList": [
+        {
+          "Key": "Environment",
+          "Value": "production"
+        }
+      ]
+    },
+    {
+      "DBInstanceIdentifier": "acme-notes-legacy",
+      "Engine": "mysql",
+      "DBInstanceStatus": "available",
+      "BackupRetentionPeriod": 0,
+      "MultiAZ": false,
+      "AutoMinorVersionUpgrade": false,
+      "DeletionProtection": false,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-legacy",
+      "EngineVersion": "15.4",
+      "TagList": [
+        {
+          "Key": "Environment",
+          "Value": "prod"
+        }
+      ]
+    },
+    {
+      "DBInstanceIdentifier": "acme-notes-staging",
+      "Engine": "postgres",
+      "DBInstanceStatus": "available",
+      "BackupRetentionPeriod": 3,
+      "MultiAZ": false,
+      "AutoMinorVersionUpgrade": true,
+      "DeletionProtection": false,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-staging",
+      "EngineVersion": "15.4",
+      "TagList": [
+        {
+          "Key": "Environment",
+          "Value": "staging"
+        }
+      ]
+    },
+    {
+      "DBInstanceIdentifier": "acme-notes-untagged",
+      "Engine": "postgres",
+      "DBInstanceStatus": "available",
+      "BackupRetentionPeriod": 6,
+      "MultiAZ": false,
+      "AutoMinorVersionUpgrade": false,
+      "DeletionProtection": true,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-untagged",
+      "EngineVersion": "15.4",
+      "TagList": []
+    },
+    {
+      "DBInstanceIdentifier": "acme-notes-aurora-1",
+      "Engine": "aurora-postgresql",
+      "DBInstanceStatus": "available",
+      "BackupRetentionPeriod": 1,
+      "MultiAZ": false,
+      "AutoMinorVersionUpgrade": true,
+      "DeletionProtection": false,
+      "DBInstanceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-aurora-1",
+      "EngineVersion": "15.4",
+      "TagList": [
+        {
+          "Key": "Environment",
+          "Value": "prod"
+        }
+      ],
+      "DBClusterIdentifier": "acme-notes-aurora"
+    }
+  ]
+}

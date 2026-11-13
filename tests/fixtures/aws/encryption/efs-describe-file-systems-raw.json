@@ -1,0 +1,19 @@
+{
+  "FileSystems": [
+    {
+      "FileSystemId": "fs-0a1b2c3d4e5f60718",
+      "Name": "acme-notes-shared",
+      "Encrypted": true,
+      "LifeCycleState": "available",
+      "FileSystemArn": "arn:aws:elasticfilesystem:us-east-1:111122223333:file-system/fs-0a1b2c3d4e5f60718",
+      "KmsKeyId": "arn:aws:kms:us-east-1:111122223333:key/1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d"
+    },
+    {
+      "FileSystemId": "fs-0b2c3d4e5f6071829",
+      "Name": "acme-notes-legacy-files",
+      "Encrypted": false,
+      "LifeCycleState": "available",
+      "FileSystemArn": "arn:aws:elasticfilesystem:us-east-1:111122223333:file-system/fs-0b2c3d4e5f6071829"
+    }
+  ]
+}

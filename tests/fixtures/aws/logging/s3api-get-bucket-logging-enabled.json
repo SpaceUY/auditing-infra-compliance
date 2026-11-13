@@ -1,0 +1,6 @@
+{
+  "LoggingEnabled": {
+    "TargetBucket": "acme-notes-access-logs",
+    "TargetPrefix": "s3-access/"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "InstanceInformationList": [
+    {
+      "InstanceId": "i-0a1b2c3d4e5f60718",
+      "PingStatus": "Online",
+      "LastPingDateTime": "2026-11-12T11:55:00+00:00",
+      "AgentVersion": "3.3.987.0",
+      "PlatformType": "Linux",
+      "PlatformName": "Amazon Linux",
+      "ResourceType": "EC2Instance",
+      "IsLatestVersion": true
+    },
+    {
+      "InstanceId": "i-0b2c3d4e5f6071829",
+      "PingStatus": "Online",
+      "LastPingDateTime": "2026-11-12T11:55:00+00:00",
+      "AgentVersion": "3.3.987.0",
+      "PlatformType": "Linux",
+      "PlatformName": "Amazon Linux",
+      "ResourceType": "EC2Instance",
+      "IsLatestVersion": true
+    }
+  ]
+}

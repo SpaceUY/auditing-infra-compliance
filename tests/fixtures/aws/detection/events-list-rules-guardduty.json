@@ -1,0 +1,18 @@
+{
+  "Rules": [
+    {
+      "Name": "acme-notes-nightly-report",
+      "Arn": "arn:aws:events:us-east-1:111122223333:rule/acme-notes-nightly-report",
+      "State": "ENABLED",
+      "EventBusName": "default",
+      "ScheduleExpression": "cron(0 3 * * ? *)"
+    },
+    {
+      "Name": "acme-notes-guardduty-findings",
+      "Arn": "arn:aws:events:us-east-1:111122223333:rule/acme-notes-guardduty-findings",
+      "State": "ENABLED",
+      "EventBusName": "default",
+      "EventPattern": "{\"source\": [\"aws.guardduty\"], \"detail-type\": [\"GuardDuty Finding\"]}"
+    }
+  ]
+}

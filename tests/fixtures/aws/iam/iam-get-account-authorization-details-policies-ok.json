@@ -1,0 +1,90 @@
+{
+  "Policies": [
+    {
+      "PolicyName": "notes-app-s3",
+      "PolicyId": "ANPAEXAMPLEACME0001",
+      "Arn": "arn:aws:iam::111122223333:policy/notes-app-s3",
+      "Path": "/",
+      "DefaultVersionId": "v2",
+      "AttachmentCount": 2,
+      "IsAttachable": true,
+      "PolicyVersionList": [
+        {
+          "Document": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": "s3:GetObject",
+                "Resource": "*"
+              }
+            ]
+          },
+          "VersionId": "v1",
+          "IsDefaultVersion": false,
+          "CreateDate": "2026-01-05T10:00:00+00:00"
+        },
+        {
+          "Document": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "s3:GetObject",
+                  "s3:PutObject"
+                ],
+                "Resource": "arn:aws:s3:::acme-notes-data/*"
+              }
+            ]
+          },
+          "VersionId": "v2",
+          "IsDefaultVersion": true,
+          "CreateDate": "2026-02-05T10:00:00+00:00"
+        }
+      ]
+    },
+    {
+      "PolicyName": "legacy-admin-unattached",
+      "PolicyId": "ANPAEXAMPLEACME0001",
+      "Arn": "arn:aws:iam::111122223333:policy/legacy-admin-unattached",
+      "Path": "/",
+      "DefaultVersionId": "v2",
+      "AttachmentCount": 0,
+      "IsAttachable": true,
+      "PolicyVersionList": [
+        {
+          "Document": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": "s3:GetObject",
+                "Resource": "*"
+              }
+            ]
+          },
+          "VersionId": "v1",
+          "IsDefaultVersion": false,
+          "CreateDate": "2026-01-05T10:00:00+00:00"
+        },
+        {
+          "Document": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": "*",
+                "Resource": "*"
+              }
+            ]
+          },
+          "VersionId": "v2",
+          "IsDefaultVersion": true,
+          "CreateDate": "2026-02-05T10:00:00+00:00"
+        }
+      ]
+    }
+  ],
+  "IsTruncated": false
+}

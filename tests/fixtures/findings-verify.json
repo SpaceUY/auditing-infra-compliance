@@ -1,0 +1,316 @@
+{
+  "meta": {
+    "platform": "Acme Notes",
+    "mode": "audit",
+    "generated_at": "2026-11-12T10:00:00-03:00",
+    "aws": {
+      "account_id": "111122223333",
+      "regions": [
+        "us-east-1"
+      ]
+    }
+  },
+  "findings": [
+    {
+      "id": "F-0001",
+      "check_id": "NET-001",
+      "title": "Chequeo NET-001 de Acme Notes",
+      "domain": "network",
+      "status": "FAIL",
+      "severity": "high",
+      "resource": {
+        "type": "security_group",
+        "id": "sg-0a1b2c3d4e5f60718",
+        "region": "us-east-1",
+        "name": "acme-notes-ssh"
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Revisar el recurso sg-0a1b2c3d4e5f60718 y aplicar el cambio."
+        ],
+        "commands": [
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nSG_ID=\"sg-0a1b2c3d4e5f60718\"\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'"
+        ],
+        "verify_after": "aws ec2 describe-security-groups --group-ids \"sg-0a1b2c3d4e5f60718\" --region \"us-east-1\"",
+        "notes": "Abrir antes un acceso alternativo (Session Manager)."
+      },
+      "depends_on_me": [],
+      "missing": [],
+      "evidence": {
+        "group_name": "acme-notes-ssh",
+        "sources": [
+          "0.0.0.0/0"
+        ],
+        "attachments": [
+          {
+            "eni_id": "eni-0a1b2c3d4e5f60718",
+            "instance_id": "i-0123456789abcdef0",
+            "description": "",
+            "requester_id": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "F-0002",
+      "check_id": "CMP-006",
+      "title": "Chequeo CMP-006 de Acme Notes",
+      "domain": "compute",
+      "status": "FAIL",
+      "severity": "medium",
+      "resource": {
+        "type": "ec2_instance",
+        "id": "i-0123456789abcdef0",
+        "region": "us-east-1",
+        "name": "acme-notes-api"
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Revisar el recurso i-0123456789abcdef0 y aplicar el cambio."
+        ],
+        "commands": [
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nROLE_NAME=\"__COMPLETAR_NOMBRE_ROL__\"\naws iam attach-role-policy --role-name \"$ROLE_NAME\" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        ],
+        "verify_after": "aws ssm describe-instance-information --region \"us-east-1\"",
+        "notes": "Cambio planificado."
+      },
+      "depends_on_me": [],
+      "missing": [],
+      "evidence": {
+        "problems": [
+          "no registrada en Systems Manager"
+        ],
+        "ssm_unreachable": true
+      }
+    },
+    {
+      "id": "F-0003",
+      "check_id": "NET-003",
+      "title": "Chequeo NET-003 de Acme Notes",
+      "domain": "network",
+      "status": "FAIL",
+      "severity": "high",
+      "resource": {
+        "type": "security_group",
+        "id": "sg-0f1e2d3c4b5a69788",
+        "region": "us-east-1",
+        "name": "acme-notes-alb"
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Revisar el recurso sg-0f1e2d3c4b5a69788 y aplicar el cambio."
+        ],
+        "commands": [
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nSG_ID=\"sg-0f1e2d3c4b5a69788\"\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":80,\"ToPort\":80,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'"
+        ],
+        "verify_after": "aws ec2 describe-security-groups --group-ids \"sg-0f1e2d3c4b5a69788\" --region \"us-east-1\"",
+        "notes": "Decidir entre cerrar el 80 o mantener la redirección."
+      },
+      "depends_on_me": [],
+      "missing": [],
+      "evidence": {
+        "group_name": "acme-notes-alb",
+        "sources": [
+          "0.0.0.0/0"
+        ],
+        "attachments": [
+          {
+            "eni_id": "eni-0b2c3d4e5f6071829",
+            "instance_id": null,
+            "description": "ELB app/acme-notes-alb/50dc6c495c0c9188",
+            "requester_id": "amazon-elb"
+          }
+        ]
+      }
+    },
+    {
+      "id": "F-0004",
+      "check_id": "TLS-002",
+      "title": "Chequeo TLS-002 de Acme Notes",
+      "domain": "encryption",
+      "status": "PASS",
+      "severity": "high",
+      "resource": {
+        "type": "elbv2",
+        "id": "acme-notes-alb",
+        "region": "us-east-1",
+        "name": "acme-notes-alb"
+      },
+      "remediation": null,
+      "depends_on_me": [],
+      "missing": []
+    },
+    {
+      "id": "F-0005",
+      "check_id": "LOG-003",
+      "title": "Chequeo LOG-003 de Acme Notes",
+      "domain": "logging",
+      "status": "FAIL",
+      "severity": "high",
+      "resource": {
+        "type": "cloudtrail_trail",
+        "id": "acme-notes-trail",
+        "region": "us-east-1",
+        "name": "acme-notes-trail"
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Revisar el recurso acme-notes-trail y aplicar el cambio."
+        ],
+        "commands": [
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nTRAIL_NAME=\"acme-notes-trail\"\nKMS_KEY_ARN=\"__COMPLETAR_KMS_KEY_ARN__\"\naws cloudtrail update-trail --name \"$TRAIL_NAME\" --kms-key-id \"$KMS_KEY_ARN\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudtrail describe-trails --trail-name-list \"acme-notes-trail\" --region \"us-east-1\"",
+        "notes": "La key policy debe permitir a CloudTrail."
+      },
+      "depends_on_me": [],
+      "missing": []
+    },
+    {
+      "id": "F-0006",
+      "check_id": "DAT-007",
+      "title": "Chequeo DAT-007 de Acme Notes",
+      "domain": "data",
+      "status": "FAIL",
+      "severity": "low",
+      "resource": {
+        "type": "s3_bucket",
+        "id": "acme-notes-uploads",
+        "region": "us-east-1",
+        "name": "acme-notes-uploads"
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Revisar el recurso acme-notes-uploads y aplicar el cambio."
+        ],
+        "commands": [
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nBUCKET=\"acme-notes-uploads\"\naws s3api put-object-tagging --bucket \"$BUCKET\" --key readme.txt --tagging TagSet=[]"
+        ],
+        "verify_after": "aws s3api get-public-access-block --bucket \"acme-notes-uploads\"",
+        "notes": ""
+      },
+      "depends_on_me": [],
+      "missing": []
+    },
+    {
+      "id": "F-0007",
+      "check_id": "IAM-001",
+      "title": "Chequeo IAM-001 de Acme Notes",
+      "domain": "iam",
+      "status": "FAIL",
+      "severity": "critical",
+      "resource": {
+        "type": "account",
+        "id": "account",
+        "region": "us-east-1",
+        "name": "account"
+      },
+      "remediation": {
+        "kind": "console_only",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Revisar el recurso account y aplicar el cambio."
+        ],
+        "commands": [],
+        "verify_after": "aws iam get-account-summary",
+        "notes": ""
+      },
+      "depends_on_me": [],
+      "missing": []
+    },
+    {
+      "id": "F-0008",
+      "check_id": "DAT-001",
+      "title": "Chequeo DAT-001 de Acme Notes",
+      "domain": "data",
+      "status": "NO_VERIFICADO",
+      "severity": "high",
+      "resource": {
+        "type": "account",
+        "id": "account",
+        "region": "us-east-1",
+        "name": "account"
+      },
+      "remediation": null,
+      "depends_on_me": [],
+      "missing": [
+        "rds:DescribeDBInstances"
+      ]
+    },
+    {
+      "id": "F-0009",
+      "check_id": "MON-002",
+      "title": "Chequeo MON-002 de Acme Notes",
+      "domain": "monitoring",
+      "status": "FAIL",
+      "severity": "medium",
+      "resource": {
+        "type": "account",
+        "id": "account",
+        "region": "us-east-1",
+        "name": "account"
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Revisar el recurso account y aplicar el cambio."
+        ],
+        "commands": [],
+        "verify_after": "",
+        "notes": ""
+      },
+      "depends_on_me": [],
+      "missing": []
+    },
+    {
+      "id": "F-0010",
+      "check_id": "DAT-008",
+      "title": "Chequeo DAT-008 de Acme Notes",
+      "domain": "data",
+      "status": "FAIL",
+      "severity": "low",
+      "resource": {
+        "type": "s3_bucket",
+        "id": "acme-notes-assets",
+        "region": "us-east-1",
+        "name": "acme-notes-assets"
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Revisar el recurso acme-notes-assets y aplicar el cambio."
+        ],
+        "commands": [
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nBUCKET=\"acme-notes-assets\"\naws s3api put-bucket-versioning --bucket \"$BUCKET\" --versioning-configuration Status=Enabled"
+        ],
+        "verify_after": "",
+        "notes": ""
+      },
+      "depends_on_me": [],
+      "missing": []
+    }
+  ],
+  "dependencies": [],
+  "warnings": [],
+  "notes": []
+}

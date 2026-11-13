@@ -1,0 +1,11 @@
+{
+  "Buckets": [
+    {
+      "Name": "acme-notes-uploads",
+      "CreationDate": "2026-01-10T12:00:00+00:00"
+    }
+  ],
+  "Owner": {
+    "ID": "acme-notes-owner"
+  }
+}

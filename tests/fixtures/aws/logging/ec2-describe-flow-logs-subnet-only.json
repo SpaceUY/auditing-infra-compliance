@@ -1,0 +1,12 @@
+{
+  "FlowLogs": [
+    {
+      "FlowLogId": "fl-0a1b2c3d4e5f60718",
+      "FlowLogStatus": "ACTIVE",
+      "ResourceId": "subnet-0a1b2c3d4e5f60718",
+      "TrafficType": "ALL",
+      "LogDestinationType": "s3",
+      "LogDestination": "arn:aws:s3:::acme-notes-flow-logs/"
+    }
+  ]
+}

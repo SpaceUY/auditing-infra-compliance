@@ -1,0 +1,82 @@
+[
+  {
+    "id": "CR-001",
+    "when": {"fail": ["NET-003", "NET-004"], "attachment_description_prefix": "ELB "},
+    "scope": "same_account",
+    "status": "CONFLICTO",
+    "message": "Este security group lo usa un balanceador de carga (ALB, NLB o clásico; interfaz ELB ...): revocar el acceso público del puerto 80 (o todo el tráfico) rompe la redirección HTTP a HTTPS o corta el servicio. Alternativa: dejar solo el 443, o excluir el recurso en Drata con la justificación de que el balanceador solo redirige.",
+    "order": []
+  },
+  {
+    "id": "CR-002",
+    "when": {"any_fail": ["LOG-003"]},
+    "scope": "same_account",
+    "status": "REVISAR",
+    "message": "La key policy de la clave debe permitir a cloudtrail.amazonaws.com antes de aplicar; si no, el trail deja de loguear. Aplicar primero la clave y después el trail.",
+    "order": [["INT-004", "LOG-003"], ["ENC-006", "LOG-003"]]
+  },
+  {
+    "id": "CR-003",
+    "when": {"fail": ["NET-001", "NET-002"], "attached_instance_fail": {"check": "CMP-006", "evidence_true": "ssm_unreachable"}},
+    "scope": "same_account",
+    "status": "CONFLICTO",
+    "message": "Una instancia que usa este security group no está accesible por Systems Manager (CMP-006: no registrada o agente sin conexión): revocar SSH o RDP la deja sin acceso. Primero habilitar SSM.",
+    "order": [["CMP-006", "NET-001"], ["CMP-006", "NET-002"]]
+  },
+  {
+    "id": "CR-004",
+    "when": {"any_fail": ["CMP-001", "CMP-002"]},
+    "scope": "same_account",
+    "status": "REVISAR",
+    "message": "IMDSv2 obligatorio: los SDK o agentes viejos que solo usan IMDSv1 dejan de obtener credenciales.",
+    "order": []
+  },
+  {
+    "id": "CR-005",
+    "when": {"any_fail": ["IAM-008", "IAM-009", "IAM-010"]},
+    "scope": "same_account",
+    "status": "REVISAR",
+    "message": "La app o el pipeline que usa esa access key se rompe al desactivarla: rotar primero, desactivar después.",
+    "order": [["IAM-008", "IAM-009"]]
+  },
+  {
+    "id": "CR-006",
+    "when": {"any_fail": ["TLS-001"]},
+    "scope": "same_account",
+    "status": "REVISAR",
+    "message": "Los clientes que acceden al bucket por HTTP plano van a fallar.",
+    "order": []
+  },
+  {
+    "id": "CR-007",
+    "when": {"any_fail": ["ENC-003", "ENC-002", "ENC-004"]},
+    "scope": "same_account",
+    "status": "REVISAR",
+    "message": "Cifrar un recurso existente requiere una migración con downtime.",
+    "order": []
+  },
+  {
+    "id": "CR-008",
+    "when": {"any_fail": ["INV-003"]},
+    "scope": "same_account",
+    "status": "REVISAR",
+    "message": "Quitar VantaNonProd de un recurso de producción lo mete en el alcance de Vanta y puede abrir tests nuevos.",
+    "order": []
+  },
+  {
+    "id": "CR-009",
+    "when": {"any_fail": ["INT-004"], "command_contains": ["put-key-policy"]},
+    "scope": "same_account",
+    "status": "REVISAR",
+    "message": "Reemplazar la key policy puede dejar la clave inaccesible: conservar el statement de la cuenta root.",
+    "order": []
+  },
+  {
+    "id": "CR-010",
+    "when": {"any_fail": ["DAT-002"]},
+    "scope": "same_account",
+    "status": "REVISAR",
+    "message": "Multi-AZ tiene costo adicional y un failover breve durante el cambio.",
+    "order": []
+  }
+]

@@ -1,0 +1,5 @@
+{
+  "ResourceArns": [
+    "arn:aws:apigateway:us-east-1::/restapis/a1b2c3d4e5/stages/prod"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "AttachedPolicies": [
+    {
+      "PolicyName": "SecurityAudit",
+      "PolicyArn": "arn:aws:iam::aws:policy/SecurityAudit"
+    }
+  ]
+}

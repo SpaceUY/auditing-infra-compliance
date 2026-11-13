@@ -1,0 +1,48 @@
+{
+  "trailList": [
+    {
+      "Name": "acme-notes-trail",
+      "S3BucketName": "acme-notes-trail-logs",
+      "IncludeGlobalServiceEvents": true,
+      "IsMultiRegionTrail": true,
+      "HomeRegion": "us-east-1",
+      "TrailARN": "arn:aws:cloudtrail:us-east-1:111122223333:trail/acme-notes-trail",
+      "LogFileValidationEnabled": true,
+      "HasCustomEventSelectors": false,
+      "HasInsightSelectors": false,
+      "IsOrganizationTrail": false,
+      "KmsKeyId": "arn:aws:kms:us-east-1:111122223333:key/11111111-2222-3333-4444-555555555555",
+      "CloudWatchLogsLogGroupArn": "arn:aws:logs:us-east-1:111122223333:log-group:acme-notes-cloudtrail:*",
+      "CloudWatchLogsRoleArn": "arn:aws:iam::111122223333:role/acme-notes-cloudtrail-to-cwl"
+    },
+    {
+      "Name": "acme-notes-legacy",
+      "S3BucketName": "acme-notes-trail-logs",
+      "IncludeGlobalServiceEvents": true,
+      "IsMultiRegionTrail": false,
+      "HomeRegion": "us-east-1",
+      "TrailARN": "arn:aws:cloudtrail:us-east-1:111122223333:trail/acme-notes-legacy",
+      "LogFileValidationEnabled": false,
+      "HasCustomEventSelectors": false,
+      "HasInsightSelectors": false,
+      "IsOrganizationTrail": false,
+      "CloudWatchLogsLogGroupArn": "arn:aws:logs:us-east-1:111122223333:log-group:acme-notes-cloudtrail:*",
+      "CloudWatchLogsRoleArn": "arn:aws:iam::111122223333:role/acme-notes-cloudtrail-to-cwl"
+    },
+    {
+      "Name": "acme-notes-audit",
+      "S3BucketName": "acme-notes-trail-logs",
+      "IncludeGlobalServiceEvents": true,
+      "IsMultiRegionTrail": true,
+      "HomeRegion": "us-east-1",
+      "TrailARN": "arn:aws:cloudtrail:us-east-1:111122223333:trail/acme-notes-audit",
+      "LogFileValidationEnabled": false,
+      "HasCustomEventSelectors": false,
+      "HasInsightSelectors": false,
+      "IsOrganizationTrail": false,
+      "KmsKeyId": "arn:aws:kms:us-east-1:111122223333:key/11111111-2222-3333-4444-555555555555",
+      "CloudWatchLogsLogGroupArn": "arn:aws:logs:us-east-1:111122223333:log-group:acme-notes-cloudtrail:*",
+      "CloudWatchLogsRoleArn": "arn:aws:iam::111122223333:role/acme-notes-cloudtrail-to-cwl"
+    }
+  ]
+}

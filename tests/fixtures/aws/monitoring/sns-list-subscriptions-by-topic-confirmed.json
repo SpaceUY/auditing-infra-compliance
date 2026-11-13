@@ -1,0 +1,10 @@
+{
+  "Subscriptions": [
+    {
+      "SubscriptionArn": "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts:5f1d3b0a-7c2e-4e8a-9a41-2b6c8d0e1f23",
+      "Owner": "111122223333",
+      "Protocol": "email",
+      "TopicArn": "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+    }
+  ]
+}

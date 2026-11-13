@@ -1,0 +1,1329 @@
+{
+  "domain": "iam",
+  "checks": [
+    {
+      "id": "IAM-001",
+      "title": "La cuenta root tiene MFA habilitado",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "critical",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "summary",
+            "service": "iam",
+            "operation": "get-account-summary",
+            "args": [],
+            "region": "global"
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "SummaryMap.AccountMFAEnabled == `0` && [{resource_id: 'root', detail: {AccountMFAEnabled: SummaryMap.AccountMFAEnabled}}] || `[]`",
+        "pass_when_text": "AccountMFAEnabled es 1: la cuenta root tiene un dispositivo MFA activo.",
+        "needs": [
+          "iam:GetAccountSummary"
+        ]
+      },
+      "vault_signals": [
+        "root",
+        "MFA root",
+        "autenticación multifactor del root"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 214,
+            "name": "MFA for AWS Root Account",
+            "source": "https://help.drata.com/en/articles/9828711"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "MFA is enabled on the root account",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "IAM.9"
+        ],
+        "cis_aws": [
+          "1.4"
+        ]
+      },
+      "remediation": {
+        "kind": "console_only",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Iniciar sesión en la consola de AWS como usuario root (email de la cuenta y contraseña).",
+          "Abrir el menú de la cuenta (arriba a la derecha) y entrar a Security credentials.",
+          "En Multi-factor authentication (MFA) elegir Assign MFA device.",
+          "Elegir el tipo de dispositivo. Para este chequeo alcanza una app autenticadora; para Drata 225 hace falta una llave de hardware (ver IAM-002).",
+          "Registrar el dispositivo con dos códigos consecutivos y confirmar.",
+          "Guardar el acceso de recuperación en un lugar compartido y protegido del equipo (no en el repo ni en un chat)."
+        ],
+        "commands": [],
+        "verify_after": "aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled'",
+        "notes": "AWS CLI no puede habilitar MFA para el root: solo se hace desde la consola con el usuario root."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828711",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_root-user_manage_mfa.html",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html"
+      ]
+    },
+    {
+      "id": "IAM-002",
+      "title": "La cuenta root usa MFA de hardware",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "summary",
+            "service": "iam",
+            "operation": "get-account-summary",
+            "args": [],
+            "region": "global"
+          },
+          {
+            "name": "virtual_mfa",
+            "service": "iam",
+            "operation": "list-virtual-mfa-devices",
+            "args": [],
+            "region": "global"
+          }
+        ],
+        "evaluator": "python:root_hardware_mfa",
+        "params": {},
+        "pass_when_text": "El root tiene MFA y ningún dispositivo MFA virtual asignado al root (llave de seguridad o token de hardware).",
+        "needs": [
+          "iam:GetAccountSummary",
+          "iam:ListVirtualMFADevices"
+        ]
+      },
+      "vault_signals": [
+        "root",
+        "MFA de hardware",
+        "llave de seguridad",
+        "yubikey"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 225,
+            "name": "Hardware MFA for AWS Root Account",
+            "source": "https://help.drata.com/en/articles/9828713"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "IAM.6"
+        ],
+        "cis_aws": [
+          "1.5"
+        ]
+      },
+      "remediation": {
+        "kind": "console_only",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Iniciar sesión en la consola de AWS como usuario root.",
+          "Entrar a Security credentials y, en Multi-factor authentication (MFA), elegir Assign MFA device.",
+          "Elegir Passkey or security key (o Hardware TOTP token) y registrar la llave física del equipo.",
+          "Una vez registrada la llave, quitar el dispositivo MFA virtual del root (Remove) para que no quede asignado.",
+          "Borrar en IAM > Users > MFA devices los registros virtuales huérfanos, que también hacen fallar el test."
+        ],
+        "commands": [],
+        "verify_after": "aws iam list-virtual-mfa-devices",
+        "notes": "Drata 225 falla con MFA virtual (app autenticadora). Algunos auditores aceptan MFA virtual, pero el test automático no. Guardar al menos dos llaves por si una se pierde."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828713",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cis-aws-foundations-benchmark.html"
+      ]
+    },
+    {
+      "id": "IAM-003",
+      "title": "La cuenta root no tiene access keys",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "critical",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "summary",
+            "service": "iam",
+            "operation": "get-account-summary",
+            "args": [],
+            "region": "global"
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "SummaryMap.AccountAccessKeysPresent > `0` && [{resource_id: 'root', detail: {AccountAccessKeysPresent: SummaryMap.AccountAccessKeysPresent}}] || `[]`",
+        "pass_when_text": "AccountAccessKeysPresent es 0: el root no tiene access keys.",
+        "needs": [
+          "iam:GetAccountSummary"
+        ]
+      },
+      "vault_signals": [
+        "root",
+        "access keys del root",
+        "claves de acceso root"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "The root account has no access key",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [
+          "CC6.1",
+          "CC6.3"
+        ],
+        "iso_inferred": [
+          "A.8.2",
+          "A.5.15"
+        ],
+        "security_hub": [
+          "IAM.4"
+        ],
+        "cis_aws": [
+          "1.3"
+        ]
+      },
+      "remediation": {
+        "kind": "console_only",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Iniciar sesión en la consola de AWS como usuario root.",
+          "Abrir Security credentials y mirar la sección Access keys: anotar el último uso de cada key.",
+          "Confirmar que ninguna aplicación ni pipeline usa esa key; si alguna la usa, migrarla antes a un rol IAM.",
+          "Elegir Make inactive para cada key y esperar unos días por si algo se rompe.",
+          "Elegir Delete para borrar las keys definitivamente."
+        ],
+        "commands": [],
+        "verify_after": "aws iam get-account-summary --query 'SummaryMap.AccountAccessKeysPresent'",
+        "notes": "Las access keys del root dan control total de la cuenta y no se pueden limitar con políticas. Las keys del root se borran desde la consola, con el usuario root."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cis-aws-foundations-benchmark.html"
+      ]
+    },
+    {
+      "id": "IAM-004",
+      "title": "El usuario root no se usa para iniciar sesión (máximo 1 ConsoleLogin en 7 días)",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "events",
+            "service": "cloudtrail",
+            "operation": "lookup-events",
+            "args": [
+              "--lookup-attributes",
+              "AttributeKey=Username,AttributeValue=root"
+            ],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:root_usage",
+        "params": {
+          "days": 7,
+          "max": 1
+        },
+        "pass_when_text": "El root tiene como máximo 1 ConsoleLogin (también los fallidos) en los últimos 7 días, sumando todas las regiones habilitadas (un inicio de sesión por un endpoint regional se registra en esa región). El uso de la API por root no se cuenta.",
+        "needs": [
+          "cloudtrail:LookupEvents"
+        ]
+      },
+      "vault_signals": [
+        "root",
+        "uso del root",
+        "inicio de sesión root"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 124,
+            "name": "Root Infrastructure Account Unused",
+            "source": "https://help.drata.com/en/articles/4777051"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "console_only",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Identificar quién inició sesión como root (CloudTrail > Event history, filtrar por User name = root).",
+          "Dar a esa persona un acceso de administración propio con IAM Identity Center (o un rol IAM con MFA) para no volver a usar el root.",
+          "Reservar el root solo para las tareas que lo exigen (cerrar la cuenta, cambiar el plan de soporte) y registrarlas.",
+          "Crear una alarma de EventBridge o CloudWatch que avise por SNS cada vez que se use el root.",
+          "Esperar a que los inicios de sesión salgan de la ventana de 7 días para que el test vuelva a verde."
+        ],
+        "commands": [],
+        "verify_after": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=Username,AttributeValue=root --max-results 5",
+        "notes": "Drata 124 falla con 2 o más intentos de login del root (aunque fallen) en 7 días móviles. El chequeo mira solo us-east-1, donde AWS registra el sign-in global; un login por un endpoint regional queda en esa región."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4777051",
+        "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_root-user.html"
+      ]
+    },
+    {
+      "id": "IAM-005",
+      "title": "Los usuarios IAM con contraseña de consola tienen MFA",
+      "scope": "resource",
+      "resource_types": [
+        "iam_user"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "generate",
+            "service": "iam",
+            "operation": "generate-credential-report",
+            "args": [],
+            "region": "global"
+          },
+          {
+            "name": "report",
+            "service": "iam",
+            "operation": "get-credential-report",
+            "args": [],
+            "region": "global"
+          }
+        ],
+        "evaluator": "python:cred_report_console_mfa",
+        "params": {},
+        "pass_when_text": "Todo usuario con password_enabled = true tiene mfa_active = true en el credential report.",
+        "needs": [
+          "iam:GenerateCredentialReport",
+          "iam:GetCredentialReport"
+        ]
+      },
+      "vault_signals": [
+        "MFA",
+        "usuarios IAM",
+        "consola"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 88,
+            "name": "MFA on Cloud Infrastructure",
+            "source": "https://help.drata.com/en/articles/4777035"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "MFA is enabled for IAM users with console passwords",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "IAM.5"
+        ],
+        "cis_aws": [
+          "1.9"
+        ]
+      },
+      "remediation": {
+        "kind": "console_only",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Pedir al usuario {resource_id} que inicie sesión y entre a Security credentials > Assign MFA device (app autenticadora o llave de seguridad).",
+          "Si no puede, un administrador lo registra desde IAM > Users > {resource_id} > Security credentials > Assign MFA device.",
+          "Si el usuario ya no necesita la consola, quitar el acceso: Security credentials > Console access > Disable.",
+          "Para usuarios que se van a migrar a IAM Identity Center, forzar MFA ahí en vez de en IAM (ver IAM-017)."
+        ],
+        "commands": [],
+        "verify_after": "aws iam list-mfa-devices --user-name \"{resource_id}\"",
+        "notes": "El credential report puede tardar hasta 4 horas en reflejar el cambio; Drata lo sincroniza de forma nocturna."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4777035",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html",
+        "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_getting-report.html"
+      ]
+    },
+    {
+      "id": "IAM-006",
+      "title": "La política de contraseñas exige al menos 14 caracteres",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "policy",
+            "service": "iam",
+            "operation": "get-account-password-policy",
+            "args": [],
+            "region": "global",
+            "ok_errors": [
+              "NoSuchEntity"
+            ]
+          }
+        ],
+        "evaluator": "python:password_min_length",
+        "params": {
+          "min_length": 14
+        },
+        "pass_when_text": "MinimumPasswordLength es 14 o más. Sin política personalizada (NoSuchEntity) falla.",
+        "needs": [
+          "iam:GetAccountPasswordPolicy"
+        ]
+      },
+      "vault_signals": [
+        "política de contraseñas",
+        "largo mínimo",
+        "password policy"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 215,
+            "name": "AWS IAM Password Minimum Length",
+            "source": "https://help.drata.com/en/articles/9828716"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Password policy requires a minimum length of 14 or more",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "IAM.15"
+        ],
+        "cis_aws": [
+          "1.7"
+        ]
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Leer la política de contraseñas actual (primer bloque, solo lectura): el cambio la reemplaza entera y no se aplica sin haberla visto.",
+          "Generar los valores fusionados (segundo bloque, no aplica nada): el largo y el reuso suben solo si los actuales son menores que 14 y 24, se activan los cuatro requisitos de complejidad y se conservan la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña.",
+          "Revisar password-policy-nuevo.args y recién entonces aplicarlo (tercer bloque); verificar con get-account-password-policy."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# solo lectura: trae la política de contraseñas actual a un archivo y la muestra. Si la cuenta no tiene política, parte de una vacía; ante cualquier otro error (por ejemplo AccessDenied) borra el archivo y se detiene, y los bloques siguientes no pueden seguir\nrm -f password-policy-nuevo.args\nif aws iam get-account-password-policy --query PasswordPolicy --output json > password-policy-actual.json 2> password-policy-actual.err; then cat password-policy-actual.json; elif grep -q NoSuchEntity password-policy-actual.err; then echo '{}' > password-policy-actual.json; echo \"la cuenta no tiene política de contraseñas: se parte de una vacía\"; else cat password-policy-actual.err; rm -f password-policy-actual.json; echo \"DETENIDO: no se pudo leer la política actual; no seguir\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# no aplica nada: fusiona con la política actual y muestra los valores que se aplicarían. Largo (14) y reuso (24) solo suben si el valor actual es menor; se activan los cuatro requisitos de complejidad; la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña se conservan\nrm -f password-policy-nuevo.args\nif [ ! -s password-policy-actual.json ]; then echo \"DETENIDO: falta password-policy-actual.json; correr antes el primer bloque\"; else python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); a=[\"--minimum-password-length\",str(max(14,int(p.get(\"MinimumPasswordLength\",0)))),\"--password-reuse-prevention\",str(max(24,int(p.get(\"PasswordReusePrevention\",0)))),\"--require-symbols\",\"--require-numbers\",\"--require-uppercase-characters\",\"--require-lowercase-characters\",\"--max-password-age\",str(int(p.get(\"MaxPasswordAge\",0))),\"--hard-expiry\" if p.get(\"HardExpiry\") else \"--no-hard-expiry\",\"--allow-users-to-change-password\" if p.get(\"AllowUsersToChangePassword\",True) else \"--no-allow-users-to-change-password\"]; print(\" \".join(a))' password-policy-actual.json > password-policy-nuevo.args && echo \"se aplicaría: aws iam update-account-password-policy $(cat password-policy-nuevo.args)\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# update-account-password-policy REEMPLAZA la política completa: aplicar solo los valores fusionados y revisados (password-policy-nuevo.args), nunca a mano\nif [ -s password-policy-nuevo.args ]; then aws iam update-account-password-policy $(cat password-policy-nuevo.args); else echo \"DETENIDO: falta password-policy-nuevo.args; correr antes los dos primeros bloques\"; fi"
+        ],
+        "verify_after": "aws iam get-account-password-policy",
+        "notes": "ADVERTENCIA: update-account-password-policy REEMPLAZA la política de contraseñas completa y lo que no se pasa vuelve a su valor por defecto de AWS (por ejemplo, la caducidad). Por eso el arreglo lee la política actual (primer bloque), conserva MaxPasswordAge, HardExpiry y el permiso de cambiar la contraseña, sube el largo y el reuso solo si los actuales son menores, y activa los cuatro requisitos de complejidad; revisar password-policy-nuevo.args antes del tercer bloque (si hay que quitar algún requisito, editarlo ahí). Si el primer bloque muestra DETENIDO, no seguir: no se genera ningún archivo y el tercer bloque no aplica nada. IAM-006 e IAM-007 se arreglan con el mismo cambio: aplicarlo una sola vez. Las contraseñas existentes no cambian; las reglas aplican al próximo cambio de contraseña. Los comandos usan python3, que CloudShell trae instalado."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828716",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html",
+        "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_passwords_account-policy.html"
+      ]
+    },
+    {
+      "id": "IAM-007",
+      "title": "La política de contraseñas impide reutilizar las últimas 24",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "policy",
+            "service": "iam",
+            "operation": "get-account-password-policy",
+            "args": [],
+            "region": "global",
+            "ok_errors": [
+              "NoSuchEntity"
+            ]
+          }
+        ],
+        "evaluator": "python:password_reuse_prevention",
+        "params": {
+          "min_reuse": 24
+        },
+        "pass_when_text": "PasswordReusePrevention es 24. Sin política personalizada (NoSuchEntity) falla.",
+        "needs": [
+          "iam:GetAccountPasswordPolicy"
+        ]
+      },
+      "vault_signals": [
+        "política de contraseñas",
+        "reuso de contraseñas",
+        "password reuse"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 216,
+            "name": "AWS IAM Password Reuse",
+            "source": "https://help.drata.com/en/articles/9828717"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Password policy blocks password reuse",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "IAM.16"
+        ],
+        "cis_aws": [
+          "1.8"
+        ]
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Leer la política de contraseñas actual (primer bloque, solo lectura): el cambio la reemplaza entera y no se aplica sin haberla visto.",
+          "Generar los valores fusionados (segundo bloque, no aplica nada): el largo y el reuso suben solo si los actuales son menores que 14 y 24, se activan los cuatro requisitos de complejidad y se conservan la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña.",
+          "Revisar password-policy-nuevo.args y recién entonces aplicarlo (tercer bloque); verificar con get-account-password-policy."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# solo lectura: trae la política de contraseñas actual a un archivo y la muestra. Si la cuenta no tiene política, parte de una vacía; ante cualquier otro error (por ejemplo AccessDenied) borra el archivo y se detiene, y los bloques siguientes no pueden seguir\nrm -f password-policy-nuevo.args\nif aws iam get-account-password-policy --query PasswordPolicy --output json > password-policy-actual.json 2> password-policy-actual.err; then cat password-policy-actual.json; elif grep -q NoSuchEntity password-policy-actual.err; then echo '{}' > password-policy-actual.json; echo \"la cuenta no tiene política de contraseñas: se parte de una vacía\"; else cat password-policy-actual.err; rm -f password-policy-actual.json; echo \"DETENIDO: no se pudo leer la política actual; no seguir\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# no aplica nada: fusiona con la política actual y muestra los valores que se aplicarían. Largo (14) y reuso (24) solo suben si el valor actual es menor; se activan los cuatro requisitos de complejidad; la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña se conservan\nrm -f password-policy-nuevo.args\nif [ ! -s password-policy-actual.json ]; then echo \"DETENIDO: falta password-policy-actual.json; correr antes el primer bloque\"; else python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); a=[\"--minimum-password-length\",str(max(14,int(p.get(\"MinimumPasswordLength\",0)))),\"--password-reuse-prevention\",str(max(24,int(p.get(\"PasswordReusePrevention\",0)))),\"--require-symbols\",\"--require-numbers\",\"--require-uppercase-characters\",\"--require-lowercase-characters\",\"--max-password-age\",str(int(p.get(\"MaxPasswordAge\",0))),\"--hard-expiry\" if p.get(\"HardExpiry\") else \"--no-hard-expiry\",\"--allow-users-to-change-password\" if p.get(\"AllowUsersToChangePassword\",True) else \"--no-allow-users-to-change-password\"]; print(\" \".join(a))' password-policy-actual.json > password-policy-nuevo.args && echo \"se aplicaría: aws iam update-account-password-policy $(cat password-policy-nuevo.args)\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# update-account-password-policy REEMPLAZA la política completa: aplicar solo los valores fusionados y revisados (password-policy-nuevo.args), nunca a mano\nif [ -s password-policy-nuevo.args ]; then aws iam update-account-password-policy $(cat password-policy-nuevo.args); else echo \"DETENIDO: falta password-policy-nuevo.args; correr antes los dos primeros bloques\"; fi"
+        ],
+        "verify_after": "aws iam get-account-password-policy",
+        "notes": "ADVERTENCIA: update-account-password-policy REEMPLAZA la política de contraseñas completa y lo que no se pasa vuelve a su valor por defecto de AWS (por ejemplo, la caducidad). Por eso el arreglo lee la política actual (primer bloque), conserva MaxPasswordAge, HardExpiry y el permiso de cambiar la contraseña, sube el largo y el reuso solo si los actuales son menores, y activa los cuatro requisitos de complejidad; revisar password-policy-nuevo.args antes del tercer bloque (si hay que quitar algún requisito, editarlo ahí). Si el primer bloque muestra DETENIDO, no seguir: no se genera ningún archivo y el tercer bloque no aplica nada. IAM-006 e IAM-007 se arreglan con el mismo cambio: aplicarlo una sola vez. Las contraseñas existentes no cambian; las reglas aplican al próximo cambio de contraseña. Los comandos usan python3, que CloudShell trae instalado."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828717",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html",
+        "https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_passwords_account-policy.html"
+      ]
+    },
+    {
+      "id": "IAM-008",
+      "title": "Las access keys activas se rotan antes de 90 días",
+      "scope": "resource",
+      "resource_types": [
+        "iam_user"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "generate",
+            "service": "iam",
+            "operation": "generate-credential-report",
+            "args": [],
+            "region": "global"
+          },
+          {
+            "name": "report",
+            "service": "iam",
+            "operation": "get-credential-report",
+            "args": [],
+            "region": "global"
+          }
+        ],
+        "evaluator": "python:cred_report_key_age",
+        "params": {
+          "fail_at_days": 90
+        },
+        "pass_when_text": "Ninguna access key activa tiene 90 días o más desde su última rotación (Drata 232 falla desde los 90 días).",
+        "needs": [
+          "iam:GenerateCredentialReport",
+          "iam:GetCredentialReport"
+        ]
+      },
+      "vault_signals": [
+        "rotación de keys",
+        "access keys",
+        "rotación de credenciales"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 232,
+            "name": "AWS IAM Access Key Rotation",
+            "source": "https://help.drata.com/en/articles/9828694"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Access keys are rotated at least every 90 days",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "IAM.3"
+        ],
+        "cis_aws": [
+          "1.13"
+        ]
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Identificar qué aplicación o pipeline usa la key del usuario {resource_id} (último uso en el credential report y en CloudTrail).",
+          "Crear una segunda access key (IAM > Users > {resource_id} > Security credentials > Create access key) y guardarla en el gestor de secretos del equipo, nunca en el repo ni en un chat.",
+          "Actualizar la aplicación o el pipeline para que use la key nueva y verificar que funciona.",
+          "Desactivar la key vieja y esperar unos días por si algo falla.",
+          "Borrar la key vieja cuando se confirme que nada la usa."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__COMPLETAR_ACCESS_KEY_ID_VIEJA__\"\n# Paso 4: desactivar la key vieja\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\" --status Inactive",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__COMPLETAR_ACCESS_KEY_ID_VIEJA__\"\n# Paso 5: solo después de verificar que nada usa la key (irreversible)\naws iam delete-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\""
+        ],
+        "verify_after": "aws iam list-access-keys --user-name \"{resource_id}\"",
+        "notes": "Si la aplicación sigue usando la key vieja, desactivarla la rompe: primero actualizar la aplicación, después desactivar. Si el usuario es una persona, conviene pasarla a IAM Identity Center en vez de rotar keys de larga vida (IAM-017)."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828694",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html"
+      ]
+    },
+    {
+      "id": "IAM-009",
+      "title": "No hay credenciales activas sin uso por más de 45 días",
+      "scope": "resource",
+      "resource_types": [
+        "iam_user"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "generate",
+            "service": "iam",
+            "operation": "generate-credential-report",
+            "args": [],
+            "region": "global"
+          },
+          {
+            "name": "report",
+            "service": "iam",
+            "operation": "get-credential-report",
+            "args": [],
+            "region": "global"
+          }
+        ],
+        "evaluator": "python:cred_report_unused",
+        "params": {
+          "max_days": 45
+        },
+        "pass_when_text": "Ninguna contraseña ni access key activa lleva más de 45 días sin usarse (una credencial nunca usada cuenta desde su creación).",
+        "needs": [
+          "iam:GenerateCredentialReport",
+          "iam:GetCredentialReport"
+        ]
+      },
+      "vault_signals": [
+        "credenciales sin uso",
+        "usuarios inactivos",
+        "cuentas inactivas"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 229,
+            "name": "AWS IAM Unused Credentials",
+            "source": "https://help.drata.com/en/articles/9828680"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Unused credentials are disabled after 45 days",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [
+          "CC6.2",
+          "CC6.3"
+        ],
+        "iso_inferred": [
+          "A.5.18",
+          "A.6.5"
+        ],
+        "security_hub": [
+          "IAM.22"
+        ],
+        "cis_aws": [
+          "1.11"
+        ]
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Revisar en el credential report qué credencial del usuario {resource_id} lleva más de 45 días sin uso (contraseña o access key).",
+          "Si es una access key, desactivarla con el comando de abajo.",
+          "Si es la contraseña de consola, deshabilitar el acceso desde la consola: IAM > Users > {resource_id} > Security credentials > Console access > Disable.",
+          "Si el usuario ya no existe en la organización, borrarlo después (fuera de este arreglo)."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nKEY_ID=\"__COMPLETAR_ACCESS_KEY_ID__\"\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$KEY_ID\" --status Inactive"
+        ],
+        "verify_after": "aws iam list-access-keys --user-name \"{resource_id}\"",
+        "notes": "Desactivar una key que sigue en uso (por ejemplo, un job mensual) rompe esa aplicación: confirmar el último uso antes. Se puede reactivar con --status Active."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828680",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html"
+      ]
+    },
+    {
+      "id": "IAM-010",
+      "title": "Cada usuario IAM tiene como máximo una access key activa",
+      "scope": "resource",
+      "resource_types": [
+        "iam_user"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "generate",
+            "service": "iam",
+            "operation": "generate-credential-report",
+            "args": [],
+            "region": "global"
+          },
+          {
+            "name": "report",
+            "service": "iam",
+            "operation": "get-credential-report",
+            "args": [],
+            "region": "global"
+          }
+        ],
+        "evaluator": "python:cred_report_multi_keys",
+        "params": {},
+        "pass_when_text": "Ningún usuario tiene las dos access keys activas a la vez.",
+        "needs": [
+          "iam:GenerateCredentialReport",
+          "iam:GetCredentialReport"
+        ]
+      },
+      "vault_signals": [
+        "access keys",
+        "una sola key activa"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "Each IAM user has at most one active access key",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [
+          "CC6.1"
+        ],
+        "iso_inferred": [
+          "A.5.16",
+          "A.5.17"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Ver cuál de las dos keys de {resource_id} usa la aplicación (último uso en el credential report: access_key_1_last_used_date y access_key_2_last_used_date).",
+          "Si ya se migró la aplicación a la key más nueva, desactivar la más vieja.",
+          "Esperar unos días y, si no hay errores, borrar la key desactivada."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nOLD_KEY_ID=\"__COMPLETAR_ACCESS_KEY_ID_VIEJA__\"\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$OLD_KEY_ID\" --status Inactive"
+        ],
+        "verify_after": "aws iam list-access-keys --user-name \"{resource_id}\"",
+        "notes": "Dos keys activas son normales durante una rotación; el chequeo falla si quedan así. Desactivar la key equivocada rompe la aplicación: confirmar el último uso de cada una antes."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cis-aws-foundations-benchmark.html"
+      ]
+    },
+    {
+      "id": "IAM-011",
+      "title": "Los usuarios IAM reciben permisos solo a través de grupos",
+      "scope": "resource",
+      "resource_types": [
+        "iam_user"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "details",
+            "service": "iam",
+            "operation": "get-account-authorization-details",
+            "args": [
+              "--filter",
+              "User"
+            ],
+            "region": "global"
+          }
+        ],
+        "evaluator": "python:user_direct_policies",
+        "params": {},
+        "pass_when_text": "Ningún usuario IAM tiene políticas administradas adjuntas ni políticas inline: todo viene de sus grupos.",
+        "needs": [
+          "iam:GetAccountAuthorizationDetails"
+        ]
+      },
+      "vault_signals": [
+        "permisos por grupos",
+        "políticas inline",
+        "usuarios IAM"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 217,
+            "name": "AWS IAM Group-Based Access Control",
+            "source": "https://help.drata.com/en/articles/9828704"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "IAM users get permissions only through groups",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "IAM.2"
+        ],
+        "cis_aws": [
+          "1.14"
+        ]
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Listar las políticas que {resource_id} tiene hoy (adjuntas e inline) con los comandos de verificación.",
+          "Crear un grupo por función (por ejemplo developers) o elegir uno existente, y adjuntarle esas políticas.",
+          "Agregar a {resource_id} al grupo y comprobar que sigue accediendo a lo que necesita.",
+          "Quitar del usuario la política adjunta (detach-user-policy) o la inline (delete-user-policy)."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nGROUP_NAME=\"__COMPLETAR_GRUPO__\"\nPOLICY_ARN=\"__COMPLETAR_POLICY_ARN__\"\naws iam create-group --group-name \"$GROUP_NAME\"\n# create-group puede fallar si el grupo ya existe: es esperable. Lo que sigue se encadena con && para que quitar el permiso directo solo corra si los pasos anteriores salieron bien\naws iam attach-group-policy --group-name \"$GROUP_NAME\" --policy-arn \"$POLICY_ARN\" && aws iam add-user-to-group --group-name \"$GROUP_NAME\" --user-name \"$USER_NAME\" && aws iam detach-user-policy --user-name \"$USER_NAME\" --policy-arn \"$POLICY_ARN\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nINLINE_POLICY_NAME=\"__COMPLETAR_NOMBRE_POLITICA_INLINE__\"\n# solo después de verificar que el grupo cubre esos permisos\naws iam delete-user-policy --user-name \"$USER_NAME\" --policy-name \"$INLINE_POLICY_NAME\""
+        ],
+        "verify_after": "aws iam list-attached-user-policies --user-name \"{resource_id}\"",
+        "notes": "Quitar los permisos directos antes de que el grupo los cubra deja al usuario sin acceso: agregar al grupo primero, quitar después. Si el grupo ya existe, omitir create-group. Una política inline puede tener permisos que ninguna política administrada cubre: revisar su contenido antes de borrarla."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828704",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html"
+      ]
+    },
+    {
+      "id": "IAM-012",
+      "title": "No hay políticas propias con permisos de administrador total (*:*) adjuntas",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "details",
+            "service": "iam",
+            "operation": "get-account-authorization-details",
+            "args": [
+              "--filter",
+              "LocalManagedPolicy"
+            ],
+            "region": "global"
+          }
+        ],
+        "evaluator": "python:admin_policies",
+        "params": {},
+        "pass_when_text": "Ninguna política administrada propia adjunta a una identidad permite Action * sobre Resource * en su versión por defecto.",
+        "needs": [
+          "iam:GetAccountAuthorizationDetails"
+        ]
+      },
+      "vault_signals": [
+        "administrador total",
+        "políticas con *",
+        "AdministratorAccess"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 230,
+            "name": "AWS IAM Principle of Least Privilege",
+            "source": "https://help.drata.com/en/articles/9828707"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Full administrative (`*:*`) policies are not attached",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "IAM.1"
+        ],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "high",
+        "downtime": false,
+        "steps": [
+          "Ver qué usuarios, grupos y roles tienen adjunta la política con el comando de verificación.",
+          "Definir los permisos que realmente se usan (IAM Access Analyzer puede generar una política a partir de CloudTrail).",
+          "Crear una política acotada y adjuntarla a esas identidades.",
+          "Quitar la política de administrador de cada identidad (detach) y comprobar que nada se rompe.",
+          "Si la política ya no se usa, borrarla."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPOLICY_ARN=\"{resource_id}\"\naws iam list-entities-for-policy --policy-arn \"$POLICY_ARN\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPOLICY_ARN=\"{resource_id}\"\nROLE_NAME=\"__COMPLETAR_ROL__\"\n# Paso 4: solo después de adjuntar la política acotada\naws iam detach-role-policy --role-name \"$ROLE_NAME\" --policy-arn \"$POLICY_ARN\""
+        ],
+        "verify_after": "aws iam list-entities-for-policy --policy-arn \"{resource_id}\"",
+        "notes": "Quitar el administrador total sin una política que lo reemplace deja a esas identidades sin acceso. Para usuarios usar detach-user-policy y para grupos detach-group-policy. Las políticas administradas de AWS como AdministratorAccess no entran en este chequeo: en Drata se pueden excluir por hallazgo con justificación."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828707",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html"
+      ]
+    },
+    {
+      "id": "IAM-013",
+      "title": "Las políticas propias no usan comodines amplios sin justificación (revisión)",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "details",
+            "service": "iam",
+            "operation": "get-account-authorization-details",
+            "args": [
+              "--filter",
+              "LocalManagedPolicy"
+            ],
+            "region": "global"
+          }
+        ],
+        "evaluator": "claude",
+        "pass_when_text": "Claude revisa las políticas propias adjuntas y confirma que sus comodines (por ejemplo s3:* sobre un bucket concreto) están acotados y justificados; iam:*, o Resource * con acciones de escritura, no.",
+        "needs": [
+          "iam:GetAccountAuthorizationDetails"
+        ]
+      },
+      "vault_signals": [
+        "mínimo privilegio",
+        "comodines",
+        "wildcards en políticas"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 230,
+            "name": "AWS IAM Principle of Least Privilege",
+            "source": "https://help.drata.com/en/articles/9828707"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Leer la política con los comandos de abajo y listar qué acciones con comodín usa y sobre qué recursos.",
+          "Reemplazar cada comodín por la lista de acciones y recursos que la aplicación necesita realmente.",
+          "Crear una versión nueva de la política y comprobar que la aplicación sigue funcionando."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPOLICY_ARN=\"__COMPLETAR_POLICY_ARN__\"\nVERSION_ID=$(aws iam get-policy --policy-arn \"$POLICY_ARN\" --query Policy.DefaultVersionId --output text)\naws iam get-policy-version --policy-arn \"$POLICY_ARN\" --version-id \"$VERSION_ID\""
+        ],
+        "verify_after": "aws iam get-policy --policy-arn \"__COMPLETAR_POLICY_ARN__\"",
+        "notes": "Es una revisión de criterio (la hace Claude, no una regla fija): un comodín puede ser aceptable. Acotar permisos sin probar rompe la aplicación que los usa."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828707",
+        "https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html#grant-least-privilege"
+      ]
+    },
+    {
+      "id": "IAM-014",
+      "title": "Existe un rol con AWSSupportAccess para gestionar incidentes con AWS Support",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "low",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "entities",
+            "service": "iam",
+            "operation": "list-entities-for-policy",
+            "args": [
+              "--policy-arn",
+              "arn:aws:iam::aws:policy/AWSSupportAccess"
+            ],
+            "region": "global"
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "length(PolicyRoles) == `0` && [{resource_id: 'account', detail: {policy: 'AWSSupportAccess', roles: length(PolicyRoles)}}] || `[]`",
+        "pass_when_text": "La política AWSSupportAccess está adjunta al menos a un rol.",
+        "needs": [
+          "iam:ListEntitiesForPolicy"
+        ]
+      },
+      "vault_signals": [
+        "rol de soporte",
+        "AWS Support",
+        "AWSSupportAccess"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "A support role exists for managing incidents with AWS Support",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [
+          "CC7.3",
+          "CC7.4"
+        ],
+        "iso_inferred": [
+          "A.5.24",
+          "A.5.26"
+        ],
+        "security_hub": [
+          "IAM.18"
+        ],
+        "cis_aws": [
+          "1.16"
+        ]
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir quién puede asumir el rol de soporte (un grupo o rol de administradores) y completar su ARN.",
+          "Crear el rol con una política de confianza que exija MFA y adjuntarle AWSSupportAccess."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTRUST='{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"__COMPLETAR_PRINCIPAL_ARN__\"},\"Action\":\"sts:AssumeRole\",\"Condition\":{\"Bool\":{\"aws:MultiFactorAuthPresent\":\"true\"}}}]}'\naws iam create-role --role-name aws-support-access --assume-role-policy-document \"$TRUST\"\naws iam attach-role-policy --role-name aws-support-access --policy-arn arn:aws:iam::aws:policy/AWSSupportAccess"
+        ],
+        "verify_after": "aws iam list-entities-for-policy --policy-arn arn:aws:iam::aws:policy/AWSSupportAccess",
+        "notes": "La decisión es el principal que puede asumir el rol (__COMPLETAR_PRINCIPAL_ARN__). Si el rol aws-support-access ya existe, omitir create-role y solo adjuntar la política."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cis-aws-foundations-benchmark.html"
+      ]
+    },
+    {
+      "id": "IAM-015",
+      "title": "IAM Access Analyzer está activo en todas las regiones",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "fail",
+      "verify": {
+        "calls": [
+          {
+            "name": "analyzers",
+            "service": "accessanalyzer",
+            "operation": "list-analyzers",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "length(analyzers[?status == 'ACTIVE' && (type == 'ACCOUNT' || type == 'ORGANIZATION')]) == `0` && [{detail: {active_analyzers: `0`}}] || `[]`",
+        "pass_when_text": "Cada región habilitada tiene un analizador ACCOUNT u ORGANIZATION en estado ACTIVE.",
+        "needs": [
+          "access-analyzer:ListAnalyzers"
+        ]
+      },
+      "vault_signals": [
+        "access analyzer",
+        "acceso externo",
+        "analizador"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "IAM Access Analyzer is enabled in all regions",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [
+          "CC6.1",
+          "CC7.1"
+        ],
+        "iso_inferred": [
+          "A.8.3",
+          "A.8.16"
+        ],
+        "security_hub": [
+          "IAM.28"
+        ],
+        "cis_aws": [
+          "1.19"
+        ]
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Crear un analizador de acceso externo de cuenta en la región indicada."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws accessanalyzer create-analyzer --analyzer-name external-access-analyzer --type ACCOUNT --region \"$REGION\""
+        ],
+        "verify_after": "aws accessanalyzer list-analyzers --region \"{region}\"",
+        "notes": "Un analizador de acceso externo no tiene costo adicional; los de acceso no usado (ACCOUNT_UNUSED_ACCESS) sí se cobran y no cuentan para este chequeo. Repetir en cada región que falle."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/iam-controls.html",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cis-aws-foundations-benchmark.html"
+      ]
+    },
+    {
+      "id": "IAM-016",
+      "title": "La cuenta tiene un contacto alternativo de seguridad (SECURITY)",
+      "scope": "account",
+      "resource_types": [],
+      "all_regions": false,
+      "severity": "low",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "contact",
+            "service": "account",
+            "operation": "get-alternate-contact",
+            "args": [
+              "--alternate-contact-type",
+              "SECURITY"
+            ],
+            "region": "global",
+            "ok_errors": [
+              "ResourceNotFoundException"
+            ]
+          }
+        ],
+        "evaluator": "python:alternate_contact_present",
+        "params": {},
+        "pass_when_text": "get-alternate-contact SECURITY devuelve un contacto con email. ResourceNotFoundException significa que no hay y falla.",
+        "needs": [
+          "account:GetAlternateContact"
+        ]
+      },
+      "vault_signals": [
+        "contacto de seguridad",
+        "contacto alternativo",
+        "alternate contact"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC2.3"
+        ],
+        "iso_inferred": [
+          "A.5.5"
+        ],
+        "security_hub": [
+          "Account.1"
+        ],
+        "cis_aws": [
+          "1.2"
+        ]
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el nombre, cargo, email y teléfono del contacto de seguridad (conviene una casilla compartida del equipo, no un email personal).",
+          "Completar los valores y ejecutar el comando."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws account put-alternate-contact --alternate-contact-type SECURITY --name \"__COMPLETAR_NOMBRE__\" --title \"__COMPLETAR_CARGO__\" --email-address \"__COMPLETAR_EMAIL_SEGURIDAD__\" --phone-number \"__COMPLETAR_TELEFONO__\""
+        ],
+        "verify_after": "aws account get-alternate-contact --alternate-contact-type SECURITY",
+        "notes": "Es una decisión del equipo quién recibe los avisos de seguridad de AWS. En cuentas de una organización, el contacto de una cuenta miembro se puede administrar desde la cuenta de administración."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/account-controls.html",
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/welcome.html"
+      ]
+    },
+    {
+      "id": "IAM-017",
+      "title": "Las personas acceden por IAM Identity Center en vez de usuarios IAM (informativo)",
+      "scope": "resource",
+      "resource_types": [
+        "iam_user"
+      ],
+      "all_regions": false,
+      "severity": "low",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "generate",
+            "service": "iam",
+            "operation": "generate-credential-report",
+            "args": [],
+            "region": "global"
+          },
+          {
+            "name": "report",
+            "service": "iam",
+            "operation": "get-credential-report",
+            "args": [],
+            "region": "global"
+          }
+        ],
+        "evaluator": "python:iam_human_users",
+        "params": {},
+        "pass_when_text": "Ningún usuario IAM tiene contraseña de consola: las personas entran por IAM Identity Center o un IdP.",
+        "needs": [
+          "iam:GenerateCredentialReport",
+          "iam:GetCredentialReport"
+        ]
+      },
+      "vault_signals": [
+        "identity center",
+        "SSO",
+        "usuarios IAM humanos"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC6.1",
+          "CC6.2"
+        ],
+        "iso_inferred": [
+          "A.5.16",
+          "A.5.18"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Habilitar IAM Identity Center y conectarlo al proveedor de identidad del equipo (o usar su directorio propio).",
+          "Crear los permission sets equivalentes a los permisos que {resource_id} tiene hoy.",
+          "Asignar a la persona esos permission sets y confirmar que entra por el portal de acceso.",
+          "Deshabilitar el acceso de consola del usuario IAM y, cuando no quede uso, desactivar sus access keys."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nUSER_NAME=\"{resource_id}\"\nKEY_ID=\"__COMPLETAR_ACCESS_KEY_ID__\"\n# Paso 4: cuando la persona ya entra por Identity Center\naws iam update-access-key --user-name \"$USER_NAME\" --access-key-id \"$KEY_ID\" --status Inactive"
+        ],
+        "verify_after": "aws iam list-access-keys --user-name \"{resource_id}\"",
+        "notes": "Es informativo: AWS recomienda no usar usuarios IAM para personas, pero Drata y Vanta no fallan por eso. La migración cambia cómo entra la persona (nuevo portal, nuevo MFA): coordinarla. Si el equipo decide mantener usuarios IAM, documentarlo en la política de acceso."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/security-reference-architecture/checklist.html",
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/welcome.html"
+      ]
+    }
+  ]
+}

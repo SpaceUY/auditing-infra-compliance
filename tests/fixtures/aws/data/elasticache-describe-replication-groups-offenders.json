@@ -1,0 +1,16 @@
+[
+  {
+    "resource_id": "acme-notes-sessions",
+    "detail": {
+      "multi_az": "disabled",
+      "automatic_failover": "disabled"
+    }
+  },
+  {
+    "resource_id": "acme-notes-queue",
+    "detail": {
+      "multi_az": null,
+      "automatic_failover": null
+    }
+  }
+]

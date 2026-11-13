@@ -1,0 +1,427 @@
+{
+  "domain": "inventory",
+  "checks": [
+    {
+      "id": "INV-001",
+      "title": "Los recursos de inventario tienen el tag VantaOwner con el email de un dueño",
+      "scope": "resource",
+      "resource_types": [
+        "ec2_instance",
+        "ebs_volume",
+        "rds_instance",
+        "efs",
+        "asg",
+        "s3_bucket",
+        "dynamodb_table",
+        "sqs_queue",
+        "lambda_function",
+        "elbv2",
+        "eks_cluster",
+        "kms_key",
+        "log_group",
+        "cloudtrail_trail",
+        "acm_certificate"
+      ],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "tags",
+            "service": "resourcegroupstaggingapi",
+            "operation": "get-resources",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "aliases",
+            "service": "kms",
+            "operation": "list-aliases",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:tag_present",
+        "params": {
+          "key": "VantaOwner",
+          "pattern": "email",
+          "inventory_types": [
+            "ec2_instance",
+            "ebs_volume",
+            "rds_instance",
+            "efs",
+            "asg",
+            "s3_bucket",
+            "dynamodb_table",
+            "sqs_queue",
+            "lambda_function",
+            "elbv2",
+            "eks_cluster",
+            "kms_key",
+            "log_group",
+            "cloudtrail_trail",
+            "acm_certificate"
+          ]
+        },
+        "pass_when_text": "Todo recurso de los tipos que Vanta inventaría (EC2, EBS, RDS, EFS, grupos de Auto Scaling, S3, DynamoDB, SQS, Lambda, balanceadores, EKS, claves KMS, log groups, trails y certificados) tiene el tag VantaOwner (nombre exacto, con esa capitalización) y su valor tiene formato de email. Un recurso sin el tag, o con un valor que no es un email, falla y se informa uno por recurso con detail.reason. El test de Vanta \"Inventory items have active owners\" además exige que el email sea de un usuario activo de Vanta: eso solo se ve en Vanta, este chequeo no lo verifica. No se evalúan los recursos de red (VPC, subnets, security groups, NACL), IAM ni los clusters RDS (Vanta los lee como instancias). Las claves KMS administradas por AWS (las que tienen un alias alias/aws/...) no se pueden etiquetar: no se evalúan (N/A); el alias se lee con kms:ListAliases. Los tags salen del inventario (EC2, RDS, EFS...) y de la Resource Groups Tagging API (get-resources) en cada región habilitada: S3, DynamoDB, SQS, Lambda, KMS y otros se listan sin tags. Un recurso que la Resource Groups Tagging API no devuelve se trata como sin tags; el servicio tiene consistencia eventual, así que un tag recién puesto puede tardar unos minutos en verse. Si el rol del auditor no tiene tag:GetResources el chequeo queda NO_VERIFICADO con ese permiso. ",
+        "needs": [
+          "tag:GetResources",
+          "kms:ListAliases"
+        ]
+      },
+      "vault_signals": [
+        "dueño del recurso",
+        "VantaOwner",
+        "owner del inventario",
+        "inventario de activos",
+        "responsable del recurso",
+        "tag de dueño"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "Inventory items have active owners",
+            "source": "https://help.vanta.com/en/articles/11345538-resolve-inventory-items-have-active-owners-test"
+          }
+        ],
+        "tsc_inferred": [
+          "CC6.1"
+        ],
+        "iso_inferred": [
+          "A.5.9"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir quién es el dueño de {resource_id}: una persona activa en Vanta (no una casilla compartida ni un usuario dado de baja).",
+          "Poner el tag VantaOwner con el email de esa persona.",
+          "Verificar que el tag aparece y esperar a la próxima sincronización de Vanta (aproximadamente cada hora)."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRESOURCE_ARN=\"{resource_arn}\"\nOWNER_EMAIL=\"__COMPLETAR_OWNER_EMAIL__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"VantaOwner=$OWNER_EMAIL\" --region \"$REGION\""
+        ],
+        "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"{resource_arn}\" --region \"{region}\" --query 'ResourceTagMappingList[].Tags[?Key==`VantaOwner`]'",
+        "notes": "{resource_arn} es el ARN del recurso {resource_id}, tomado del inventario. tag-resources agrega o pisa solo los tags indicados y deja el resto (put-bucket-tagging de S3 reemplaza todos). Para un bucket de S3 usar la región del bucket en REGION. Sin downtime. Vanta solo lee los tags, nunca los escribe. El email tiene que coincidir con un usuario activo de Vanta: si no, el recurso queda sin dueño aunque este chequeo pase. Si el equipo usa otro nombre de tag para el dueño (por ejemplo owner), Vanta permite mapearlo a VantaOwner en Settings, pero este chequeo busca VantaOwner. tag-resources informa los fallos en FailedResourcesMap: revisarlo."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345627-bulk-tags",
+        "https://help.vanta.com/en/articles/11345538-resolve-inventory-items-have-active-owners-test",
+        "https://docs.aws.amazon.com/resourcegroupstagging/latest/APIReference/overview.html"
+      ]
+    },
+    {
+      "id": "INV-002",
+      "title": "El inventario identifica al menos un almacén de datos con VantaContainsUserData=true (S3, RDS, DynamoDB, SQS)",
+      "scope": "resource",
+      "resource_types": [
+        "s3_bucket",
+        "rds_instance",
+        "rds_cluster",
+        "dynamodb_table",
+        "sqs_queue"
+      ],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "tags",
+            "service": "resourcegroupstaggingapi",
+            "operation": "get-resources",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:user_data_flag",
+        "params": {
+          "key": "VantaContainsUserData",
+          "inventory_types": [
+            "s3_bucket",
+            "rds_instance",
+            "rds_cluster",
+            "dynamodb_table",
+            "sqs_queue"
+          ]
+        },
+        "pass_when_text": "Como el test de Vanta \"Inventory list tracks resources that contain user data\": al menos un bucket de S3, instancia o cluster de RDS, tabla de DynamoDB o cola de SQS tiene el tag VantaContainsUserData=true (sin distinguir mayúsculas). Si ninguno lo tiene, falla una fila de cuenta (resource_id account, severidad alta). Los almacenes sin el tag, o con un valor que no es true ni false, se informan además de a uno, con severidad baja (detail.reason \"sin clasificar\"): no rompen el test de Vanta pero dejan el inventario sin decidir. Los almacenes con true o false pasan. Sin almacenes de datos en el alcance el resultado es N/A (vacío), nunca PASS. Los tags salen del inventario (EC2, RDS, EFS...) y de la Resource Groups Tagging API (get-resources) en cada región habilitada: S3, DynamoDB, SQS, Lambda, KMS y otros se listan sin tags. Un recurso que la Resource Groups Tagging API no devuelve se trata como sin tags; el servicio tiene consistencia eventual, así que un tag recién puesto puede tardar unos minutos en verse. Si el rol del auditor no tiene tag:GetResources el chequeo queda NO_VERIFICADO con ese permiso. ",
+        "needs": [
+          "tag:GetResources"
+        ]
+      },
+      "vault_signals": [
+        "datos de usuario",
+        "VantaContainsUserData",
+        "clasificación de datos",
+        "datos personales",
+        "inventario de datos",
+        "contiene datos de clientes"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "Inventory list tracks resources that contain user data",
+            "source": "https://help.vanta.com/en/articles/11345540-resolve-inventory-list-tracks-resources-that-contain-user-data-test"
+          }
+        ],
+        "tsc_inferred": [
+          "CC6.1"
+        ],
+        "iso_inferred": [
+          "A.5.9"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir qué almacenes de datos guardan datos de usuarios o clientes (para el hallazgo de cuenta, empezar por uno, por ejemplo {resource_id}); para uno sin clasificar, decidir true o false.",
+          "Poner el tag VantaContainsUserData con ese valor.",
+          "Verificar el tag y esperar a la próxima sincronización de Vanta."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRESOURCE_ARN=\"{resource_arn}\"\nCONTAINS_USER_DATA=\"__COMPLETAR_TRUE_O_FALSE__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"VantaContainsUserData=$CONTAINS_USER_DATA\" --region \"$REGION\""
+        ],
+        "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"{resource_arn}\" --region \"{region}\" --query 'ResourceTagMappingList[].Tags[?Key==`VantaContainsUserData`]'",
+        "notes": "{resource_arn} es el ARN del recurso {resource_id}, tomado del inventario. tag-resources agrega o pisa solo los tags indicados y deja el resto (put-bucket-tagging de S3 reemplaza todos). Para un bucket de S3 usar la región del bucket en REGION. Sin downtime. Para la fila de cuenta ({resource_arn} y {resource_id} no existen: es un hallazgo de toda la cuenta) elegir en el inventario el almacén que guarda datos de usuarios y usar su ARN. Reemplazar __COMPLETAR_TRUE_O_FALSE__ por true o false según lo que guarde el recurso: no marcar true o false por comodidad. La documentación de Vanta escribe el valor de forma ambigua (True/0, False/1); usar true o false en minúsculas. Para describir qué datos guarda el recurso Vanta ofrece además VantaUserDataStored (texto libre), que este chequeo no exige."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345627-bulk-tags",
+        "https://help.vanta.com/en/articles/11345540-resolve-inventory-list-tracks-resources-that-contain-user-data-test",
+        "https://docs.aws.amazon.com/resourcegroupstagging/latest/APIReference/overview.html"
+      ]
+    },
+    {
+      "id": "INV-003",
+      "title": "Ningún recurso con Environment de producción tiene VantaNonProd=true",
+      "scope": "resource",
+      "resource_types": [
+        "ec2_instance",
+        "ebs_volume",
+        "rds_instance",
+        "efs",
+        "asg",
+        "s3_bucket",
+        "dynamodb_table",
+        "sqs_queue",
+        "lambda_function",
+        "elbv2",
+        "eks_cluster",
+        "kms_key",
+        "log_group",
+        "cloudtrail_trail",
+        "acm_certificate"
+      ],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "tags",
+            "service": "resourcegroupstaggingapi",
+            "operation": "get-resources",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "aliases",
+            "service": "kms",
+            "operation": "list-aliases",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:nonprod_on_prod",
+        "params": {
+          "inventory_types": [
+            "ec2_instance",
+            "ebs_volume",
+            "rds_instance",
+            "efs",
+            "asg",
+            "s3_bucket",
+            "dynamodb_table",
+            "sqs_queue",
+            "lambda_function",
+            "elbv2",
+            "eks_cluster",
+            "kms_key",
+            "log_group",
+            "cloudtrail_trail",
+            "acm_certificate"
+          ]
+        },
+        "pass_when_text": "Ningún recurso con el tag Environment igual a prod o production (sin distinguir mayúsculas) tiene el tag VantaNonProd igual a true (sin distinguir mayúsculas). VantaNonProd=true saca el recurso de todos los tests de Vanta: en un recurso de producción oculta al auditor justo lo que más importa. Los recursos sin Environment, o con otro valor, no se evalúan y pasan. Las claves KMS administradas por AWS (las que tienen un alias alias/aws/...) no se pueden etiquetar: no se evalúan (N/A); el alias se lee con kms:ListAliases. Los tags salen del inventario (EC2, RDS, EFS...) y de la Resource Groups Tagging API (get-resources) en cada región habilitada: S3, DynamoDB, SQS, Lambda, KMS y otros se listan sin tags. Un recurso que la Resource Groups Tagging API no devuelve se trata como sin tags; el servicio tiene consistencia eventual, así que un tag recién puesto puede tardar unos minutos en verse. Si el rol del auditor no tiene tag:GetResources el chequeo queda NO_VERIFICADO con ese permiso. ",
+        "needs": [
+          "tag:GetResources",
+          "kms:ListAliases"
+        ]
+      },
+      "vault_signals": [
+        "no productivo",
+        "VantaNonProd",
+        "alcance de Vanta",
+        "recurso fuera de alcance",
+        "ambiente de producción",
+        "scoping"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC6.1"
+        ],
+        "iso_inferred": [
+          "A.5.9"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Confirmar con el equipo que {resource_id} es realmente de producción (si es de staging o desarrollo, corregir el tag Environment).",
+          "Quitar el tag VantaNonProd, o ponerlo en false, para que el recurso vuelva al alcance de los tests de Vanta.",
+          "Revisar en Vanta los tests nuevos que empiezan a aplicar al recurso."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRESOURCE_ARN=\"{resource_arn}\"\naws resourcegroupstaggingapi untag-resources --resource-arn-list \"$RESOURCE_ARN\" --tag-keys VantaNonProd --region \"$REGION\""
+        ],
+        "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"{resource_arn}\" --region \"{region}\" --query 'ResourceTagMappingList[].Tags[?Key==`VantaNonProd`]'",
+        "notes": "ADVERTENCIA: untag-resources elimina el tag VantaNonProd del recurso y lo mete en el alcance de Vanta; decidirlo antes de correr el comando. {resource_arn} es el ARN del recurso {resource_id}, tomado del inventario. tag-resources agrega o pisa solo los tags indicados y deja el resto (put-bucket-tagging de S3 reemplaza todos). Para un bucket de S3 usar la región del bucket en REGION. Sin downtime, pero el recurso entra al alcance de Vanta: pueden aparecer tests en rojo que antes no se evaluaban. Si el recurso es de verdad no productivo, la corrección es el tag Environment, no VantaNonProd. Vanta lo documenta como alcance visible para los auditores (ven qué se sacó del alcance)."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345627-bulk-tags",
+        "https://help.vanta.com/en/articles/11345392-custom-inventory-tags",
+        "https://docs.aws.amazon.com/resourcegroupstagging/latest/APIReference/overview.html"
+      ]
+    },
+    {
+      "id": "INV-004",
+      "title": "Los recursos de inventario tienen los tags organizacionales (por defecto Project, Environment y Owner)",
+      "scope": "resource",
+      "resource_types": [
+        "ec2_instance",
+        "ebs_volume",
+        "rds_instance",
+        "efs",
+        "asg",
+        "s3_bucket",
+        "dynamodb_table",
+        "sqs_queue",
+        "lambda_function",
+        "elbv2",
+        "eks_cluster",
+        "kms_key",
+        "log_group",
+        "cloudtrail_trail",
+        "acm_certificate"
+      ],
+      "all_regions": true,
+      "severity": "low",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "tags",
+            "service": "resourcegroupstaggingapi",
+            "operation": "get-resources",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "aliases",
+            "service": "kms",
+            "operation": "list-aliases",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:tags_present",
+        "params": {
+          "keys": [
+            "Project",
+            "Environment",
+            "Owner"
+          ],
+          "inventory_types": [
+            "ec2_instance",
+            "ebs_volume",
+            "rds_instance",
+            "efs",
+            "asg",
+            "s3_bucket",
+            "dynamodb_table",
+            "sqs_queue",
+            "lambda_function",
+            "elbv2",
+            "eks_cluster",
+            "kms_key",
+            "log_group",
+            "cloudtrail_trail",
+            "acm_certificate"
+          ]
+        },
+        "pass_when_text": "Todo recurso de los tipos del inventario tiene cada tag de params.keys (por defecto Project, Environment y Owner) con un valor no vacío. Falla uno por recurso y detail.missing lista las claves que faltan. Las claves son configurables en params.keys: ni Drata ni Vanta fijan estos nombres, es higiene de inventario y de costos. Las claves KMS administradas por AWS (las que tienen un alias alias/aws/...) no se pueden etiquetar: no se evalúan (N/A); el alias se lee con kms:ListAliases. Los tags salen del inventario (EC2, RDS, EFS...) y de la Resource Groups Tagging API (get-resources) en cada región habilitada: S3, DynamoDB, SQS, Lambda, KMS y otros se listan sin tags. Un recurso que la Resource Groups Tagging API no devuelve se trata como sin tags; el servicio tiene consistencia eventual, así que un tag recién puesto puede tardar unos minutos en verse. Si el rol del auditor no tiene tag:GetResources el chequeo queda NO_VERIFICADO con ese permiso. ",
+        "needs": [
+          "tag:GetResources",
+          "kms:ListAliases"
+        ]
+      },
+      "vault_signals": [
+        "tags",
+        "etiquetas",
+        "Project",
+        "Environment",
+        "Owner",
+        "convención de tags",
+        "etiquetado de recursos"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC6.1"
+        ],
+        "iso_inferred": [
+          "A.5.9"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Acordar con el equipo los valores de Project, Environment y Owner para {resource_id} (adaptar los comandos si el chequeo usa otras claves).",
+          "Poner los tags con tag-resources.",
+          "Verificar los tags."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRESOURCE_ARN=\"{resource_arn}\"\nPROJECT=\"__COMPLETAR_PROJECT__\"\nENVIRONMENT=\"__COMPLETAR_ENVIRONMENT__\"\nOWNER=\"__COMPLETAR_OWNER__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"Project=$PROJECT,Environment=$ENVIRONMENT,Owner=$OWNER\" --region \"$REGION\""
+        ],
+        "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"{resource_arn}\" --region \"{region}\" --query 'ResourceTagMappingList[].Tags'",
+        "notes": "{resource_arn} es el ARN del recurso {resource_id}, tomado del inventario. tag-resources agrega o pisa solo los tags indicados y deja el resto (put-bucket-tagging de S3 reemplaza todos). Para un bucket de S3 usar la región del bucket en REGION. Sin downtime. Los valores con comas rompen la sintaxis abreviada de --tags: usar JSON si hace falta. Environment debería usar prod o production en producción, porque INV-003 y DAT-002 leen ese valor. Si params.keys cambia, ajustar el comando a las claves nuevas."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/whitepapers/latest/tagging-best-practices/tagging-best-practices.html",
+        "https://docs.aws.amazon.com/resourcegroupstagging/latest/APIReference/overview.html"
+      ]
+    }
+  ]
+}

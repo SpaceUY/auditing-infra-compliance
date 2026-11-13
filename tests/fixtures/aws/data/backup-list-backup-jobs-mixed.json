@@ -1,0 +1,52 @@
+{
+  "BackupJobs": [
+    {
+      "BackupJobId": "1a",
+      "ResourceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-db",
+      "State": "COMPLETED",
+      "CreationDate": "2026-11-12T05:10:00+00:00",
+      "BackupVaultName": "acme-notes-vault",
+      "StatusMessage": null
+    },
+    {
+      "BackupJobId": "1b",
+      "ResourceArn": "arn:aws:dynamodb:us-east-1:111122223333:table/acme-notes-sessions",
+      "State": "FAILED",
+      "CreationDate": "2026-11-12T05:11:00+00:00",
+      "BackupVaultName": "acme-notes-vault",
+      "StatusMessage": "Insufficient IAM permissions"
+    },
+    {
+      "BackupJobId": "1c",
+      "ResourceArn": "arn:aws:dynamodb:us-east-1:111122223333:table/acme-notes-sessions",
+      "State": "COMPLETED",
+      "CreationDate": "2026-11-12T08:11:00+00:00",
+      "BackupVaultName": "acme-notes-vault",
+      "StatusMessage": null
+    },
+    {
+      "BackupJobId": "1d",
+      "ResourceArn": "arn:aws:elasticfilesystem:us-east-1:111122223333:file-system/fs-0a1b2c3d4e5f60718",
+      "State": "FAILED",
+      "CreationDate": "2026-11-12T05:12:00+00:00",
+      "BackupVaultName": "acme-notes-quiet",
+      "StatusMessage": "Insufficient IAM permissions"
+    },
+    {
+      "BackupJobId": "1e",
+      "ResourceArn": "arn:aws:elasticfilesystem:us-east-1:111122223333:file-system/fs-0a1b2c3d4e5f60718",
+      "State": "EXPIRED",
+      "CreationDate": "2026-11-12T06:12:00+00:00",
+      "BackupVaultName": "acme-notes-quiet",
+      "StatusMessage": null
+    },
+    {
+      "BackupJobId": "1f",
+      "ResourceArn": "arn:aws:rds:us-east-1:111122223333:db:acme-notes-db",
+      "State": "FAILED",
+      "CreationDate": "2026-11-05T05:10:00+00:00",
+      "BackupVaultName": "acme-notes-vault",
+      "StatusMessage": "Insufficient IAM permissions"
+    }
+  ]
+}

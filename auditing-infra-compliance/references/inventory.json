@@ -1,0 +1,379 @@
+{
+  "ec2_instance": {
+    "service": "ec2",
+    "operation": "describe-instances",
+    "args": [
+      "--filters",
+      "Name=instance-state-name,Values=pending,running,stopping,stopped"
+    ],
+    "region": "each",
+    "items_path": "Reservations[].Instances[]",
+    "id_path": "InstanceId",
+    "name_path": "",
+    "tags_path": "Tags[]",
+    "arn_path": ""
+  },
+  "ebs_volume": {
+    "service": "ec2",
+    "operation": "describe-volumes",
+    "args": [],
+    "region": "each",
+    "items_path": "Volumes[]",
+    "id_path": "VolumeId",
+    "name_path": "",
+    "tags_path": "Tags[]",
+    "arn_path": ""
+  },
+  "security_group": {
+    "service": "ec2",
+    "operation": "describe-security-groups",
+    "args": [],
+    "region": "each",
+    "items_path": "SecurityGroups[]",
+    "id_path": "GroupId",
+    "name_path": "GroupName",
+    "tags_path": "Tags[]",
+    "arn_path": ""
+  },
+  "nacl": {
+    "service": "ec2",
+    "operation": "describe-network-acls",
+    "args": [],
+    "region": "each",
+    "items_path": "NetworkAcls[]",
+    "id_path": "NetworkAclId",
+    "name_path": "",
+    "tags_path": "Tags[]",
+    "arn_path": ""
+  },
+  "vpc": {
+    "service": "ec2",
+    "operation": "describe-vpcs",
+    "args": [],
+    "region": "each",
+    "items_path": "Vpcs[]",
+    "id_path": "VpcId",
+    "name_path": "",
+    "tags_path": "Tags[]",
+    "arn_path": ""
+  },
+  "subnet": {
+    "service": "ec2",
+    "operation": "describe-subnets",
+    "args": [],
+    "region": "each",
+    "items_path": "Subnets[]",
+    "id_path": "SubnetId",
+    "name_path": "",
+    "tags_path": "Tags[]",
+    "arn_path": "SubnetArn"
+  },
+  "rds_instance": {
+    "service": "rds",
+    "operation": "describe-db-instances",
+    "args": [],
+    "region": "each",
+    "items_path": "DBInstances[]",
+    "id_path": "DBInstanceIdentifier",
+    "name_path": "",
+    "tags_path": "TagList[]",
+    "arn_path": "DBInstanceArn"
+  },
+  "rds_cluster": {
+    "service": "rds",
+    "operation": "describe-db-clusters",
+    "args": [],
+    "region": "each",
+    "items_path": "DBClusters[]",
+    "id_path": "DBClusterIdentifier",
+    "name_path": "",
+    "tags_path": "TagList[]",
+    "arn_path": "DBClusterArn"
+  },
+  "s3_bucket": {
+    "service": "s3api",
+    "operation": "list-buckets",
+    "args": [],
+    "region": "global",
+    "items_path": "Buckets[]",
+    "id_path": "Name",
+    "name_path": "Name",
+    "tags_path": "",
+    "arn_path": ""
+  },
+  "dynamodb_table": {
+    "service": "dynamodb",
+    "operation": "list-tables",
+    "args": [],
+    "region": "each",
+    "items_path": "TableNames[]",
+    "id_path": ".",
+    "name_path": ".",
+    "tags_path": "",
+    "arn_path": ""
+  },
+  "efs": {
+    "service": "efs",
+    "operation": "describe-file-systems",
+    "args": [],
+    "region": "each",
+    "items_path": "FileSystems[]",
+    "id_path": "FileSystemId",
+    "name_path": "Name",
+    "tags_path": "Tags[]",
+    "arn_path": "FileSystemArn"
+  },
+  "elbv2": {
+    "service": "elbv2",
+    "operation": "describe-load-balancers",
+    "args": [],
+    "region": "each",
+    "items_path": "LoadBalancers[]",
+    "id_path": "LoadBalancerName",
+    "name_path": "",
+    "tags_path": "",
+    "arn_path": "LoadBalancerArn"
+  },
+  "asg": {
+    "service": "autoscaling",
+    "operation": "describe-auto-scaling-groups",
+    "args": [],
+    "region": "each",
+    "items_path": "AutoScalingGroups[]",
+    "id_path": "AutoScalingGroupName",
+    "name_path": "",
+    "tags_path": "Tags[]",
+    "arn_path": "AutoScalingGroupARN"
+  },
+  "launch_template": {
+    "service": "ec2",
+    "operation": "describe-launch-templates",
+    "args": [],
+    "region": "each",
+    "items_path": "LaunchTemplates[]",
+    "id_path": "LaunchTemplateId",
+    "name_path": "LaunchTemplateName",
+    "tags_path": "Tags[]",
+    "arn_path": ""
+  },
+  "lambda_function": {
+    "service": "lambda",
+    "operation": "list-functions",
+    "args": [],
+    "region": "each",
+    "items_path": "Functions[]",
+    "id_path": "FunctionName",
+    "name_path": "",
+    "tags_path": "",
+    "arn_path": "FunctionArn"
+  },
+  "sqs_queue": {
+    "service": "sqs",
+    "operation": "list-queues",
+    "args": [],
+    "region": "each",
+    "items_path": "QueueUrls[]",
+    "id_path": ".",
+    "name_path": ".",
+    "tags_path": "",
+    "arn_path": ""
+  },
+  "sns_topic": {
+    "service": "sns",
+    "operation": "list-topics",
+    "args": [],
+    "region": "each",
+    "items_path": "Topics[]",
+    "id_path": "TopicArn",
+    "name_path": "",
+    "tags_path": "",
+    "arn_path": "TopicArn"
+  },
+  "kms_key": {
+    "service": "kms",
+    "operation": "list-keys",
+    "args": [],
+    "region": "each",
+    "items_path": "Keys[]",
+    "id_path": "KeyId",
+    "name_path": "",
+    "tags_path": "",
+    "arn_path": "KeyArn"
+  },
+  "log_group": {
+    "service": "logs",
+    "operation": "describe-log-groups",
+    "args": [],
+    "region": "each",
+    "items_path": "logGroups[]",
+    "id_path": "logGroupName",
+    "name_path": "logGroupName",
+    "tags_path": "",
+    "arn_path": "arn"
+  },
+  "cloudtrail_trail": {
+    "service": "cloudtrail",
+    "operation": "describe-trails",
+    "args": [
+      "--no-include-shadow-trails"
+    ],
+    "region": "each",
+    "items_path": "trailList[]",
+    "id_path": "Name",
+    "name_path": "Name",
+    "tags_path": "",
+    "arn_path": "TrailARN"
+  },
+  "iam_user": {
+    "service": "iam",
+    "operation": "list-users",
+    "args": [],
+    "region": "global",
+    "items_path": "Users[]",
+    "id_path": "UserName",
+    "name_path": "UserName",
+    "tags_path": "Tags[]",
+    "arn_path": "Arn"
+  },
+  "iam_role": {
+    "service": "iam",
+    "operation": "list-roles",
+    "args": [],
+    "region": "global",
+    "items_path": "Roles[]",
+    "id_path": "RoleName",
+    "name_path": "RoleName",
+    "tags_path": "Tags[]",
+    "arn_path": "Arn"
+  },
+  "eks_cluster": {
+    "service": "eks",
+    "operation": "list-clusters",
+    "args": [],
+    "region": "each",
+    "items_path": "clusters[]",
+    "id_path": ".",
+    "name_path": ".",
+    "tags_path": "",
+    "arn_path": ""
+  },
+  "elasticache_group": {
+    "service": "elasticache",
+    "operation": "describe-replication-groups",
+    "args": [],
+    "region": "each",
+    "items_path": "ReplicationGroups[]",
+    "id_path": "ReplicationGroupId",
+    "name_path": "",
+    "tags_path": "",
+    "arn_path": "ARN"
+  },
+  "ses_identity": {
+    "service": "sesv2",
+    "operation": "list-email-identities",
+    "args": [],
+    "region": "each",
+    "items_path": "EmailIdentities[]",
+    "id_path": "IdentityName",
+    "name_path": "IdentityName",
+    "tags_path": "",
+    "arn_path": ""
+  },
+  "wafv2_web_acl": {
+    "service": "wafv2",
+    "operation": "list-web-acls",
+    "args": [
+      "--scope",
+      "REGIONAL"
+    ],
+    "region": "each",
+    "items_path": "WebACLs[]",
+    "id_path": "Name",
+    "name_path": "Name",
+    "tags_path": "",
+    "arn_path": "ARN"
+  },
+  "acm_certificate": {
+    "service": "acm",
+    "operation": "list-certificates",
+    "args": [
+      "--includes",
+      "keyTypes=RSA_1024,RSA_2048,RSA_3072,RSA_4096,EC_prime256v1,EC_secp384r1,EC_secp521r1"
+    ],
+    "region": "each",
+    "items_path": "CertificateSummaryList[]",
+    "id_path": "CertificateArn",
+    "name_path": "DomainName",
+    "tags_path": "",
+    "arn_path": "CertificateArn"
+  },
+  "secret": {
+    "service": "secretsmanager",
+    "operation": "list-secrets",
+    "args": [],
+    "region": "each",
+    "items_path": "SecretList[]",
+    "id_path": "Name",
+    "name_path": "Name",
+    "tags_path": "Tags[]",
+    "arn_path": "ARN"
+  },
+  "apigw_rest_api": {
+    "service": "apigateway",
+    "operation": "get-rest-apis",
+    "args": [],
+    "region": "each",
+    "items_path": "items[]",
+    "id_path": "id",
+    "name_path": "name",
+    "tags_path": "tags",
+    "arn_path": ""
+  },
+  "apigw_http_api": {
+    "service": "apigatewayv2",
+    "operation": "get-apis",
+    "args": [],
+    "region": "each",
+    "items_path": "Items[]",
+    "id_path": "ApiId",
+    "name_path": "Name",
+    "tags_path": "Tags",
+    "arn_path": ""
+  },
+  "cloudfront_distribution": {
+    "service": "cloudfront",
+    "operation": "list-distributions",
+    "args": [],
+    "region": "global",
+    "items_path": "DistributionList.Items[]",
+    "id_path": "Id",
+    "name_path": "DomainName",
+    "tags_path": "",
+    "arn_path": "ARN"
+  },
+  "wafv2_web_acl_cloudfront": {
+    "service": "wafv2",
+    "operation": "list-web-acls",
+    "args": [
+      "--scope",
+      "CLOUDFRONT"
+    ],
+    "region": "global",
+    "items_path": "WebACLs[]",
+    "id_path": "Name",
+    "name_path": "Name",
+    "tags_path": "",
+    "arn_path": "ARN"
+  },
+  "backup_vault": {
+    "service": "backup",
+    "operation": "list-backup-vaults",
+    "args": [],
+    "region": "each",
+    "items_path": "BackupVaultList[]",
+    "id_path": "BackupVaultName",
+    "name_path": "BackupVaultName",
+    "tags_path": "",
+    "arn_path": "BackupVaultArn"
+  }
+}

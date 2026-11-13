@@ -1,0 +1,321 @@
+{
+  "MetricAlarms": [
+    {
+      "AlarmName": "acme-notes-db-CPUUtilization",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-db-CPUUtilization",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/RDS",
+      "MetricName": "CPUUtilization",
+      "Dimensions": [
+        {
+          "Name": "DBInstanceIdentifier",
+          "Value": "acme-notes-db"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-db-FreeStorageSpace",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-db-FreeStorageSpace",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/RDS",
+      "MetricName": "FreeStorageSpace",
+      "Dimensions": [
+        {
+          "Name": "DBInstanceIdentifier",
+          "Value": "acme-notes-db"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-db-ReadIOPS",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-db-ReadIOPS",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/RDS",
+      "MetricName": "ReadIOPS",
+      "Dimensions": [
+        {
+          "Name": "DBInstanceIdentifier",
+          "Value": "acme-notes-db"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-db-WriteIOPS",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-db-WriteIOPS",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/RDS",
+      "MetricName": "WriteIOPS",
+      "Dimensions": [
+        {
+          "Name": "DBInstanceIdentifier",
+          "Value": "acme-notes-db"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-db-FreeableMemory",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-db-FreeableMemory",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/RDS",
+      "MetricName": "FreeableMemory",
+      "Dimensions": [
+        {
+          "Name": "DBInstanceIdentifier",
+          "Value": "acme-notes-db"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-web-cpu",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-web-cpu",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/EC2",
+      "MetricName": "CPUUtilization",
+      "Dimensions": [
+        {
+          "Name": "AutoScalingGroupName",
+          "Value": "acme-notes-web"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-solo-cpu",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-solo-cpu",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/EC2",
+      "MetricName": "CPUUtilization",
+      "Dimensions": [
+        {
+          "Name": "InstanceId",
+          "Value": "i-0b2c3d4e5f6071829"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-alb-5xx",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-alb-5xx",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/ApplicationELB",
+      "MetricName": "HTTPCode_Target_5XX_Count",
+      "Dimensions": [
+        {
+          "Name": "LoadBalancer",
+          "Value": "app/acme-notes-alb/50dc6c495c0c9188"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-alb-unhealthy",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-alb-unhealthy",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/ApplicationELB",
+      "MetricName": "UnHealthyHostCount",
+      "Dimensions": [
+        {
+          "Name": "TargetGroup",
+          "Value": "targetgroup/acme-notes-web/73e2d6bc24d8a067"
+        },
+        {
+          "Name": "LoadBalancer",
+          "Value": "app/acme-notes-alb/50dc6c495c0c9188"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-alb-latency",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-alb-latency",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/ApplicationELB",
+      "MetricName": "TargetResponseTime",
+      "Dimensions": [
+        {
+          "Name": "LoadBalancer",
+          "Value": "app/acme-notes-alb/50dc6c495c0c9188"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-jobs-age",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-jobs-age",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/SQS",
+      "MetricName": "ApproximateAgeOfOldestMessage",
+      "Dimensions": [
+        {
+          "Name": "QueueName",
+          "Value": "acme-notes-jobs"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-resizer-errors",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-resizer-errors",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/Lambda",
+      "MetricName": "Errors",
+      "Dimensions": [
+        {
+          "Name": "FunctionName",
+          "Value": "acme-notes-resizer"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    },
+    {
+      "AlarmName": "acme-notes-cache-memory",
+      "AlarmArn": "arn:aws:cloudwatch:us-east-1:111122223333:alarm:acme-notes-cache-memory",
+      "ActionsEnabled": true,
+      "AlarmActions": [
+        "arn:aws:sns:us-east-1:111122223333:acme-notes-alerts"
+      ],
+      "OKActions": [],
+      "InsufficientDataActions": [],
+      "Namespace": "AWS/ElastiCache",
+      "MetricName": "DatabaseMemoryUsagePercentage",
+      "Dimensions": [
+        {
+          "Name": "CacheClusterId",
+          "Value": "acme-notes-cache-0001-001"
+        }
+      ],
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 3,
+      "Threshold": 80.0,
+      "ComparisonOperator": "GreaterThanThreshold",
+      "StateValue": "OK"
+    }
+  ],
+  "CompositeAlarms": []
+}

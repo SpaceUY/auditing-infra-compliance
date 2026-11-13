@@ -1,0 +1,20 @@
+[
+  {
+    "finding_id": "F-0006",
+    "status": "REVISAR",
+    "message": "El bucket acme-notes-uploads lo usa el servicio de adjuntos según systems/Uploads Bucket.md.",
+    "vault_note": "systems/Uploads Bucket.md"
+  },
+  {
+    "finding_id": "F-0003",
+    "status": "OK",
+    "message": "Sin dependencias en el vault.",
+    "vault_note": null
+  },
+  {
+    "finding_id": "F-0001",
+    "status": "CONFLICTO",
+    "message": "El bastión de acme-notes entra por SSH desde la oficina según runbooks/Acceso.md.",
+    "vault_note": "runbooks/Acceso.md"
+  }
+]

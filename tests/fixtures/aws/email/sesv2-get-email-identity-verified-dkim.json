@@ -1,0 +1,21 @@
+{
+  "IdentityType": "DOMAIN",
+  "FeedbackForwardingStatus": true,
+  "VerifiedForSendingStatus": true,
+  "DkimAttributes": {
+    "SigningEnabled": true,
+    "Status": "SUCCESS",
+    "Tokens": [
+      "tok1",
+      "tok2",
+      "tok3"
+    ],
+    "SigningAttributesOrigin": "AWS_SES"
+  },
+  "MailFromAttributes": {
+    "BehaviorOnMxFailure": "USE_DEFAULT_VALUE"
+  },
+  "Policies": {},
+  "Tags": [],
+  "ConfigurationSetName": "acme-notes-transactional"
+}

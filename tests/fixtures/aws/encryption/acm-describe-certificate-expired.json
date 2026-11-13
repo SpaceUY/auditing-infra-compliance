@@ -1,0 +1,13 @@
+{
+  "Certificate": {
+    "CertificateArn": "arn:aws:acm:us-east-1:111122223333:certificate/8b9c0d1e-2f3a-4b4c-9d5e-6f7a8b9c0d1e",
+    "DomainName": "app.acme-notes.example",
+    "Status": "ISSUED",
+    "Type": "IMPORTED",
+    "InUseBy": [
+      "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/acme-notes-alb/50dc6c495c0c9188"
+    ],
+    "NotBefore": "2019-01-01T00:00:00+00:00",
+    "NotAfter": "2020-01-01T00:00:00+00:00"
+  }
+}

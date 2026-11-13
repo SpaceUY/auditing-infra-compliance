@@ -1,0 +1,1134 @@
+{
+  "domain": "logging",
+  "checks": [
+    {
+      "id": "LOG-001",
+      "title": "Existe un trail de CloudTrail multi-región y está registrando (IsLogging=true)",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [
+        "cloudtrail_trail"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "trails",
+            "service": "cloudtrail",
+            "operation": "describe-trails",
+            "args": [],
+            "region": "global"
+          },
+          {
+            "name": "status",
+            "service": "cloudtrail",
+            "operation": "get-trail-status",
+            "args": [],
+            "region": "global",
+            "for_each": {
+              "from": "trails",
+              "path": "trailList[].TrailARN",
+              "arg": "--name"
+            }
+          }
+        ],
+        "evaluator": "python:cloudtrail_active",
+        "pass_when_text": "Hay al menos un trail multi-región con IsLogging=true. Un trail que existe pero está detenido no registra nada y falla.",
+        "needs": [
+          "cloudtrail:DescribeTrails",
+          "cloudtrail:GetTrailStatus"
+        ]
+      },
+      "vault_signals": [
+        "CloudTrail",
+        "trail multi-región",
+        "auditoría de la API",
+        "registro de actividad de la cuenta"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "CloudTrail is enabled in all regions",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [
+          "CC7.2"
+        ],
+        "iso_inferred": [
+          "A.8.15"
+        ],
+        "security_hub": [
+          "CloudTrail.1"
+        ],
+        "cis_aws": [
+          "3.1"
+        ]
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el nombre del trail y el bucket de S3 donde se guardan los logs (un bucket exclusivo para logs, con versionado y una bucket policy que permita escribir a CloudTrail; ver LOG-006).",
+          "Si no existe ningún trail, crear uno multi-región con validación de archivos y arrancarlo con start-logging.",
+          "Si el trail ya existe pero está detenido, volver a arrancarlo con start-logging.",
+          "Confirmar con get-trail-status que IsLogging es true y que no hay errores de entrega."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTRAIL_NAME=\"__COMPLETAR_NOMBRE_TRAIL__\"\nLOG_BUCKET=\"__COMPLETAR_BUCKET_LOGS__\"\n# create-trail no arranca el registro: start-logging solo corre si el trail se creó bien\naws cloudtrail create-trail --name \"$TRAIL_NAME\" --s3-bucket-name \"$LOG_BUCKET\" --is-multi-region-trail --include-global-service-events --enable-log-file-validation --region \"$REGION\" && aws cloudtrail start-logging --name \"$TRAIL_NAME\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTRAIL_NAME=\"__COMPLETAR_NOMBRE_TRAIL__\"\n# solo si el trail ya existe y está detenido\naws cloudtrail start-logging --name \"$TRAIL_NAME\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudtrail get-trail-status --name \"__COMPLETAR_NOMBRE_TRAIL__\" --region \"{region}\"",
+        "notes": "El bucket debe tener antes la bucket policy que permite a cloudtrail.amazonaws.com escribir; sin ella create-trail falla con InsufficientS3BucketPolicyException. La primera copia de eventos de administración es gratis; trails adicionales y data events se cobran. Decisión: nombre del trail y bucket de destino. Si el trail ya existe con otro nombre, usar el segundo bloque."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cloudtrail-controls.html",
+        "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-create-and-update-a-trail.html"
+      ]
+    },
+    {
+      "id": "LOG-002",
+      "title": "Los trails tienen la validación de integridad de archivos de log habilitada",
+      "scope": "resource",
+      "resource_types": [
+        "cloudtrail_trail"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "trails",
+            "service": "cloudtrail",
+            "operation": "describe-trails",
+            "args": [
+              "--no-include-shadow-trails"
+            ],
+            "region": "each"
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "trailList[?LogFileValidationEnabled!=`true`].{resource_id: Name, detail: {LogFileValidationEnabled: LogFileValidationEnabled}}",
+        "pass_when_text": "Todos los trails tienen LogFileValidationEnabled=true.",
+        "needs": [
+          "cloudtrail:DescribeTrails"
+        ]
+      },
+      "vault_signals": [
+        "validación de logs",
+        "integridad de CloudTrail",
+        "log file validation",
+        "digest"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 205,
+            "name": "CloudTrail Log File Integrity Validation Enabled",
+            "source": "https://help.drata.com/en/articles/10029049"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "CloudTrail log file validation is enabled",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "CloudTrail.4"
+        ],
+        "cis_aws": [
+          "3.2"
+        ]
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Activar la validación de integridad en el trail {resource_id}, ejecutando el comando en la región de origen del trail."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws cloudtrail update-trail --name \"{resource_id}\" --enable-log-file-validation --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudtrail describe-trails --trail-name-list \"{resource_id}\" --region \"{region}\" --query 'trailList[].LogFileValidationEnabled'",
+        "notes": "Sin downtime. CloudTrail empieza a entregar archivos de digest cada hora; los logs anteriores a este cambio no se pueden validar. Si el trail es multi-región, update-trail se corre en su región de origen (HomeRegion)."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/10029049",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cloudtrail-controls.html"
+      ]
+    },
+    {
+      "id": "LOG-003",
+      "title": "Los trails están cifrados con una clave KMS gestionada por el cliente (CMK)",
+      "scope": "resource",
+      "resource_types": [
+        "cloudtrail_trail"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "trails",
+            "service": "cloudtrail",
+            "operation": "describe-trails",
+            "args": [
+              "--no-include-shadow-trails"
+            ],
+            "region": "each"
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "trailList[?!KmsKeyId].{resource_id: Name, detail: {HomeRegion: HomeRegion}}",
+        "pass_when_text": "Todos los trails tienen KmsKeyId. Sin KmsKeyId los logs solo usan el cifrado por defecto de S3, que no cumple.",
+        "needs": [
+          "cloudtrail:DescribeTrails"
+        ]
+      },
+      "vault_signals": [
+        "cifrado de CloudTrail",
+        "KMS",
+        "CMK",
+        "clave gestionada por el cliente"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 222,
+            "name": "AWS CloudTrail Logs Encrypted",
+            "source": "https://help.drata.com/en/articles/9828725"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "CloudTrail logs are encrypted with KMS customer-managed keys",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "CloudTrail.2"
+        ],
+        "cis_aws": [
+          "3.5"
+        ]
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Elegir o crear una clave KMS gestionada por el cliente en la misma región del bucket de logs, con una key policy que permita a cloudtrail.amazonaws.com usar GenerateDataKey y DescribeKey, y a quienes leen los logs usar Decrypt.",
+          "Activar la rotación anual de la clave.",
+          "Asociar la clave al trail {resource_id} con update-trail.",
+          "Verificar con get-trail-status que el trail sigue entregando logs (sin LatestDeliveryError)."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTRAIL_NAME=\"{resource_id}\"\nKMS_KEY_ARN=\"__COMPLETAR_KMS_KEY_ARN__\"\naws kms enable-key-rotation --key-id \"$KMS_KEY_ARN\" --region \"$REGION\"\naws cloudtrail update-trail --name \"$TRAIL_NAME\" --kms-key-id \"$KMS_KEY_ARN\" --region \"$REGION\""
+        ],
+        "verify_after": "aws cloudtrail describe-trails --trail-name-list \"{resource_id}\" --region \"{region}\" --query 'trailList[].KmsKeyId'",
+        "notes": "Si la key policy no permite a CloudTrail, update-trail falla con InsufficientEncryptionPolicyException y no cambia nada. Con la clave aplicada, quien lea los logs necesita kms:Decrypt. Drata 222 exige una CMK propia (no vale el cifrado por defecto de S3) y que esté en la misma región que el bucket. Costo: la clave se cobra por mes más las solicitudes."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828725",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cloudtrail-controls.html",
+        "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/encrypting-cloudtrail-log-files-with-aws-kms.html"
+      ]
+    },
+    {
+      "id": "LOG-004",
+      "title": "Un trail multi-región registra data events de S3 de lectura y de escritura",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [
+        "cloudtrail_trail"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "trails",
+            "service": "cloudtrail",
+            "operation": "describe-trails",
+            "args": [],
+            "region": "global"
+          },
+          {
+            "name": "selectors",
+            "service": "cloudtrail",
+            "operation": "get-event-selectors",
+            "args": [],
+            "region": "global",
+            "for_each": {
+              "from": "trails",
+              "path": "trailList[].TrailARN",
+              "arg": "--trail-name"
+            }
+          }
+        ],
+        "evaluator": "python:trail_s3_data_events",
+        "pass_when_text": "Entre los trails multi-región hay selectores de data events de S3 que cubren todos los buckets, para lectura y para escritura (clásicos o avanzados).",
+        "needs": [
+          "cloudtrail:DescribeTrails",
+          "cloudtrail:GetEventSelectors"
+        ]
+      },
+      "vault_signals": [
+        "data events",
+        "eventos de objeto",
+        "S3 object-level logging",
+        "auditoría de S3"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 226,
+            "name": "AWS S3 Object-Level Logging for Read & Write Events",
+            "source": "https://help.drata.com/en/articles/9828791"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Object-level logging is enabled for write events",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          },
+          {
+            "test": "Object-level logging is enabled for read events",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "S3.22",
+          "S3.23"
+        ],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Decidir si se registran todos los buckets (lo que el test espera) o solo los sensibles, sabiendo que los data events se cobran por evento.",
+          "Revisar los selectores actuales del trail para no perder lo que ya registra (put-event-selectors reemplaza todos).",
+          "Aplicar los selectores avanzados con eventos de administración más data events de S3 de lectura y escritura.",
+          "Verificar con get-event-selectors."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTRAIL_NAME=\"__COMPLETAR_NOMBRE_TRAIL__\"\naws cloudtrail get-event-selectors --trail-name \"$TRAIL_NAME\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTRAIL_NAME=\"__COMPLETAR_NOMBRE_TRAIL__\"\n# reemplaza TODOS los selectores del trail: sumar al JSON lo que el comando anterior mostró (Lambda, DynamoDB, etc.)\naws cloudtrail put-event-selectors --trail-name \"$TRAIL_NAME\" --region \"$REGION\" --advanced-event-selectors '[{\"Name\":\"Management events\",\"FieldSelectors\":[{\"Field\":\"eventCategory\",\"Equals\":[\"Management\"]}]},{\"Name\":\"S3 data events read and write\",\"FieldSelectors\":[{\"Field\":\"eventCategory\",\"Equals\":[\"Data\"]},{\"Field\":\"resources.type\",\"Equals\":[\"AWS::S3::Object\"]}]}]'"
+        ],
+        "verify_after": "aws cloudtrail get-event-selectors --trail-name \"__COMPLETAR_NOMBRE_TRAIL__\" --region \"{region}\"",
+        "notes": "Costo: los data events de S3 se cobran por cada 100.000 eventos y en buckets con mucho tráfico pueden ser el mayor gasto de CloudTrail. El chequeo solo cuenta selectores que cubren todos los buckets; si se decide registrar solo algunos, documentar la excepción. put-event-selectors reemplaza los selectores existentes."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828791",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/s3-controls.html",
+        "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/logging-data-events-with-cloudtrail.html"
+      ]
+    },
+    {
+      "id": "LOG-005",
+      "title": "El bucket de S3 de cada trail tiene access logging habilitado",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [
+        "cloudtrail_trail"
+      ],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "trails",
+            "service": "cloudtrail",
+            "operation": "describe-trails",
+            "args": [
+              "--no-include-shadow-trails"
+            ],
+            "region": "each"
+          },
+          {
+            "name": "bucket_logging",
+            "service": "s3api",
+            "operation": "get-bucket-logging",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "trails",
+              "path": "trailList[].S3BucketName",
+              "arg": "--bucket"
+            },
+            "ok_errors": [
+              "NoSuchBucket"
+            ],
+            "item_errors": "evaluator"
+          }
+        ],
+        "evaluator": "python:trail_bucket_logging",
+        "pass_when_text": "Todos los buckets de destino de los trails tienen LoggingEnabled (server access logging).",
+        "needs": [
+          "cloudtrail:DescribeTrails",
+          "s3:GetBucketLogging"
+        ]
+      },
+      "vault_signals": [
+        "access logging",
+        "logs de acceso del bucket",
+        "bucket de CloudTrail",
+        "server access logs"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 221,
+            "name": "AWS S3 Bucket Access Logging",
+            "source": "https://help.drata.com/en/articles/9828721"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Access logging is enabled on the CloudTrail bucket",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "CloudTrail.7"
+        ],
+        "cis_aws": [
+          "3.4"
+        ]
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el bucket que recibe los access logs: uno distinto al del trail, en la misma región y cuenta.",
+          "Dar permiso de escritura al servicio de logging de S3 (logging.s3.amazonaws.com) en la bucket policy de ese bucket destino.",
+          "Activar el access logging en el bucket del trail.",
+          "Verificar con get-bucket-logging."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTARGET_BUCKET=\"__COMPLETAR_BUCKET_ACCESS_LOGS__\"\naws s3api put-bucket-logging --bucket \"{resource_id}\" --bucket-logging-status \"{\\\"LoggingEnabled\\\":{\\\"TargetBucket\\\":\\\"$TARGET_BUCKET\\\",\\\"TargetPrefix\\\":\\\"{resource_id}/\\\"}}\""
+        ],
+        "verify_after": "aws s3api get-bucket-logging --bucket \"{resource_id}\"",
+        "notes": "put-bucket-logging falla si el bucket destino no permite a logging.s3.amazonaws.com escribir (agregar esa statement a su bucket policy, con aws:SourceAccount, conservando las que ya tiene). Los access logs se entregan con demora de horas y pueden perderse algunos registros. Costo: almacenamiento de los logs; aplicar el lifecycle de LOG-010 al bucket destino."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828721",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cloudtrail-controls.html",
+        "https://docs.aws.amazon.com/AmazonS3/latest/userguide/enable-server-access-logging.html"
+      ]
+    },
+    {
+      "id": "LOG-006",
+      "title": "El bucket de CloudTrail tiene versionado y una bucket policy que restringe por aws:SourceArn",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [
+        "cloudtrail_trail"
+      ],
+      "all_regions": true,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "trails",
+            "service": "cloudtrail",
+            "operation": "describe-trails",
+            "args": [
+              "--no-include-shadow-trails"
+            ],
+            "region": "each"
+          },
+          {
+            "name": "versioning",
+            "service": "s3api",
+            "operation": "get-bucket-versioning",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "trails",
+              "path": "trailList[].S3BucketName",
+              "arg": "--bucket"
+            },
+            "ok_errors": [
+              "NoSuchBucket"
+            ],
+            "item_errors": "evaluator"
+          },
+          {
+            "name": "policy",
+            "service": "s3api",
+            "operation": "get-bucket-policy",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "trails",
+              "path": "trailList[].S3BucketName",
+              "arg": "--bucket"
+            },
+            "ok_errors": [
+              "NoSuchBucketPolicy",
+              "NoSuchBucket"
+            ],
+            "item_errors": "evaluator"
+          }
+        ],
+        "evaluator": "python:trail_bucket_hardening",
+        "pass_when_text": "Cada bucket de destino de un trail tiene versionado Enabled y una bucket policy donde las statements de cloudtrail.amazonaws.com llevan la condición aws:SourceArn.",
+        "needs": [
+          "cloudtrail:DescribeTrails",
+          "s3:GetBucketVersioning",
+          "s3:GetBucketPolicy"
+        ]
+      },
+      "vault_signals": [
+        "bucket de CloudTrail",
+        "versionado",
+        "bucket policy de logs",
+        "protección de los logs"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC6.1",
+          "CC7.2"
+        ],
+        "iso_inferred": [
+          "A.8.15"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Habilitar el versionado en el bucket del trail para que un log sobrescrito o borrado se pueda recuperar.",
+          "Traer la policy actual del bucket a un archivo y mostrarla (segundo bloque, solo lectura): no se escribe nada hasta revisarla.",
+          "Decidir el ARN del trail y su prefijo de claves S3 (vacío si no tiene) y generar la policy fusionada (tercer bloque): agrega las statements de CloudTrail que falten y la condición aws:SourceArn a las existentes de cloudtrail.amazonaws.com, sin quitar ninguna otra statement (por ejemplo la que exige TLS).",
+          "Revisar el archivo fusionado y recién entonces aplicarlo (cuarto bloque), y verificar con get-bucket-policy."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws s3api put-bucket-versioning --bucket \"{resource_id}\" --versioning-configuration Status=Enabled",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# solo lectura: trae la policy actual a un archivo y la muestra. Si el bucket no tiene policy, escribe una vacía; ante cualquier otro error (por ejemplo AccessDenied) borra el archivo y se detiene, y el tercer bloque no puede seguir\nif aws s3api get-bucket-policy --bucket \"$BUCKET\" --query Policy --output text > \"policy-$BUCKET.json\" 2> \"policy-$BUCKET.err\"; then cat \"policy-$BUCKET.json\"; elif grep -q NoSuchBucketPolicy \"policy-$BUCKET.err\"; then echo '{\"Version\":\"2012-10-17\",\"Statement\":[]}' > \"policy-$BUCKET.json\"; echo \"el bucket no tiene policy: se parte de una vacía\"; else cat \"policy-$BUCKET.err\"; rm -f \"policy-$BUCKET.json\"; echo \"DETENIDO: no se pudo leer la policy actual; no seguir\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\nTRAIL_ARN=\"__COMPLETAR_TRAIL_ARN__\"\nTRAIL_PREFIX=\"__COMPLETAR_PREFIJO_TRAIL__\"\n# no aplica nada: fusiona con la policy actual (conserva todas las statements) y muestra el resultado. TRAIL_PREFIX es el prefijo de claves S3 del trail sin barras (cadena vacía si no tiene); en un trail de organización la ruta es AWSLogs/<id-de-organización>/*\n[ -s \"policy-$BUCKET.json\" ] || echo \"DETENIDO: falta policy-$BUCKET.json; correr antes el segundo bloque\"\npython3 -c 'import json,sys; b,arn,pre,acct=sys.argv[1:5]; assert \"__COMPLETAR_\" not in arn+pre, \"completar TRAIL_ARN y TRAIL_PREFIX\"; p=json.load(open(\"policy-\"+b+\".json\")); s=p.get(\"Statement\",[]); s=[s] if isinstance(s,dict) else s; svc=lambda x: \"cloudtrail.amazonaws.com\" in json.dumps(x.get(\"Principal\",{})); [x.setdefault(\"Condition\",{}).setdefault(\"StringEquals\",{}).setdefault(\"aws:SourceArn\",arn) for x in s if isinstance(x,dict) and x.get(\"Effect\")==\"Allow\" and svc(x)]; sids={x.get(\"Sid\") for x in s if isinstance(x,dict)}; path=(pre+\"/\" if pre else \"\")+\"AWSLogs/\"+acct+\"/*\"; s.append({\"Sid\":\"AWSCloudTrailAclCheck\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"cloudtrail.amazonaws.com\"},\"Action\":\"s3:GetBucketAcl\",\"Resource\":\"arn:aws:s3:::\"+b,\"Condition\":{\"StringEquals\":{\"aws:SourceArn\":arn}}}) if \"AWSCloudTrailAclCheck\" not in sids else None; s.append({\"Sid\":\"AWSCloudTrailWrite\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"cloudtrail.amazonaws.com\"},\"Action\":\"s3:PutObject\",\"Resource\":\"arn:aws:s3:::\"+b+\"/\"+path,\"Condition\":{\"StringEquals\":{\"s3:x-amz-acl\":\"bucket-owner-full-control\",\"aws:SourceArn\":arn}}}) if \"AWSCloudTrailWrite\" not in sids else None; p[\"Statement\"]=s; json.dump(p,open(\"policy-\"+b+\"-new.json\",\"w\"),indent=2)' \"$BUCKET\" \"$TRAIL_ARN\" \"$TRAIL_PREFIX\" \"$ACCOUNT_ID\" && cat \"policy-$BUCKET-new.json\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# put-bucket-policy REEMPLAZA la policy completa: aplicar solo el archivo fusionado y revisado (policy-$BUCKET-new.json), nunca una policy escrita a mano\naws s3api put-bucket-policy --bucket \"$BUCKET\" --policy \"file://policy-$BUCKET-new.json\""
+        ],
+        "verify_after": "aws s3api get-bucket-versioning --bucket \"{resource_id}\"",
+        "notes": "put-bucket-policy reemplaza toda la policy del bucket: por eso el arreglo la trae primero (segundo bloque), la fusiona en un archivo (tercer bloque) y solo aplica ese archivo revisado (cuarto bloque); no se pega ninguna policy fija porque perdería las statements existentes (TLS, otros trails, lectura del auditor). Decisiones: ARN del trail (__COMPLETAR_TRAIL_ARN__) y prefijo de claves S3 del trail (__COMPLETAR_PREFIJO_TRAIL__, cadena vacía si no usa prefijo): con un prefijo, la clave real es PREFIJO/AWSLogs/..., y una statement sin el prefijo rompe la entrega de logs. Si la policy ya tiene statements con otro Sid para CloudTrail, revisar el archivo fusionado: el script solo agrega las que no existen por Sid y completa la condición aws:SourceArn en las existentes de cloudtrail.amazonaws.com. Si el bucket no tiene policy, el segundo bloque escribe una policy vacía y el tercero parte de ella; ante cualquier otro error (por ejemplo AccessDenied) el segundo bloque borra el archivo y muestra DETENIDO, y el tercero no genera nada, para no pisar una policy existente. La fusión agrega la condición aws:SourceArn de ESTE trail a las statements Allow de cloudtrail.amazonaws.com existentes: si el bucket recibe logs de varios trails, revisar y ajustar el archivo fusionado antes de aplicarlo. Los comandos usan python3, que CloudShell trae instalado. El versionado se cobra por las versiones almacenadas; combinarlo con el lifecycle de LOG-010. MFA delete y Object Lock son opcionales y no los verifica este chequeo."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/welcome.html",
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/security-reference-architecture/checklist.html",
+        "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/create-s3-bucket-policy-for-cloudtrail.html",
+        "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/best-practices-security.html"
+      ]
+    },
+    {
+      "id": "LOG-007",
+      "title": "CloudTrail envía sus logs a CloudWatch Logs con metric filters CIS (root, IAM, llamadas no autorizadas)",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [
+        "cloudtrail_trail"
+      ],
+      "all_regions": true,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "trails",
+            "service": "cloudtrail",
+            "operation": "describe-trails",
+            "args": [
+              "--no-include-shadow-trails"
+            ],
+            "region": "each"
+          },
+          {
+            "name": "filters",
+            "service": "logs",
+            "operation": "describe-metric-filters",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:trail_cw_metric_filters",
+        "params": {
+          "categories": {
+            "unauthorized_api_calls": [
+              "UnauthorizedOperation",
+              "AccessDenied"
+            ],
+            "root_usage": [
+              "userIdentity.type",
+              "Root"
+            ],
+            "iam_policy_changes": [
+              "PutUserPolicy",
+              "AttachUserPolicy",
+              "CreatePolicy"
+            ]
+          }
+        },
+        "pass_when_text": "Un trail multi-región entrega a un log group de CloudWatch Logs que tiene metric filters para llamadas no autorizadas, uso del root y cambios de políticas IAM.",
+        "needs": [
+          "cloudtrail:DescribeTrails",
+          "logs:DescribeMetricFilters"
+        ]
+      },
+      "vault_signals": [
+        "metric filters",
+        "alarmas CIS",
+        "CloudTrail a CloudWatch",
+        "alertas de uso de root",
+        "monitoreo de cambios IAM"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC7.2",
+          "CC7.3"
+        ],
+        "iso_inferred": [
+          "A.8.15",
+          "A.8.16"
+        ],
+        "security_hub": [
+          "CloudTrail.5",
+          "CloudWatch.1",
+          "CloudWatch.2",
+          "CloudWatch.4"
+        ],
+        "cis_aws": [
+          "4.1",
+          "4.3",
+          "4.4"
+        ]
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Crear un rol IAM que permita a CloudTrail escribir en CloudWatch Logs.",
+          "Crear el log group del trail con retención de 365 días y asociarlo al trail.",
+          "Crear un metric filter por categoría CIS (llamadas no autorizadas, uso del root, cambios de políticas IAM) con una alarma por cada uno.",
+          "Confirmar que el tópico SNS de las alarmas tiene un destinatario real y la suscripción confirmada."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nROLE_NAME=\"cloudtrail-to-cloudwatch-logs\"\naws iam create-role --role-name \"$ROLE_NAME\" --assume-role-policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"cloudtrail.amazonaws.com\"},\"Action\":\"sts:AssumeRole\"}]}' && aws iam put-role-policy --role-name \"$ROLE_NAME\" --policy-name write-to-log-group --policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogStream\",\"logs:PutLogEvents\"],\"Resource\":\"arn:aws:logs:{region}:{account_id}:log-group:__COMPLETAR_LOG_GROUP__:log-stream:*\"}]}'",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTRAIL_NAME=\"__COMPLETAR_NOMBRE_TRAIL__\"\nLOG_GROUP=\"__COMPLETAR_LOG_GROUP__\"\nCWL_ROLE_ARN=\"__COMPLETAR_ROL_CLOUDTRAIL_ARN__\"\n# create-log-group puede fallar si el log group ya existe: es esperable\naws logs create-log-group --log-group-name \"$LOG_GROUP\" --region \"$REGION\"\naws logs put-retention-policy --log-group-name \"$LOG_GROUP\" --retention-in-days 365 --region \"$REGION\"\naws cloudtrail update-trail --name \"$TRAIL_NAME\" --cloud-watch-logs-log-group-arn \"arn:aws:logs:$REGION:$ACCOUNT_ID:log-group:$LOG_GROUP:*\" --cloud-watch-logs-role-arn \"$CWL_ROLE_ARN\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nLOG_GROUP=\"__COMPLETAR_LOG_GROUP__\"\nSNS_TOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws logs put-metric-filter --log-group-name \"$LOG_GROUP\" --filter-name unauthorized-api-calls --filter-pattern '{ ($.errorCode = \"*UnauthorizedOperation\") || ($.errorCode = \"AccessDenied*\") }' --metric-transformations metricName=UnauthorizedApiCalls,metricNamespace=CISBenchmark,metricValue=1 --region \"$REGION\" && aws cloudwatch put-metric-alarm --alarm-name cis-unauthorized-api-calls --metric-name UnauthorizedApiCalls --namespace CISBenchmark --statistic Sum --period 300 --evaluation-periods 1 --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold --treat-missing-data notBreaching --alarm-actions \"$SNS_TOPIC_ARN\" --region \"$REGION\"\naws logs put-metric-filter --log-group-name \"$LOG_GROUP\" --filter-name root-account-usage --filter-pattern '{ $.userIdentity.type = \"Root\" && $.userIdentity.invokedBy NOT EXISTS && $.eventType != \"AwsServiceEvent\" }' --metric-transformations metricName=RootAccountUsage,metricNamespace=CISBenchmark,metricValue=1 --region \"$REGION\" && aws cloudwatch put-metric-alarm --alarm-name cis-root-account-usage --metric-name RootAccountUsage --namespace CISBenchmark --statistic Sum --period 300 --evaluation-periods 1 --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold --treat-missing-data notBreaching --alarm-actions \"$SNS_TOPIC_ARN\" --region \"$REGION\"\naws logs put-metric-filter --log-group-name \"$LOG_GROUP\" --filter-name iam-policy-changes --filter-pattern '{($.eventName=DeleteGroupPolicy)||($.eventName=DeleteRolePolicy)||($.eventName=DeleteUserPolicy)||($.eventName=PutGroupPolicy)||($.eventName=PutRolePolicy)||($.eventName=PutUserPolicy)||($.eventName=CreatePolicy)||($.eventName=DeletePolicy)||($.eventName=CreatePolicyVersion)||($.eventName=DeletePolicyVersion)||($.eventName=AttachRolePolicy)||($.eventName=DetachRolePolicy)||($.eventName=AttachUserPolicy)||($.eventName=DetachUserPolicy)||($.eventName=AttachGroupPolicy)||($.eventName=DetachGroupPolicy)}' --metric-transformations metricName=IamPolicyChanges,metricNamespace=CISBenchmark,metricValue=1 --region \"$REGION\" && aws cloudwatch put-metric-alarm --alarm-name cis-iam-policy-changes --metric-name IamPolicyChanges --namespace CISBenchmark --statistic Sum --period 300 --evaluation-periods 1 --threshold 1 --comparison-operator GreaterThanOrEqualToThreshold --treat-missing-data notBreaching --alarm-actions \"$SNS_TOPIC_ARN\" --region \"$REGION\""
+        ],
+        "verify_after": "aws logs describe-metric-filters --log-group-name \"__COMPLETAR_LOG_GROUP__\" --region \"{region}\"",
+        "notes": "Los patrones siguen CIS AWS Foundations 1.4 (4.1, 4.3, 4.4); las versiones recientes de CIS ya no incluyen estos controles, pero Security Hub los mantiene como CloudWatch.1, .2 y .4. Hay más categorías CIS (cambios de red, de KMS, de CloudTrail) que este chequeo no exige. Costo: ingesta y almacenamiento en CloudWatch Logs, más las alarmas. El log group debe estar en la región de origen del trail. Si falla el rol, CloudTrail sigue entregando a S3 pero no a CloudWatch."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/welcome.html",
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/security-reference-architecture/checklist.html",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cloudtrail-controls.html",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/cloudwatch-controls.html",
+        "https://docs.aws.amazon.com/awscloudtrail/latest/userguide/send-cloudtrail-events-to-cloudwatch-logs.html"
+      ]
+    },
+    {
+      "id": "LOG-008",
+      "title": "Todas las VPC de todas las regiones tienen Flow Logs activos",
+      "scope": "resource",
+      "resource_types": [
+        "vpc"
+      ],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "flow_logs",
+            "service": "ec2",
+            "operation": "describe-flow-logs",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:vpc_flow_logs",
+        "pass_when_text": "Cada VPC tiene un flow log propio con FlowLogStatus=ACTIVE. Un flow log sobre una subnet o interfaz no cubre la VPC.",
+        "needs": [
+          "ec2:DescribeFlowLogs",
+          "ec2:DescribeVpcs"
+        ]
+      },
+      "vault_signals": [
+        "flow logs",
+        "VPC Flow Logs",
+        "tráfico de red",
+        "logs de red"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 224,
+            "name": "AWS VPC Flow Logging",
+            "source": "https://help.drata.com/en/articles/9828733"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "VPC flow logging is enabled in all VPCs",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "EC2.6"
+        ],
+        "cis_aws": [
+          "3.7"
+        ]
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el destino de los flow logs (S3 es más barato; CloudWatch Logs permite consultas en el momento) y qué tráfico registrar (ALL, o REJECT si solo interesa el rechazado: Drata lo acepta).",
+          "Crear el flow log de la VPC {resource_id} con el comando del destino elegido.",
+          "Verificar con describe-flow-logs que el estado es ACTIVE."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVPC_ID=\"{resource_id}\"\nLOG_BUCKET=\"__COMPLETAR_BUCKET_FLOW_LOGS__\"\naws ec2 create-flow-logs --resource-type VPC --resource-ids \"$VPC_ID\" --traffic-type ALL --log-destination-type s3 --log-destination \"arn:aws:s3:::$LOG_BUCKET/vpc-flow-logs/\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVPC_ID=\"{resource_id}\"\nLOG_GROUP=\"__COMPLETAR_LOG_GROUP__\"\nDELIVER_ROLE_ARN=\"__COMPLETAR_ROL_FLOW_LOGS_ARN__\"\naws ec2 create-flow-logs --resource-type VPC --resource-ids \"$VPC_ID\" --traffic-type ALL --log-destination-type cloud-watch-logs --log-group-name \"$LOG_GROUP\" --deliver-logs-permission-arn \"$DELIVER_ROLE_ARN\" --region \"$REGION\""
+        ],
+        "verify_after": "aws ec2 describe-flow-logs --filter \"Name=resource-id,Values={resource_id}\" --region \"{region}\"",
+        "notes": "Usar un solo bloque, según el destino. Con S3, AWS agrega solo los permisos del bucket si quien ejecuta tiene s3:PutBucketPolicy; con CloudWatch Logs hace falta un rol que permita a vpc-flow-logs.amazonaws.com escribir. Costo: ingesta y almacenamiento del destino; ALL genera más volumen que REJECT. Los flow logs no capturan tráfico anterior a su creación. Las VPC por defecto de regiones sin uso también cuentan."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828733",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/ec2-controls.html",
+        "https://docs.aws.amazon.com/vpc/latest/userguide/working-with-flow-logs.html"
+      ]
+    },
+    {
+      "id": "LOG-009",
+      "title": "Los log groups de CloudWatch retienen los logs al menos 365 días (sin retención = pasa)",
+      "scope": "resource",
+      "resource_types": [
+        "log_group"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "groups",
+            "service": "logs",
+            "operation": "describe-log-groups",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "logGroups[?retentionInDays<`365`].{resource_id: logGroupName, detail: {retentionInDays: retentionInDays}}",
+        "pass_when_text": "Ningún log group tiene retentionInDays menor a 365. Un log group sin retentionInDays nunca expira y pasa; 365 pasa; 364 falla.",
+        "needs": [
+          "logs:DescribeLogGroups"
+        ]
+      },
+      "vault_signals": [
+        "retención de logs",
+        "365 días",
+        "log retention",
+        "retención de CloudWatch"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 111,
+            "name": "Logs are Retained for 365 Days",
+            "source": "https://help.drata.com/en/articles/4778770-test-111-logs-are-retained-for-365-days"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "AWS Server Logs",
+            "source": "https://help.vanta.com/en/articles/11345527-customizing-automated-tests"
+          }
+        ],
+        "tsc_inferred": [
+          "CC7.2"
+        ],
+        "iso_inferred": [
+          "A.8.15"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir la retención (365 días es el mínimo del chequeo; más si la política del equipo lo pide) y subir la del log group {resource_id}."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRETENTION_DAYS=\"365\"\naws logs put-retention-policy --log-group-name \"{resource_id}\" --retention-in-days \"$RETENTION_DAYS\" --region \"$REGION\""
+        ],
+        "verify_after": "aws logs describe-log-groups --log-group-name-prefix \"{resource_id}\" --region \"{region}\" --query 'logGroups[].[logGroupName,retentionInDays]'",
+        "notes": "Atención: put-retention-policy reemplaza la retención actual del log group (si era mayor que 365, la reduce: poner en RETENTION_DAYS el valor deseado). Costo: CloudWatch Logs cobra el almacenamiento por GB-mes, así que subir la retención aumenta el gasto del log group; revisar cuánto almacena antes de aplicarlo en grupos de mucho volumen. Los logs que ya expiraron no se recuperan. Un log group sin retención pasa el chequeo pero guarda todo para siempre: conviene fijar la retención o archivar en S3. Drata 111 no indica qué recurso evalúa; Vanta permite cambiar el umbral de su test AWS Server Logs."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4778770-test-111-logs-are-retained-for-365-days",
+        "https://help.vanta.com/en/articles/11345527-customizing-automated-tests",
+        "https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/Working-with-log-groups-and-streams.html#SettingLogRetention"
+      ]
+    },
+    {
+      "id": "LOG-010",
+      "title": "Los buckets de logs no expiran objetos antes de 365 días",
+      "scope": "resource",
+      "resource_types": [
+        "s3_bucket"
+      ],
+      "all_regions": true,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "trails",
+            "service": "cloudtrail",
+            "operation": "describe-trails",
+            "args": [
+              "--no-include-shadow-trails"
+            ],
+            "region": "each"
+          },
+          {
+            "name": "lifecycle",
+            "service": "s3api",
+            "operation": "get-bucket-lifecycle-configuration",
+            "args": [],
+            "region": "global",
+            "for_each": {
+              "from": "__inventory__",
+              "path": "id",
+              "arg": "--bucket"
+            },
+            "ok_errors": [
+              "NoSuchLifecycleConfiguration",
+              "NoSuchBucket"
+            ],
+            "item_errors": "evaluator"
+          }
+        ],
+        "evaluator": "python:log_bucket_lifecycle",
+        "params": {
+          "min_days": 365,
+          "name_regex": "(^|[^a-z])logs?([^a-z]|$)"
+        },
+        "pass_when_text": "Ningún bucket de logs (destino de un trail, o con log/logs en el nombre) tiene una regla activa que expire objetos antes de 365 días. Un bucket de logs sin lifecycle pasa. Los demás buckets no se evalúan y no generan resultado.",
+        "needs": [
+          "cloudtrail:DescribeTrails",
+          "s3:GetLifecycleConfiguration",
+          "s3:ListAllMyBuckets"
+        ]
+      },
+      "vault_signals": [
+        "lifecycle",
+        "retención de logs en S3",
+        "bucket de logs",
+        "expiración de logs"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC7.2"
+        ],
+        "iso_inferred": [
+          "A.8.15"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Decidir los días de retención (365 o más, según la política) y si los logs viejos pasan a una clase de almacenamiento más barata.",
+          "Revisar el lifecycle actual del bucket {resource_id}: put-bucket-lifecycle-configuration reemplaza todas las reglas.",
+          "Aplicar la configuración con la expiración elegida y verificar con get-bucket-lifecycle-configuration."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws s3api get-bucket-lifecycle-configuration --bucket \"{resource_id}\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# reemplaza TODAS las reglas del bucket: incluir en el JSON las que el comando anterior mostró y que se quieran conservar\naws s3api put-bucket-lifecycle-configuration --bucket \"{resource_id}\" --lifecycle-configuration '{\"Rules\":[{\"ID\":\"retain-logs\",\"Status\":\"Enabled\",\"Filter\":{\"Prefix\":\"\"},\"Expiration\":{\"Days\":__COMPLETAR_DIAS_RETENCION__}}]}'"
+        ],
+        "verify_after": "aws s3api get-bucket-lifecycle-configuration --bucket \"{resource_id}\"",
+        "notes": "Decisión: reemplazar __COMPLETAR_DIAS_RETENCION__ por un número igual o mayor a 365. Se identifican como buckets de logs los destinos de los trails y los que tienen log o logs en el nombre; los destinos de access logs con otro nombre no se detectan. Si el bucket tiene versionado, las versiones no vigentes se manejan con NoncurrentVersionExpiration, que este chequeo no evalúa. Una expiración corta borra evidencia de auditoría de forma definitiva."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345527-customizing-automated-tests",
+        "https://help.drata.com/en/articles/4778770-test-111-logs-are-retained-for-365-days",
+        "https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html"
+      ]
+    },
+    {
+      "id": "LOG-011",
+      "title": "Los Application Load Balancers tienen access logs habilitados",
+      "scope": "resource",
+      "resource_types": [
+        "elbv2"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "attrs",
+            "service": "elbv2",
+            "operation": "describe-load-balancer-attributes",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "__inventory__",
+              "path": "arn",
+              "arg": "--load-balancer-arn"
+            }
+          }
+        ],
+        "evaluator": "python:alb_access_logs",
+        "pass_when_text": "Los ALB tienen access_logs.s3.enabled=true. Los balanceadores de red y de gateway no se evalúan y no generan resultado.",
+        "needs": [
+          "elasticloadbalancing:DescribeLoadBalancerAttributes"
+        ]
+      },
+      "vault_signals": [
+        "access logs del ALB",
+        "logs del balanceador",
+        "ELB logs",
+        "load balancer"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC7.2"
+        ],
+        "iso_inferred": [
+          "A.8.15"
+        ],
+        "security_hub": [
+          "ELB.5"
+        ],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el bucket de S3 que recibe los logs del balanceador (en la misma región) y darle la bucket policy que permite escribir al servicio de logs de ELB de esa región.",
+          "Habilitar los access logs en el ALB {resource_id}.",
+          "Verificar con describe-load-balancer-attributes."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nLB_NAME=\"{resource_id}\"\nLOG_BUCKET=\"__COMPLETAR_BUCKET_ALB_LOGS__\"\nLB_ARN=$(aws elbv2 describe-load-balancers --names \"$LB_NAME\" --region \"$REGION\" --query 'LoadBalancers[0].LoadBalancerArn' --output text)\naws elbv2 modify-load-balancer-attributes --load-balancer-arn \"$LB_ARN\" --attributes Key=access_logs.s3.enabled,Value=true Key=access_logs.s3.bucket,Value=\"$LOG_BUCKET\" Key=access_logs.s3.prefix,Value=\"$LB_NAME\" --region \"$REGION\""
+        ],
+        "verify_after": "aws elbv2 describe-load-balancer-attributes --load-balancer-arn \"__COMPLETAR_LB_ARN__\" --region \"{region}\" --query 'Attributes[?starts_with(Key, `access_logs`)]'",
+        "notes": "modify-load-balancer-attributes falla si el bucket no permite escribir al principal de ELB de la región (o a logdelivery.elasticloadbalancing.amazonaws.com en regiones nuevas): preparar la bucket policy antes. Sin downtime. Costo: almacenamiento en S3; el lifecycle de LOG-010 aplica a ese bucket. El ARN del balanceador para la verificación sale de describe-load-balancers --names."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/elb-controls.html",
+        "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/enable-access-logging.html",
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/security-reference-architecture/checklist.html"
+      ]
+    },
+    {
+      "id": "LOG-012",
+      "title": "Los web ACL del WAF tienen logging habilitado",
+      "scope": "resource",
+      "resource_types": [
+        "wafv2_web_acl"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "logging",
+            "service": "wafv2",
+            "operation": "get-logging-configuration",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "__inventory__",
+              "path": "arn",
+              "arg": "--resource-arn"
+            },
+            "ok_errors": [
+              "WAFNonexistentItemException"
+            ]
+          }
+        ],
+        "evaluator": "python:waf_logging",
+        "pass_when_text": "Cada web ACL regional tiene una configuración de logging con al menos un destino.",
+        "needs": [
+          "wafv2:GetLoggingConfiguration"
+        ]
+      },
+      "vault_signals": [
+        "logs del WAF",
+        "WAF logging",
+        "web ACL",
+        "firewall de aplicaciones"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC7.2"
+        ],
+        "iso_inferred": [
+          "A.8.15",
+          "A.8.16"
+        ],
+        "security_hub": [
+          "WAF.11"
+        ],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el destino del log (CloudWatch Logs, S3 o Firehose); el nombre del destino debe empezar con aws-waf-logs-.",
+          "Crear el log group con retención de 365 días y activar el logging del web ACL {resource_id}.",
+          "Decidir qué campos sensibles se enmascaran (por ejemplo los headers Authorization y Cookie) y agregarlos como RedactedFields.",
+          "Verificar con get-logging-configuration."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nWEB_ACL_NAME=\"{resource_id}\"\nLOG_GROUP=\"aws-waf-logs-{resource_id}\"\nWEB_ACL_ARN=$(aws wafv2 list-web-acls --scope REGIONAL --region \"$REGION\" --query \"WebACLs[?Name=='$WEB_ACL_NAME'].ARN | [0]\" --output text)\n# create-log-group puede fallar si el log group ya existe: es esperable\naws logs create-log-group --log-group-name \"$LOG_GROUP\" --region \"$REGION\"\naws logs put-retention-policy --log-group-name \"$LOG_GROUP\" --retention-in-days 365 --region \"$REGION\" && aws wafv2 put-logging-configuration --logging-configuration ResourceArn=\"$WEB_ACL_ARN\",LogDestinationConfigs=\"arn:aws:logs:$REGION:$ACCOUNT_ID:log-group:$LOG_GROUP\" --region \"$REGION\""
+        ],
+        "verify_after": "aws wafv2 get-logging-configuration --resource-arn \"__COMPLETAR_WEB_ACL_ARN__\" --region \"{region}\"",
+        "notes": "Atención: put-retention-policy reemplaza la retención del log group si ya existía (create-log-group falla en ese caso y el resto sigue). Los logs del WAF contienen headers, cookies y URI de cada request: pueden incluir datos personales o tokens. Enmascarar los campos sensibles y limitar quién lee el destino. Para CloudWatch Logs hace falta el permiso logs:PutResourcePolicy (AWS crea la policy de entrega). Costo: ingesta y almacenamiento. Solo se evalúan los web ACL regionales; los de CloudFront (scope global) no están en el inventario."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/waf-controls.html",
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/security-reference-architecture/checklist.html",
+        "https://docs.aws.amazon.com/waf/latest/developerguide/logging.html"
+      ]
+    },
+    {
+      "id": "LOG-013",
+      "title": "Los clústers de EKS envían los audit logs del plano de control a CloudWatch",
+      "scope": "resource",
+      "resource_types": [
+        "eks_cluster"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "cluster",
+            "service": "eks",
+            "operation": "describe-cluster",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "__inventory__",
+              "path": "id",
+              "arg": "--name"
+            }
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "length(cluster.logging.clusterLogging[?enabled==`true` && contains(types, 'audit')]) == `0` && [{detail: {logging: cluster.logging.clusterLogging}}] || `[]`",
+        "pass_when_text": "El tipo de log audit está habilitado en cluster.logging de cada clúster.",
+        "needs": [
+          "eks:DescribeCluster"
+        ]
+      },
+      "vault_signals": [
+        "EKS",
+        "audit logs de Kubernetes",
+        "logs del plano de control",
+        "kube-apiserver"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 310,
+            "name": "Audit Logs Enabled for EKS Clusters",
+            "source": "https://help.drata.com/en/articles/10375560"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "EKS.8"
+        ],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Habilitar los tipos de log api, audit y authenticator en el clúster {resource_id}.",
+          "Revisar la retención del log group /aws/eks/{resource_id}/cluster (LOG-009) y fijarla en 365 días."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws eks update-cluster-config --name \"{resource_id}\" --region \"$REGION\" --logging '{\"clusterLogging\":[{\"types\":[\"api\",\"audit\",\"authenticator\"],\"enabled\":true}]}'"
+        ],
+        "verify_after": "aws eks describe-cluster --name \"{resource_id}\" --region \"{region}\" --query 'cluster.logging.clusterLogging'",
+        "notes": "El clúster pasa a UPDATING unos minutos; los pods no se reinician. Drata 310 pide el logging habilitado y recomienda todos los tipos (también controllerManager y scheduler): sumarlos aumenta el costo de CloudWatch Logs. Los tipos que no se listan en el comando conservan su estado. AWS crea el log group /aws/eks/<clúster>/cluster sin retención."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/10375560",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/eks-controls.html",
+        "https://docs.aws.amazon.com/eks/latest/userguide/control-plane-logs.html"
+      ]
+    }
+  ]
+}

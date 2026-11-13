@@ -1,0 +1,513 @@
+{
+  "domain": "compute",
+  "checks": [
+    {
+      "id": "CMP-001",
+      "title": "Las instancias EC2 exigen IMDSv2 (HttpTokens=required)",
+      "scope": "resource",
+      "resource_types": [
+        "ec2_instance"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "instances",
+            "service": "ec2",
+            "operation": "describe-instances",
+            "args": [
+              "--filters",
+              "Name=instance-state-name,Values=pending,running,stopping,stopped"
+            ],
+            "region": "each"
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "Reservations[].Instances[] | [?MetadataOptions.HttpTokens!='required'].{resource_id: InstanceId, detail: {http_tokens: MetadataOptions.HttpTokens}}",
+        "pass_when_text": "Toda instancia activa (pending, running, stopping o stopped) tiene MetadataOptions.HttpTokens=required. optional, o un valor ausente, falla.",
+        "needs": [
+          "ec2:DescribeInstances"
+        ]
+      },
+      "vault_signals": [
+        "IMDSv2",
+        "metadata de instancias",
+        "HttpTokens",
+        "IMDSv1",
+        "servicio de metadatos"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 292,
+            "name": "AWS EC2 Instances IMDSv1 Disabled",
+            "source": "https://help.drata.com/en/articles/9828799"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "EC2 instances use only IMDSv2 for the metadata service",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "EC2.8"
+        ],
+        "cis_aws": [
+          "5.7"
+        ]
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Exigir IMDSv2 en la instancia {resource_id}, ejecutando el comando en su región.",
+          "Verificar con describe-instances que HttpTokens es required y que la aplicación sigue funcionando."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws ec2 modify-instance-metadata-options --instance-id \"{resource_id}\" --http-tokens required --http-endpoint enabled --region \"$REGION\""
+        ],
+        "verify_after": "aws ec2 describe-instances --instance-ids \"{resource_id}\" --region \"{region}\" --query 'Reservations[].Instances[].MetadataOptions.HttpTokens'",
+        "notes": "Sin downtime y reversible con --http-tokens optional. Riesgo: una aplicación o un SDK antiguo que todavía usa IMDSv1 deja de obtener credenciales. Antes de aplicarlo, revisar la métrica MetadataNoToken de CloudWatch (namespace AWS/EC2) de la instancia: si es mayor que 0, algo sigue usando IMDSv1. Los contenedores que corren en la instancia necesitan --http-put-response-hop-limit 2. Si la instancia pertenece a un grupo de Auto Scaling, el cambio se pierde cuando el grupo la reemplaza: corregir el launch template (CMP-002)."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828799",
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/ec2-controls.html#ec2-8",
+        "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-IMDS-existing-instances.html"
+      ]
+    },
+    {
+      "id": "CMP-002",
+      "title": "Los launch templates de los grupos de Auto Scaling exigen IMDSv2",
+      "scope": "resource",
+      "resource_types": [
+        "asg"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "asgs",
+            "service": "autoscaling",
+            "operation": "describe-auto-scaling-groups",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "versions",
+            "service": "ec2",
+            "operation": "describe-launch-template-versions",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "asgs",
+              "path": "AutoScalingGroups[].LaunchTemplate.LaunchTemplateId",
+              "arg": "--launch-template-id"
+            },
+            "ok_errors": [
+              "InvalidLaunchTemplateId.NotFound",
+              "InvalidLaunchTemplateName.NotFoundException"
+            ]
+          },
+          {
+            "name": "mixed_versions",
+            "service": "ec2",
+            "operation": "describe-launch-template-versions",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "asgs",
+              "path": "AutoScalingGroups[].MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId",
+              "arg": "--launch-template-id"
+            },
+            "ok_errors": [
+              "InvalidLaunchTemplateId.NotFound",
+              "InvalidLaunchTemplateName.NotFoundException"
+            ]
+          }
+        ],
+        "evaluator": "python:lt_imdsv2",
+        "pass_when_text": "La versión del launch template que usa cada grupo ($Latest, $Default o una versión numerada) tiene MetadataOptions.HttpTokens=required. Un grupo con launch configuration (obsoleta), un template inexistente o una versión sin MetadataOptions falla.",
+        "needs": [
+          "autoscaling:DescribeAutoScalingGroups",
+          "ec2:DescribeLaunchTemplateVersions"
+        ]
+      },
+      "vault_signals": [
+        "launch template",
+        "grupo de Auto Scaling",
+        "IMDSv2 en ASG",
+        "instance refresh",
+        "plantilla de lanzamiento"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 292,
+            "name": "AWS EC2 Instances IMDSv1 Disabled",
+            "source": "https://help.drata.com/en/articles/9828799"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "IMDSv1 is disabled on EC2 Instances (ASG variant)",
+            "source": "https://help.vanta.com/en/articles/11345860-how-to-pass-the-imdsv1-is-disabled-on-ec2-instances-test-with-autoscaling-group"
+          }
+        ],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "high",
+        "downtime": true,
+        "steps": [
+          "Crear una nueva versión del launch template del grupo {resource_id} con MetadataOptions.HttpTokens=required, partiendo de la versión más reciente, y dejarla como versión por defecto.",
+          "Si el grupo usa una versión numerada, apuntarlo a $Default para que tome la versión nueva.",
+          "Lanzar un instance refresh para que las instancias existentes se reemplacen con la versión nueva, en una ventana acordada.",
+          "Verificar que el refresh termina con éxito y que las instancias nuevas exigen IMDSv2 (CMP-001)."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nASG_NAME=\"{resource_id}\"\nLT_ID=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names \"$ASG_NAME\" --region \"$REGION\" --query 'AutoScalingGroups[0].LaunchTemplate.LaunchTemplateId' --output text) && NEW_VERSION=$(aws ec2 create-launch-template-version --launch-template-id \"$LT_ID\" --source-version '$Latest' --launch-template-data '{\"MetadataOptions\":{\"HttpTokens\":\"required\",\"HttpEndpoint\":\"enabled\"}}' --region \"$REGION\" --query 'LaunchTemplateVersion.VersionNumber' --output text) && aws ec2 modify-launch-template --launch-template-id \"$LT_ID\" --default-version \"$NEW_VERSION\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nASG_NAME=\"{resource_id}\"\nLT_ID=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names \"$ASG_NAME\" --region \"$REGION\" --query 'AutoScalingGroups[0].LaunchTemplate.LaunchTemplateId' --output text)\n# el instance refresh solo corre si la versión por defecto ya exige IMDSv2\n[ \"$(aws ec2 describe-launch-template-versions --launch-template-id \"$LT_ID\" --versions '$Default' --region \"$REGION\" --query 'LaunchTemplateVersions[0].LaunchTemplateData.MetadataOptions.HttpTokens' --output text)\" = \"required\" ] && aws autoscaling update-auto-scaling-group --auto-scaling-group-name \"$ASG_NAME\" --launch-template \"LaunchTemplateId=$LT_ID,Version=\\$Default\" --region \"$REGION\" && aws autoscaling start-instance-refresh --auto-scaling-group-name \"$ASG_NAME\" --preferences '{\"MinHealthyPercentage\":90,\"InstanceWarmup\":300}' --region \"$REGION\""
+        ],
+        "verify_after": "aws autoscaling describe-instance-refreshes --auto-scaling-group-name \"{resource_id}\" --region \"{region}\" --query 'InstanceRefreshes[0].[Status,PercentageComplete]'",
+        "notes": "El instance refresh reemplaza las instancias del grupo, una tanda a la vez (MinHealthyPercentage 90): en un grupo de una sola instancia hay downtime, y todo lo que viva solo en el disco local de las instancias se pierde. Hacerlo en una ventana acordada. Antes de aplicar, revisar la métrica MetadataNoToken de las instancias: si una aplicación usa IMDSv1, se rompe con el reemplazo. Los comandos asumen un grupo con LaunchTemplate directo; si usa MixedInstancesPolicy, la consulta del ID del template es MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId. Un grupo que todavía usa una launch configuration hay que migrarlo a un launch template antes. Cuota: un solo instance refresh activo por grupo. El primer bloque cambia la versión por defecto del launch template para TODOS los que lo usan (otros grupos de Auto Scaling, flotas, lanzamientos con $Default), no solo para este grupo: revisar con describe-launch-template-versions quién lo usa antes de aplicarlo."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/9828799",
+        "https://help.vanta.com/en/articles/11345860-how-to-pass-the-imdsv1-is-disabled-on-ec2-instances-test-with-autoscaling-group",
+        "https://docs.aws.amazon.com/autoscaling/ec2/userguide/asg-instance-refresh.html",
+        "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-IMDS-new-instances.html"
+      ]
+    },
+    {
+      "id": "CMP-003",
+      "title": "Las instancias EC2 tienen un instance profile (rol IAM) asociado",
+      "scope": "resource",
+      "resource_types": [
+        "ec2_instance"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "instances",
+            "service": "ec2",
+            "operation": "describe-instances",
+            "args": [
+              "--filters",
+              "Name=instance-state-name,Values=pending,running,stopping,stopped"
+            ],
+            "region": "each"
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "Reservations[].Instances[] | [?IamInstanceProfile==`null`].{resource_id: InstanceId, detail: {name: Tags[?Key=='Name'].Value | [0]}}",
+        "pass_when_text": "Toda instancia activa tiene un IamInstanceProfile. Sin instance profile, las credenciales de la aplicación tienen que vivir en la instancia (access keys), que es lo que el test busca evitar.",
+        "needs": [
+          "ec2:DescribeInstances"
+        ]
+      },
+      "vault_signals": [
+        "instance profile",
+        "rol de instancia",
+        "roles IAM para EC2",
+        "credenciales en instancias"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "Instances use IAM instance roles for AWS resource access",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [
+          "CC6.1"
+        ],
+        "iso_inferred": [
+          "A.5.17",
+          "A.8.2"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir qué permisos necesita la instancia {resource_id} (el mínimo; si solo se pide gestión por Systems Manager, la política AmazonSSMManagedInstanceCore).",
+          "Si todavía no existe un instance profile adecuado, crear el rol de EC2, el instance profile y asociarlos (primer bloque), y adjuntar las políticas decididas.",
+          "Asociar el instance profile a la instancia (segundo bloque).",
+          "Verificar con describe-instances que IamInstanceProfile ya figura."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nROLE_NAME=\"__COMPLETAR_NOMBRE_ROL__\"\nPROFILE_NAME=\"$ROLE_NAME\"\n# solo si todavía no existe un instance profile con rol\naws iam create-role --role-name \"$ROLE_NAME\" --assume-role-policy-document '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"ec2.amazonaws.com\"},\"Action\":\"sts:AssumeRole\"}]}' && aws iam create-instance-profile --instance-profile-name \"$PROFILE_NAME\" && aws iam add-role-to-instance-profile --instance-profile-name \"$PROFILE_NAME\" --role-name \"$ROLE_NAME\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPROFILE_NAME=\"__COMPLETAR_INSTANCE_PROFILE__\"\naws ec2 associate-iam-instance-profile --instance-id \"{resource_id}\" --iam-instance-profile \"Name=$PROFILE_NAME\" --region \"$REGION\""
+        ],
+        "verify_after": "aws ec2 describe-instances --instance-ids \"{resource_id}\" --region \"{region}\" --query 'Reservations[].Instances[].IamInstanceProfile.Arn'",
+        "notes": "Sin downtime: la asociación se aplica en caliente. Un rol recién creado no tiene permisos: hay que adjuntarle políticas de mínimo privilegio (decisión del equipo) o no habilita nada. Justo después de crear el instance profile, la asociación puede fallar con InvalidParameterValue por la propagación de IAM: reintentar a los pocos segundos. Si la instancia ya usa access keys guardadas en disco, migrarlas al rol y rotarlas."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html"
+      ]
+    },
+    {
+      "id": "CMP-004",
+      "title": "Las regiones con instancias EC2 tienen un balanceador de carga en 2 o más zonas de disponibilidad",
+      "scope": "resource",
+      "resource_types": [
+        "ec2_instance"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "alb",
+            "service": "elbv2",
+            "operation": "describe-load-balancers",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "clb",
+            "service": "elb",
+            "operation": "describe-load-balancers",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:lb_multi_az",
+        "pass_when_text": "Cada región con instancias EC2 tiene al menos un balanceador (application, network o clásico) que abarca 2 o más zonas de disponibilidad. Es un test por región, como el 130 de Drata: si falla, se reporta cada instancia de esa región. Sin instancias EC2 no hay nada que evaluar.",
+        "needs": [
+          "elasticloadbalancing:DescribeLoadBalancers"
+        ]
+      },
+      "vault_signals": [
+        "balanceador de carga",
+        "load balancer",
+        "alta disponibilidad",
+        "multi-AZ",
+        "ALB"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 130,
+            "name": "Load Balancer Used",
+            "source": "https://help.drata.com/en/articles/4777006"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "ELB.10",
+          "ELB.13"
+        ],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Elegir dos subnets públicas (o privadas, si el balanceador es interno) en zonas de disponibilidad distintas de la región {region}.",
+          "Crear un Application Load Balancer en esas subnets, un target group y registrar la instancia {resource_id}.",
+          "Crear el listener HTTPS con un certificado de ACM y probar el servicio a través del balanceador.",
+          "Cambiar el DNS para que apunte al balanceador y, para tener alta disponibilidad real, poner instancias en ambas zonas (idealmente en un grupo de Auto Scaling, ver CMP-005)."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nLB_NAME=\"__COMPLETAR_NOMBRE_ALB__\"\nSUBNET_A=\"__COMPLETAR_SUBNET_AZ_A__\"\nSUBNET_B=\"__COMPLETAR_SUBNET_AZ_B__\"\nSG_ID=\"__COMPLETAR_SECURITY_GROUP_ID__\"\nVPC_ID=\"__COMPLETAR_VPC_ID__\"\nCERT_ARN=\"__COMPLETAR_CERTIFICADO_ACM_ARN__\"\nLB_ARN=$(aws elbv2 create-load-balancer --name \"$LB_NAME\" --type application --subnets \"$SUBNET_A\" \"$SUBNET_B\" --security-groups \"$SG_ID\" --region \"$REGION\" --query 'LoadBalancers[0].LoadBalancerArn' --output text) && TG_ARN=$(aws elbv2 create-target-group --name \"$LB_NAME-tg\" --protocol HTTP --port 80 --vpc-id \"$VPC_ID\" --region \"$REGION\" --query 'TargetGroups[0].TargetGroupArn' --output text) && aws elbv2 register-targets --target-group-arn \"$TG_ARN\" --targets \"Id={resource_id}\" --region \"$REGION\" && aws elbv2 create-listener --load-balancer-arn \"$LB_ARN\" --protocol HTTPS --port 443 --certificates \"CertificateArn=$CERT_ARN\" --default-actions \"Type=forward,TargetGroupArn=$TG_ARN\" --region \"$REGION\""
+        ],
+        "verify_after": "aws elbv2 describe-load-balancers --region \"{region}\" --query 'LoadBalancers[].[LoadBalancerName,AvailabilityZones[].ZoneName]'",
+        "notes": "Es un cambio de arquitectura, no un parche: planificarlo. Costo: el ALB cobra por hora más por LCU consumida. Un balanceador en 2 zonas con una sola instancia detrás no da alta disponibilidad real; hace falta capacidad en ambas zonas. El security group del balanceador debe permitir el tráfico hacia el de las instancias. Un solo balanceador resuelve el hallazgo de todas las instancias de la región. Si la aplicación solo habla HTTP, usar un listener HTTP:80 y revisar el chequeo de redirección a HTTPS."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4777006",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/elb-controls.html",
+        "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/create-application-load-balancer.html"
+      ]
+    },
+    {
+      "id": "CMP-005",
+      "title": "Las regiones con instancias EC2 tienen al menos un grupo de Auto Scaling",
+      "scope": "resource",
+      "resource_types": [
+        "ec2_instance"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "asgs",
+            "service": "autoscaling",
+            "operation": "describe-auto-scaling-groups",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:asg_present",
+        "pass_when_text": "Cada región con instancias EC2 tiene al menos un grupo de Auto Scaling. Es un test por región, como el 131 de Drata: si falla, se reporta cada instancia de esa región. Sin instancias EC2 no hay nada que evaluar.",
+        "needs": [
+          "autoscaling:DescribeAutoScalingGroups"
+        ]
+      },
+      "vault_signals": [
+        "Auto Scaling",
+        "grupo de autoscaling",
+        "ASG",
+        "escalado automático",
+        "capacidad elástica"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 131,
+            "name": "Autoscaling Configurations in Place",
+            "source": "https://help.drata.com/en/articles/10029045"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Crear una AMI de la instancia {resource_id} sin reiniciarla.",
+          "Crear un launch template con esa AMI, el tipo de instancia y IMDSv2 obligatorio (y el instance profile de la instancia).",
+          "Crear un grupo de Auto Scaling con ese launch template en subnets de al menos 2 zonas de disponibilidad.",
+          "Pasar el tráfico al grupo y, cuando esté validado, retirar la instancia original."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nINSTANCE_ID=\"{resource_id}\"\nSUBNETS=\"__COMPLETAR_SUBNETS_AZ_A_Y_AZ_B__\"\nASG_NAME=\"__COMPLETAR_NOMBRE_ASG__\"\nINSTANCE_TYPE=\"__COMPLETAR_TIPO_INSTANCIA__\"\nAMI_ID=$(aws ec2 create-image --instance-id \"$INSTANCE_ID\" --name \"$ASG_NAME-$(date +%Y%m%d%H%M)\" --no-reboot --region \"$REGION\" --query 'ImageId' --output text) && aws ec2 wait image-available --image-ids \"$AMI_ID\" --region \"$REGION\" && aws ec2 create-launch-template --launch-template-name \"$ASG_NAME\" --launch-template-data \"{\\\"ImageId\\\":\\\"$AMI_ID\\\",\\\"InstanceType\\\":\\\"$INSTANCE_TYPE\\\",\\\"MetadataOptions\\\":{\\\"HttpTokens\\\":\\\"required\\\"}}\" --region \"$REGION\" && aws autoscaling create-auto-scaling-group --auto-scaling-group-name \"$ASG_NAME\" --launch-template \"LaunchTemplateName=$ASG_NAME,Version=\\$Latest\" --min-size 1 --max-size 2 --desired-capacity 1 --vpc-zone-identifier \"$SUBNETS\" --region \"$REGION\""
+        ],
+        "verify_after": "aws autoscaling describe-auto-scaling-groups --region \"{region}\" --query 'AutoScalingGroups[].[AutoScalingGroupName,DesiredCapacity,length(Instances)]'",
+        "notes": "Es un cambio de arquitectura: el grupo lanza una instancia NUEVA, así que el servicio queda duplicado hasta retirar la original, y los datos que la instancia guarda en disco local o en un volumen propio no viajan al grupo (no sirve para servidores con estado). create-image con --no-reboot no garantiza la consistencia del sistema de archivos. Costo: snapshots de la AMI más la instancia nueva. Completar el tipo de instancia, el instance profile y los security groups en el launch template según la instancia original (el comando crea solo lo mínimo). Con un solo grupo de la región se resuelve el hallazgo de todas sus instancias."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/10029045",
+        "https://docs.aws.amazon.com/autoscaling/ec2/userguide/create-auto-scaling-groups-launch-template.html"
+      ]
+    },
+    {
+      "id": "CMP-006",
+      "title": "Las instancias EC2 están gestionadas por Systems Manager y tienen asociación de parches",
+      "scope": "resource",
+      "resource_types": [
+        "ec2_instance"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "instances",
+            "service": "ec2",
+            "operation": "describe-instances",
+            "args": [
+              "--filters",
+              "Name=instance-state-name,Values=pending,running,stopping,stopped"
+            ],
+            "region": "each"
+          },
+          {
+            "name": "info",
+            "service": "ssm",
+            "operation": "describe-instance-information",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "patches",
+            "service": "ssm",
+            "operation": "describe-instance-patch-states",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "info",
+              "path": "InstanceInformationList[].InstanceId",
+              "arg": "--instance-ids"
+            }
+          }
+        ],
+        "evaluator": "python:ssm_managed",
+        "pass_when_text": "Cada instancia está registrada en Systems Manager con el agente en línea (PingStatus=Online) y tiene un estado de parches de Patch Manager (describe-instance-patch-states). Las instancias que no están en estado running (por ejemplo detenidas) no pueden correr el agente y no se evalúan.",
+        "needs": [
+          "ec2:DescribeInstances",
+          "ssm:DescribeInstanceInformation",
+          "ssm:DescribeInstancePatchStates"
+        ]
+      },
+      "vault_signals": [
+        "Systems Manager",
+        "SSM",
+        "Patch Manager",
+        "parcheo",
+        "agente SSM",
+        "gestión de parches"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC7.1"
+        ],
+        "iso_inferred": [
+          "A.8.8"
+        ],
+        "security_hub": [
+          "SSM.1"
+        ],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Adjuntar al rol de la instancia {resource_id} la política AmazonSSMManagedInstanceCore (si no tiene instance profile, ver CMP-003).",
+          "Verificar que el agente de SSM está instalado y que la instancia llega al servicio (salida a internet o endpoints de VPC ssm, ssmmessages y ec2messages).",
+          "Crear una asociación de State Manager que corra AWS-RunPatchBaseline en modo Scan con un cronograma semanal.",
+          "Esperar la primera ejecución y verificar el estado de parches con describe-instance-patch-states."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nROLE_NAME=\"__COMPLETAR_NOMBRE_ROL__\"\naws iam attach-role-policy --role-name \"$ROLE_NAME\" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nINSTANCE_ID=\"{resource_id}\"\naws ssm create-association --name \"AWS-RunPatchBaseline\" --targets \"Key=InstanceIds,Values=$INSTANCE_ID\" --parameters 'Operation=Scan' --schedule-expression \"cron(0 3 ? * SUN *)\" --association-name \"patch-scan-$INSTANCE_ID\" --region \"$REGION\""
+        ],
+        "verify_after": "aws ssm describe-instance-patch-states --instance-ids \"{resource_id}\" --region \"{region}\"",
+        "notes": "Scan solo inventaría los parches faltantes, no instala nada: no cambia el software de la instancia. Instalarlos (Operation=Install) es una decisión aparte, con ventana de mantenimiento, porque puede reiniciar la instancia. El rol de la instancia es una decisión del equipo; AmazonSSMManagedInstanceCore es la política mínima de SSM. Sin salida a internet ni endpoints de VPC el agente no se registra. En una instancia con el agente recién registrado, el estado de parches tarda en aparecer hasta la primera ejecución. El agente viene instalado en las AMI recientes de Amazon Linux y Windows."
+      },
+      "sources": [
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/ssm-controls.html",
+        "https://docs.aws.amazon.com/systems-manager/latest/userguide/patch-manager.html",
+        "https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-setting-up-ec2.html"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "cluster": {
+    "name": "acme-notes-eks",
+    "status": "ACTIVE",
+    "logging": {
+      "clusterLogging": [
+        {
+          "types": [
+            "api",
+            "scheduler"
+          ],
+          "enabled": true
+        },
+        {
+          "types": [
+            "audit",
+            "authenticator",
+            "controllerManager"
+          ],
+          "enabled": false
+        }
+      ]
+    }
+  }
+}

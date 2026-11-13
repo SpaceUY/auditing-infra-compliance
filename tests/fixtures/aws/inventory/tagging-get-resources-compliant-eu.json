@@ -1,0 +1,30 @@
+{
+  "PaginationToken": "",
+  "ResourceTagMappingList": [
+    {
+      "ResourceARN": "arn:aws:ec2:eu-west-1:111122223333:instance/i-0a1b2c3d4e5f60718",
+      "Tags": [
+        {
+          "Key": "VantaOwner",
+          "Value": "ana@acme-notes.example"
+        },
+        {
+          "Key": "Project",
+          "Value": "acme-notes"
+        },
+        {
+          "Key": "Environment",
+          "Value": "staging"
+        },
+        {
+          "Key": "Owner",
+          "Value": "ana@acme-notes.example"
+        },
+        {
+          "Key": "VantaNonProd",
+          "Value": "true"
+        }
+      ]
+    }
+  ]
+}

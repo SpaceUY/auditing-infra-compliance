@@ -1,0 +1,10 @@
+{
+  "LoggingConfiguration": {
+    "ResourceArn": "arn:aws:wafv2:us-east-1:111122223333:regional/webacl/acme-notes-web-acl/a1b2c3d4-5678-90ab-cdef-111122223333",
+    "LogDestinationConfigs": [
+      "arn:aws:logs:us-east-1:111122223333:log-group:aws-waf-logs-acme-notes"
+    ],
+    "RedactedFields": [],
+    "ManagedByFirewallManager": false
+  }
+}

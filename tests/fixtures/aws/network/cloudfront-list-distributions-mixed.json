@@ -1,0 +1,25 @@
+{
+  "DistributionList": {
+    "Quantity": 3,
+    "Items": [
+      {
+        "Id": "E1A2B3C4D5E6F7",
+        "DomainName": "d1a2b3c4d5e6f7.cloudfront.net",
+        "Enabled": true,
+        "WebACLId": "arn:aws:wafv2:us-east-1:111122223333:regional/webacl/acme-notes-acl/0a1b2c3d-4e5f-4a1b-8c2d-3e4f5a6b7c8d"
+      },
+      {
+        "Id": "E2B3C4D5E6F7A8",
+        "DomainName": "d2b3c4d5e6f7a8.cloudfront.net",
+        "Enabled": true,
+        "WebACLId": ""
+      },
+      {
+        "Id": "E3C4D5E6F7A8B9",
+        "DomainName": "d3c4d5e6f7a8b9.cloudfront.net",
+        "Enabled": false,
+        "WebACLId": ""
+      }
+    ]
+  }
+}

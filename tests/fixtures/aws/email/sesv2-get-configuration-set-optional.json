@@ -1,0 +1,21 @@
+{
+  "ConfigurationSetName": "acme-notes-optional",
+  "TrackingOptions": {},
+  "DeliveryOptions": {
+    "SendingPoolName": "ses-default-dedicated-pool",
+    "TlsPolicy": "OPTIONAL"
+  },
+  "ReputationOptions": {
+    "ReputationMetricsEnabled": true
+  },
+  "SendingOptions": {
+    "SendingEnabled": true
+  },
+  "Tags": [],
+  "SuppressionOptions": {
+    "SuppressedReasons": [
+      "BOUNCE",
+      "COMPLAINT"
+    ]
+  }
+}

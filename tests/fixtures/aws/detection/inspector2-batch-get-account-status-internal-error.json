@@ -1,0 +1,10 @@
+{
+  "accounts": [],
+  "failedAccounts": [
+    {
+      "accountId": "111122223333",
+      "errorCode": "INTERNAL_ERROR",
+      "errorMessage": "internal error"
+    }
+  ]
+}

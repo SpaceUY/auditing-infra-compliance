@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Pre-auditoría de cumplimiento</title>
+<style>
+:root {
+  --bg: #f4f6f9; --surface: #ffffff; --surface-2: #eef1f6; --text: #1b2230; --muted: #566075;
+  --border: #cfd6e2; --accent: #1d4ed8; --accent-fg: #ffffff; --code-bg: #f0f3f8;
+  --mark-bg: #ffe27a; --mark-fg: #3a2c00; --warn-bg: #fde8ea; --warn-fg: #8a0f1f; --warn-border: #e39aa3;
+  --crit-bg: #fde8ea; --crit-fg: #8a0f1f; --high-bg: #ffeedd; --high-fg: #823a00;
+  --med-bg: #fff6cc; --med-fg: #5f4800; --low-bg: #e4eeff; --low-fg: #1c4486;
+  --pass-bg: #e0f3e6; --pass-fg: #11602a; --nov-bg: #ebe7f8; --nov-fg: #44348a;
+  --na-bg: #e8ebf0; --na-fg: #424b5f;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11141b; --surface: #1a1f2a; --surface-2: #232938; --text: #e6e9f0; --muted: #a6b0c2;
+    --border: #384154; --accent: #7ba2ff; --accent-fg: #0b1220; --code-bg: #10131a;
+    --mark-bg: #7a5f00; --mark-fg: #fff3c4; --warn-bg: #4a1822; --warn-fg: #ffc2ca; --warn-border: #8a3040;
+    --crit-bg: #4a1822; --crit-fg: #ffc2ca; --high-bg: #4a2b12; --high-fg: #ffcc9c;
+    --med-bg: #43390f; --med-fg: #f3df80; --low-bg: #182b4f; --low-fg: #b0ccff;
+    --pass-bg: #123520; --pass-fg: #a2e6b6; --nov-bg: #2c2751; --nov-fg: #d0c6ff;
+    --na-bg: #2a3041; --na-fg: #bcc4d4;
+  }
+}
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body {
+  margin: 0; padding: 0 0 7rem; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow-wrap: anywhere;
+}
+main, header.top { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+header.top { padding-top: 20px; }
+h1 { font-size: 1.5rem; margin: 0 0 8px; }
+h2 { font-size: 1.15rem; margin: 28px 0 10px; }
+h3 { font-size: 1rem; margin: 14px 0 6px; }
+p { margin: 6px 0; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85rem; }
+.muted { color: var(--muted); }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+dl.meta dt { color: var(--muted); }
+dl.meta dd { margin: 0; overflow-wrap: anywhere; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip, .badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); font-size: 0.8rem; line-height: 1.4; overflow-wrap: anywhere;
+}
+button.chip { cursor: pointer; font: inherit; font-size: 0.8rem; }
+.chip.inferred { border-style: dashed; background: transparent; }
+.chip.tsc { border-color: var(--low-fg); }
+.chip.iso { border-color: var(--nov-fg); }
+a.chip { color: var(--accent); text-decoration: none; }
+a.chip:hover { text-decoration: underline; }
+.sev-critical { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
+.sev-high { background: var(--high-bg); color: var(--high-fg); border-color: var(--high-fg); }
+.sev-medium { background: var(--med-bg); color: var(--med-fg); border-color: var(--med-fg); }
+.sev-low { background: var(--low-bg); color: var(--low-fg); border-color: var(--low-fg); }
+.st-FAIL { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
+.st-PASS { background: var(--pass-bg); color: var(--pass-fg); border-color: var(--pass-fg); }
+.st-DRIFT { background: var(--high-bg); color: var(--high-fg); border-color: var(--high-fg); }
+.st-UNDOCUMENTED, .st-DOCUMENTED_GAP { background: var(--med-bg); color: var(--med-fg); border-color: var(--med-fg); }
+.st-DOCUMENTED_ONLY { background: var(--low-bg); color: var(--low-fg); border-color: var(--low-fg); }
+.st-NO_VERIFICADO { background: var(--nov-bg); color: var(--nov-fg); border-color: var(--nov-fg); }
+.st-NA, .st-NOT_TOUCHED { background: var(--na-bg); color: var(--na-fg); border-color: var(--na-fg); }
+.verdict { border: 2px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 0 0 12px; background: var(--surface); }
+.verdict .label { font-size: 1.25rem; font-weight: 700; margin: 0 0 4px; }
+.verdict p { margin: 4px 0; }
+.verdict-OPTIMO { background: var(--pass-bg); color: var(--pass-fg); border-color: var(--pass-fg); }
+.verdict-NO_OPTIMO { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
+.verdict-NO_VERIFICABLE { background: var(--nov-bg); color: var(--nov-fg); border-color: var(--nov-fg); }
+.ver-OK { background: var(--pass-bg); color: var(--pass-fg); border-color: var(--pass-fg); }
+.ver-REVISAR { background: var(--med-bg); color: var(--med-fg); border-color: var(--med-fg); }
+.ver-CONFLICTO { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
+button, select, input[type="search"] { font: inherit; color: var(--text); }
+button.btn {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px;
+  min-height: 34px; cursor: pointer;
+}
+button.btn:hover { border-color: var(--accent); }
+button.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+.filters label { display: flex; flex-direction: column; gap: 3px; font-size: 0.85rem; color: var(--muted); }
+.filters select, .filters input {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; min-height: 34px; width: 100%;
+}
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin: 10px 0; }
+.card-head {
+  display: block; width: 100%; text-align: left; background: none; border: 0; padding: 10px 14px; cursor: pointer;
+  color: inherit; position: relative; padding-right: 34px;
+}
+.card-head .line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.card-head .title { font-weight: 600; overflow-wrap: anywhere; }
+.card-head .sub { color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; margin-top: 2px; display: block; }
+.card-head::after { content: "▸"; position: absolute; right: 14px; top: 10px; color: var(--muted); }
+.card.open > .card-head::after { content: "▾"; }
+.card-body { padding: 4px 14px 14px; border-top: 1px solid var(--border); }
+.card-body h3 { color: var(--muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; }
+pre {
+  margin: 4px 0; padding: 8px 10px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+pre code { font-size: inherit; }
+mark { background: var(--mark-bg); color: var(--mark-fg); padding: 0 2px; border-radius: 3px; }
+.cmd { margin: 8px 0; }
+.cmd-bar { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: -2px; }
+.alert { background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-border); border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
+ol.steps { margin: 6px 0; padding-left: 22px; }
+ul.plain { margin: 6px 0; padding-left: 20px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); }
+th, td { border: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+th { background: var(--surface-2); }
+.group { margin: 8px 0; }
+.group-head { width: 100%; text-align: left; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+.group-head::after { content: " ▸"; }
+.group.open .group-head::after { content: " ▾"; }
+footer.fixed {
+  position: fixed; left: 0; right: 0; bottom: 0; padding: 8px 16px; background: var(--surface);
+  border-top: 1px solid var(--border); color: var(--muted); font-size: 0.8rem; text-align: center;
+}
+@media (max-width: 480px) {
+  body { font-size: 14px; }
+  dl.meta { grid-template-columns: 1fr; }
+  dl.meta dt { margin-top: 6px; }
+}
+@media print {
+  body { padding-bottom: 0; background: #fff; color: #000; }
+  .no-print { display: none !important; }
+  [hidden].collapsible-body { display: block !important; }
+  .card, .panel { break-inside: avoid; }
+  .card-head::after, .group-head::after { content: none !important; }
+  footer.fixed { position: static; margin-top: 24px; }
+  * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1 id="title"></h1>
+  <noscript><div class="alert">Este reporte necesita JavaScript para mostrarse. Abrirlo en un navegador con JavaScript activo; los datos están en el propio archivo (findings.json trae lo mismo).</div></noscript>
+  <div class="verdict" id="verdict" role="status" hidden></div>
+  <div class="panel"><dl class="meta" id="meta"></dl></div>
+</header>
+<main>
+  <section id="summary" aria-labelledby="h-summary"><h2 id="h-summary"></h2><div class="panel" id="summary-body"></div></section>
+  <div class="alert" id="stale-warning" role="alert" hidden></div>
+  <section id="verification" aria-labelledby="h-verification" hidden><h2 id="h-verification"></h2><div class="panel" id="verification-body"></div></section>
+  <section id="filters-section" class="no-print" aria-labelledby="h-filters">
+    <h2 id="h-filters"></h2>
+    <div class="panel">
+      <div class="filters" id="filters"></div>
+      <div class="row" style="margin-top:10px">
+        <button type="button" class="btn" id="clear-filters"></button>
+        <button type="button" class="btn" id="expand-all"></button>
+        <button type="button" class="btn" id="collapse-all"></button>
+        <span class="muted" id="count" aria-live="polite"></span>
+      </div>
+    </div>
+  </section>
+  <section id="bulk" class="no-print" aria-labelledby="h-bulk"><h2 id="h-bulk"></h2><div class="panel" id="bulk-body"></div></section>
+  <section id="findings" aria-labelledby="h-findings"><h2 id="h-findings"></h2><div id="cards"></div></section>
+  <section id="deps" aria-labelledby="h-deps"><h2 id="h-deps"></h2><div id="deps-body"></div></section>
+  <section id="coverage" aria-labelledby="h-coverage"><h2 id="h-coverage"></h2><div id="coverage-body"></div></section>
+  <section id="notes" aria-labelledby="h-notes"><h2 id="h-notes"></h2><div id="notes-body"></div></section>
+</main>
+<footer class="fixed" id="disclaimer"></footer>
+<div class="vh" id="live" role="status" aria-live="polite"></div>
+<script id="data" type="application/json">/*__FINDINGS__*/</script>
+<script>
+(function () {
+'use strict';
+
+/*i18n:start*/
+const I18N = {
+  titlePrefix: 'Pre-auditoría de infraestructura',
+  meta: { platform: 'Plataforma', mode: 'Modo', target: 'Objetivo', sources: 'Fuentes', account: 'Cuenta AWS',
+          identity: 'Identidad', regions: 'Regiones', date: 'Fecha', none: 'no indicado' },
+  sources: { aws: 'AWS (solo lectura)', noAws: 'sin credenciales AWS', vault: 'vault', vaultTyped: 'tipado', vaultFree: 'libre', noVault: 'sin vault' },
+  verdict: { OPTIMO: 'Óptimo', NO_OPTIMO: 'No óptimo', NO_VERIFICABLE: 'No verificable', basis: 'Veredicto de la infraestructura para SOC 2 / ISO 27001 (Drata / Vanta)',
+             noAws: 'Nada se verificó contra AWS: no hubo credenciales de solo lectura. Lo que figura abajo es lo que dice el vault, sin comprobar.',
+             unverified: 'Sin verificar', reasons: 'Motivos' },
+  summary: { title: 'Resumen', noAwsNote: 'Sin credenciales AWS: ningún conteo de abajo es un resultado verificado.', notChecked: 'sin verificar (sin credenciales AWS)',
+             unverifiedTitle: 'Sin verificar', unverifiedCounts: { no_verificado: 'No verificado', documented_only: 'Solo documentado en el vault', documented_gap: 'Brecha documentada en el vault', scope_without_claims: 'Componentes del alcance sin afirmaciones ni resultados' },
+             scopeList: 'Componentes del alcance sin verificar', scopeUnverified: 'sin verificar', byStatus: 'Hallazgos por estado', bySeverity: 'Fallas por severidad', drata: 'Tests de Drata que fallan',
+             vanta: 'Tests de Vanta que fallan', notVerified: 'No verificado', notVerifiedHint: 'No se pudo comprobar: falta permiso o la evaluación quedó pendiente.',
+             missing: 'Permisos que faltan', none: 'ninguno', clickHint: 'Tocar un conteo filtra los hallazgos.' },
+  filters: { title: 'Filtros', severity: 'Severidad', status: 'Estado', domain: 'Dominio', tool: 'Herramienta', norm: 'Norma', search: 'Buscar',
+             searchPlaceholder: 'ID, recurso, texto…', all: 'Todos', allF: 'Todas', clear: 'Limpiar filtros', expand: 'Expandir todo', collapse: 'Contraer todo',
+             showing: 'Mostrando', of: 'de', normSoc2: 'SOC 2', normIso: 'ISO 27001' },
+  bulk: { title: 'Copiar arreglos de bajo riesgo', hint: 'Por severidad: junta los comandos de los hallazgos FAIL de tipo CLI con riesgo bajo que la verificación marcó OK, separados por comentarios con el ID. Se omiten los que tienen valores por completar y los que la verificación marcó como CONFLICTO o REVISAR. Revisar antes de pegar en CloudShell.',
+          button: 'Copiar arreglos de bajo riesgo', empty: 'sin comandos', header: 'Hallazgos', none: 'No hay arreglos de bajo riesgo para copiar.',
+          noVerification: 'Desactivado: falta la verificación de los arreglos. Correr verify_remediation.py y volver a generar el reporte con --verification.',
+          stale: 'Desactivado: la verificación quedó desactualizada (los hallazgos cambiaron). Volver a correr verify_remediation.py y a generar el reporte.' },
+  findings: { title: 'Hallazgos', empty: 'Ningún hallazgo coincide con los filtros.', none: 'Sin hallazgos en esta corrida.', noResource: 'Sin recurso asociado', account: 'Cuenta AWS',
+              region: 'región', mappings: 'Mapeos', inferred: 'inferido', inferredHint: 'Mapeo inferido por el catálogo, sin fuente oficial.',
+              catalogSeverity: 'severidad del chequeo', notVerified: 'no verificada',
+              evidence: 'Evidencia', vault: 'Lo que afirma el vault', vaultNote: 'Nota', breaks: 'Esta recomendación del vault rompería',
+              dependsOnMe: 'Tests que dependen de este recurso', missing: 'Permisos que faltan', byClaude: 'evaluado por Claude',
+              vacuous: 'pasa por vacío: no hay recursos de este tipo en el alcance', checkId: 'Chequeo', fromVault: 'transcrito del vault, no verificado' },
+  rem: { title: 'Remediación', steps: 'Pasos', commands: 'Comandos para CloudShell', verify: 'Verificar después', verifyWith: 'Verificar con', notes: 'Notas',
+         copy: 'Copiar', copyAll: 'Copiar todo', copied: 'Copiado', copyCmdAria: 'Copiar comando', copyAllAria: 'Copiar todos los comandos', copyVerifyAria: 'Copiar comando de verificación', of: 'de', ofN: 'de', copyFail: 'No se pudo copiar: seleccionar y copiar a mano',
+         placeholders: 'Completar los valores resaltados (__COMPLETAR_…__) antes de pegar.',
+         planned: 'Cambio planificado: los comandos de abajo cambian la infraestructura. Revisar cada bloque antes de correrlo, correrlos en el orden mostrado y dentro de una ventana de cambio acordada. Nada de esto se ejecuta automáticamente.',
+         consoleOnly: 'Solo se puede hacer desde la consola de AWS.',
+         kind: { cli: 'Comando CLI', cli_with_decision: 'CLI con decisión previa', planned_change: 'Cambio planificado', console_only: 'Solo consola' },
+         risk: { low: 'Riesgo bajo', medium: 'Riesgo medio', high: 'Riesgo alto' }, downtime: 'Con downtime', noDowntime: 'Sin downtime' },
+  deps: { title: 'No tocar sin revisar', hint: 'Recursos de los que dependen tests que hoy pasan. Cambiarlos o apagarlos los pondría en rojo.',
+          resource: 'Recurso', type: 'Tipo', tests: 'Tests y controles que dependen', empty: 'Sin dependencias registradas.' },
+  cov: { title: 'Cobertura de normas', hint: 'Estado de cada control tocado por los chequeos. No es un indicador global de cumplimiento.',
+         iso: 'ISO 27001:2022', tsc: 'SOC 2 (TSC 2017)', id: 'ID', name: 'Nombre', status: 'Estado',
+         groups: { technical: 'Controles técnicos', organizational: 'Organizacionales: fuera del alcance de este reporte', inherited: 'Heredados de AWS',
+                   touched: 'Organizacionales mencionados por hallazgos (el reporte no los evalúa: el estado viene del hallazgo)' },
+         st: { PASS: 'Pasa', FAIL: 'Falla', NO_VERIFICADO: 'No verificado', NOT_TOUCHED: 'No tocado' } },
+  notes: { title: 'Advertencias y notas', warnings: 'Advertencias de la corrida', notes: 'Notas', none: 'Sin advertencias ni notas.' },
+  ver: { title: 'Verificación de los arreglos', badgeTitle: 'Verificación del arreglo',
+         hint: 'Revisión de los comandos de CloudShell sin ejecutar nada en AWS: sintaxis, valores sin resolver, operaciones destructivas, conflictos entre arreglos y lo que falta.',
+         counts: 'Arreglos verificados', pending: 'Valores por completar (__COMPLETAR_…__) pendientes', pendingHint: 'Completarlos antes de pegar los comandos en CloudShell.',
+         cliOn: 'Validez de operaciones y flags: comprobada con la ayuda local de la AWS CLI.',
+         cliOff: 'Validez de operaciones y flags: no comprobada (correr la verificación con --check-cli y la AWS CLI instalada).',
+         cliNone: 'Validez de operaciones y flags: no había comandos aws que comprobar.',
+         stale: 'verificación desactualizada: volver a correr verify_remediation',
+         warnings: 'Advertencias de la verificación', conflicts: 'Conflictos entre arreglos', noConflicts: 'Sin conflictos entre arreglos.', gaps: 'Lo que falta', noGaps: 'Nada faltante detectado.',
+         order: 'Orden sugerido de aplicación', orderHint: 'Identidad, logging y detección, claves KMS, cifrado, red, datos, monitoreo, tags e integración; dentro de cada grupo por severidad y los cambios planificados al final. Las reglas de conflicto tienen prioridad.',
+         reasons: 'Verificación del arreglo', byClaude: 'revisión de Claude', rule: 'Regla', findings: 'Hallazgos', none: 'sin observaciones',
+         status: { OK: 'OK', REVISAR: 'REVISAR', CONFLICTO: 'CONFLICTO' },
+         gapKind: { sin_arreglo: 'Falla sin arreglo', no_verificado: 'No verificado', recurso_sin_chequeo: 'Recurso sin chequeo', sin_verify_after: 'Arreglo sin verificación posterior' },
+         issueKind: { syntax: 'Sintaxis', cli_invalida: 'CLI inválida', placeholder_sin_resolver: 'Placeholder sin resolver', requiere_completar: 'Valor por completar',
+                      higiene: 'Higiene', destructivo_sin_aviso: 'Destructivo sin aviso', conflicto_regla: 'Conflicto', impacto_dependencias: 'Impacto en dependencias', downtime: 'Downtime', claude: 'Claude', riesgo_alto: 'Riesgo alto', evidencia_faltante: 'Evidencia faltante' } },
+  footer: 'Pre-auditoría técnica automatizada. No es una opinión de auditoría ni cubre controles organizacionales (políticas, RRHH, equipos, proveedores, ISMS).',
+  status: { FAIL: 'Falla', PASS: 'Pasa', DRIFT: 'Drift', DOCUMENTED_ONLY: 'Solo documentado', DOCUMENTED_GAP: 'Brecha documentada',
+            UNDOCUMENTED: 'Sin documentar', NO_VERIFICADO: 'No verificado', 'N/A': 'N/A' },
+  severity: { critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja' }
+};
+/*i18n:end*/
+
+const STATUSES = ['FAIL', 'DRIFT', 'UNDOCUMENTED', 'DOCUMENTED_GAP', 'NO_VERIFICADO', 'DOCUMENTED_ONLY', 'PASS', 'N/A'];
+const SEVERITIES = ['critical', 'high', 'medium', 'low'];
+const STORE_KEY = 'iac-report-filters-v1';
+const PLACEHOLDER = /(__COMPLETAR_[A-Z0-9_]+__)/;
+
+let DATA;
+try {
+  DATA = JSON.parse(document.getElementById('data').textContent);
+} catch (e) {
+  DATA = { meta: {}, findings: [] };
+}
+const META = DATA.meta || {};
+const FINDINGS = Array.isArray(DATA.findings) ? DATA.findings : [];
+const VERIF = DATA.verification && typeof DATA.verification === 'object' ? DATA.verification : null;
+const VERIF_STATES = ['OK', 'REVISAR', 'CONFLICTO'];
+const VERDICTS = ['OPTIMO', 'NO_OPTIMO', 'NO_VERIFICABLE'];
+const openIds = new Set();
+const filters = { severity: '', status: '', domain: '', tool: '', norm: '', q: '' };
+
+// ---------------------------------------------------------------- dom helpers
+
+function el(tag, opts, kids) {
+  const node = document.createElement(tag);
+  if (opts) {
+    if (opts.cls) node.className = opts.cls;
+    if (opts.text != null) node.textContent = String(opts.text);
+    if (opts.attrs) Object.keys(opts.attrs).forEach(function (k) { node.setAttribute(k, String(opts.attrs[k])); });
+  }
+  (kids || []).forEach(function (k) { if (k) node.appendChild(k); });
+  return node;
+}
+function clear(node) { node.textContent = ''; }
+function mount(id) { const n = document.getElementById(id); clear(n); return n; }
+function statusKey(s) { return s === 'N/A' ? 'NA' : s; }
+function oneLine(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); }
+function arr(v) { return Array.isArray(v) ? v : []; }
+
+// Splits text on __COMPLETAR_*__ and appends text nodes plus <mark> nodes (never innerHTML).
+function appendMarked(parent, text) {
+  String(text == null ? '' : text).split(PLACEHOLDER).forEach(function (part) {
+    if (!part) return;
+    if (PLACEHOLDER.test(part)) parent.appendChild(el('mark', { text: part }));
+    else parent.appendChild(document.createTextNode(part));
+  });
+  return parent;
+}
+
+function badge(text, cls, title) {
+  return el('span', { cls: 'badge ' + (cls || ''), text: text, attrs: title ? { title: title } : null });
+}
+function verifEntry(f) {
+  const per = VERIF && VERIF.per_finding;
+  if (!per || typeof per !== 'object' || !Object.prototype.hasOwnProperty.call(per, f.id)) return null;
+  const entry = per[f.id];
+  return entry && VERIF_STATES.indexOf(entry.status) !== -1 ? entry : null;
+}
+function verifStatus(f) { const e = verifEntry(f); return e ? e.status : null; }
+function verifBadge(state) { return badge(I18N.ver.status[state], 'ver-' + state, I18N.ver.badgeTitle); }
+function sevBadge(sev) { return badge(I18N.severity[sev] || sev, 'sev-' + sev); }
+function statusBadge(st) { return badge(I18N.status[st] || st, 'st-' + statusKey(st)); }
+
+// ---------------------------------------------------------------- copy
+
+function legacyCopy(text) {
+  const previous = document.activeElement;
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.setAttribute('aria-hidden', 'true');
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  document.body.removeChild(ta);
+  if (previous && typeof previous.focus === 'function') previous.focus();
+  return ok;
+}
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return legacyCopy(text); });
+  }
+  return Promise.resolve(legacyCopy(text));
+}
+function copyButton(label, getText, cls, ariaLabel) {
+  const btn = el('button', { cls: 'btn ' + (cls || ''), text: label, attrs: { type: 'button', 'aria-label': ariaLabel || label } });
+  btn.addEventListener('click', function () {
+    copyText(getText()).then(function (ok) {
+      btn.textContent = ok ? I18N.rem.copied : I18N.rem.copyFail;
+      document.getElementById('live').textContent = btn.textContent;
+      btn.focus();
+      setTimeout(function () { btn.textContent = label; }, 1800);
+    });
+  });
+  return btn;
+}
+
+// ---------------------------------------------------------------- header and summary
+
+function metaRow(dl, label, value) {
+  dl.appendChild(el('dt', { text: label }));
+  dl.appendChild(el('dd', { text: value || I18N.meta.none }));
+}
+function renderHeader() {
+  const platform = META.platform || '';
+  document.getElementById('title').textContent = I18N.titlePrefix + (platform ? ' — ' + platform : '');
+  document.title = I18N.titlePrefix + (platform ? ' — ' + platform : '');
+  const dl = mount('meta');
+  const aws = META.aws || null;
+  const vault = META.vault || null;
+  const sources = [aws ? I18N.sources.aws : I18N.sources.noAws,
+    vault ? I18N.sources.vault + ' ' + (vault.kind === 'typed' ? I18N.sources.vaultTyped : vault.kind === 'free' ? I18N.sources.vaultFree : (vault.kind || ''))
+          : I18N.sources.noVault].join(' · ');
+  metaRow(dl, I18N.meta.platform, platform);
+  metaRow(dl, I18N.meta.mode, META.mode);
+  metaRow(dl, I18N.meta.target, META.target);
+  metaRow(dl, I18N.meta.sources, sources);
+  metaRow(dl, I18N.meta.account, aws && aws.account_id);
+  metaRow(dl, I18N.meta.identity, aws && aws.identity_arn);
+  metaRow(dl, I18N.meta.regions, aws && arr(aws.regions).join(', '));
+  metaRow(dl, I18N.meta.date, META.generated_at);
+}
+
+function renderVerdict() {
+  const box = document.getElementById('verdict');
+  const summary = DATA.summary && typeof DATA.summary === 'object' ? DATA.summary : {};
+  if (VERDICTS.indexOf(summary.verdict) === -1) { box.hidden = true; return; }
+  clear(box);
+  box.hidden = false;
+  box.className = 'verdict verdict-' + summary.verdict;
+  box.appendChild(el('p', { cls: 'label', text: I18N.verdict[summary.verdict] }));
+  box.appendChild(el('p', { text: summary.verdict_text || '' }));
+  if (!META.aws) box.appendChild(el('p', { cls: 'noaws', text: I18N.verdict.noAws }));
+  box.appendChild(el('p', { cls: 'muted', text: I18N.verdict.basis }));
+}
+
+function failingTests(tool) {
+  const seen = new Map();
+  FINDINGS.filter(function (f) { return f.status === 'FAIL'; }).forEach(function (f) {
+    arr((f.mappings || {})[tool]).forEach(function (m) {
+      if (!seen.has(String(m.test))) seen.set(String(m.test), m.name || '');
+    });
+  });
+  return Array.from(seen.entries());
+}
+function countChip(label, count, key, value) {
+  const btn = el('button', { cls: 'chip ' + (key === 'status' ? 'st-' + statusKey(value) : 'sev-' + value), text: label + ': ' + count, attrs: { type: 'button' } });
+  btn.addEventListener('click', function () {
+    filters[key] = value;
+    syncControls();
+    persistFilters();
+    renderCards();
+    document.getElementById('findings').scrollIntoView();
+  });
+  return btn;
+}
+function testList(title, entries, tool) {
+  const box = el('div', null, [el('h3', { text: title + (META.aws ? ' (' + entries.length + ')' : '') })]);
+  if (!META.aws) { box.appendChild(el('p', { cls: 'muted', text: I18N.summary.notChecked })); return box; }
+  if (!entries.length) { box.appendChild(el('p', { cls: 'muted', text: I18N.summary.none })); return box; }
+  const ul = el('ul', { cls: 'plain' });
+  entries.forEach(function (e) {
+    ul.appendChild(el('li', { text: testLabel({ tool: tool, test: e[0], name: e[1] }) }));
+  });
+  box.appendChild(ul);
+  return box;
+}
+function unverifiedBlock(body, nov) {
+  const summary = DATA.summary && typeof DATA.summary === 'object' ? DATA.summary : {};
+  const counts = summary.unverified && typeof summary.unverified === 'object' ? summary.unverified : null;
+  const scope = arr(DATA.unverified_scope);
+  body.appendChild(el('h3', { text: I18N.summary.unverifiedTitle }));
+  const row = el('div', { cls: 'row' });
+  Object.keys(I18N.summary.unverifiedCounts).forEach(function (k) {
+    const n = counts ? Number(counts[k]) || 0 : (k === 'no_verificado' ? nov.length : 0);
+    row.appendChild(badge(I18N.summary.unverifiedCounts[k] + ': ' + n, n ? 'st-NO_VERIFICADO' : 'st-NA'));
+  });
+  body.appendChild(row);
+  if (scope.length) {
+    body.appendChild(el('h3', { text: I18N.summary.scopeList + ' (' + scope.length + ')' }));
+    const ul = el('ul', { cls: 'plain' });
+    scope.forEach(function (c) {
+      ul.appendChild(el('li', { text: (c.type ? c.type + ' ' : '') + c.id + (c.region ? ' · ' + c.region : '') + ' — ' + I18N.summary.scopeUnverified }));
+    });
+    body.appendChild(ul);
+  }
+}
+function renderSummary() {
+  document.getElementById('h-summary').textContent = I18N.summary.title;
+  const body = mount('summary-body');
+  const byStatus = {}; const bySev = {};
+  FINDINGS.forEach(function (f) {
+    byStatus[f.status] = (byStatus[f.status] || 0) + 1;
+    if (f.status === 'FAIL') bySev[f.severity] = (bySev[f.severity] || 0) + 1;
+  });
+  if (!META.aws) body.appendChild(el('div', { cls: 'alert', text: I18N.summary.noAwsNote, attrs: { role: 'alert' } }));
+  body.appendChild(el('h3', { text: I18N.summary.byStatus }));
+  const r1 = el('div', { cls: 'row' });
+  STATUSES.forEach(function (s) { r1.appendChild(countChip(I18N.status[s], byStatus[s] || 0, 'status', s)); });
+  body.appendChild(r1);
+  body.appendChild(el('h3', { text: I18N.summary.bySeverity }));
+  const r2 = el('div', { cls: 'row' });
+  SEVERITIES.forEach(function (s) { r2.appendChild(countChip(I18N.severity[s], bySev[s] || 0, 'severity', s)); });
+  body.appendChild(r2);
+  body.appendChild(el('p', { cls: 'muted', text: I18N.summary.clickHint }));
+  body.appendChild(testList(I18N.summary.drata, failingTests('drata'), 'drata'));
+  body.appendChild(testList(I18N.summary.vanta, failingTests('vanta'), 'vanta'));
+  const nov = FINDINGS.filter(function (f) { return f.status === 'NO_VERIFICADO'; });
+  unverifiedBlock(body, nov);
+  if (!nov.length) return;
+  body.appendChild(el('h3', { text: I18N.summary.notVerified + ' (' + nov.length + ')' }));
+  body.appendChild(el('p', { cls: 'muted', text: I18N.summary.notVerifiedHint }));
+  const ul = el('ul', { cls: 'plain' });
+  nov.forEach(function (f) {
+    const li = el('li');
+    li.appendChild(el('strong', { text: f.id + ' ' }));
+    li.appendChild(document.createTextNode(oneLine(f.title)));
+    if (arr(f.missing).length) li.appendChild(document.createTextNode(' — ' + I18N.summary.missing + ': ' + arr(f.missing).join(', ')));
+    ul.appendChild(li);
+  });
+  body.appendChild(ul);
+}
+
+// ---------------------------------------------------------------- filters
+
+function loadFilters() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    const saved = raw ? JSON.parse(raw) : null;
+    return saved && typeof saved === 'object' ? saved : {};
+  } catch (e) { return {}; }
+}
+function persistFilters() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({ severity: filters.severity, status: filters.status, domain: filters.domain, tool: filters.tool, norm: filters.norm }));
+  } catch (e) { /* storage unavailable: filters just are not remembered */ }
+}
+function selectField(key, label, options) {
+  const sel = el('select', { attrs: { id: 'f-' + key } });
+  options.forEach(function (o) { sel.appendChild(el('option', { text: o[1], attrs: { value: o[0] } })); });
+  sel.addEventListener('change', function () { filters[key] = sel.value; persistFilters(); renderCards(); });
+  return el('label', null, [el('span', { text: label }), sel]);
+}
+function syncControls() {
+  ['severity', 'status', 'domain', 'tool', 'norm'].forEach(function (k) { document.getElementById('f-' + k).value = filters[k]; });
+  document.getElementById('f-q').value = filters.q;
+}
+function renderFilters() {
+  document.getElementById('h-filters').textContent = I18N.filters.title;
+  const box = mount('filters');
+  const domains = Array.from(new Set(FINDINGS.map(function (f) { return f.domain; }).filter(Boolean))).sort();
+  const optSets = {
+    severity: [['', I18N.filters.allF]].concat(SEVERITIES.map(function (s) { return [s, I18N.severity[s]]; })),
+    status: [['', I18N.filters.all]].concat(STATUSES.map(function (s) { return [s, I18N.status[s]]; })),
+    domain: [['', I18N.filters.all]].concat(domains.map(function (d) { return [d, d]; })),
+    tool: [['', I18N.filters.allF], ['drata', 'Drata'], ['vanta', 'Vanta']],
+    norm: [['', I18N.filters.allF], ['soc2', I18N.filters.normSoc2], ['iso', I18N.filters.normIso]]
+  };
+  box.appendChild(selectField('severity', I18N.filters.severity, optSets.severity));
+  box.appendChild(selectField('status', I18N.filters.status, optSets.status));
+  box.appendChild(selectField('domain', I18N.filters.domain, optSets.domain));
+  box.appendChild(selectField('tool', I18N.filters.tool, optSets.tool));
+  box.appendChild(selectField('norm', I18N.filters.norm, optSets.norm));
+  const q = el('input', { attrs: { type: 'search', id: 'f-q', placeholder: I18N.filters.searchPlaceholder, autocomplete: 'off' } });
+  q.addEventListener('input', function () { filters.q = q.value; renderCards(); });
+  box.appendChild(el('label', null, [el('span', { text: I18N.filters.search }), q]));
+  const saved = loadFilters();
+  Object.keys(optSets).forEach(function (k) {
+    if (optSets[k].some(function (o) { return o[0] === saved[k]; })) filters[k] = saved[k];
+  });
+  syncControls();
+  const clearBtn = document.getElementById('clear-filters');
+  clearBtn.textContent = I18N.filters.clear;
+  clearBtn.onclick = function () {
+    Object.keys(filters).forEach(function (k) { filters[k] = ''; });
+    syncControls(); persistFilters(); renderCards();
+  };
+  const exp = document.getElementById('expand-all');
+  exp.textContent = I18N.filters.expand;
+  exp.onclick = function () { visible().forEach(function (f) { openIds.add(f.id); }); renderCards(); };
+  const col = document.getElementById('collapse-all');
+  col.textContent = I18N.filters.collapse;
+  col.onclick = function () { openIds.clear(); renderCards(); };
+}
+
+function haystack(f) {
+  const r = f.resource || {}; const m = f.mappings || {};
+  const parts = [f.id, f.check_id, f.title, f.domain, f.status, r.id, r.name, r.region, r.type];
+  ['tsc', 'iso27001_2022'].forEach(function (k) { arr(m[k]).forEach(function (x) { parts.push(x.id); }); });
+  ['drata', 'vanta'].forEach(function (k) { arr(m[k]).forEach(function (x) { parts.push(k, x.test, x.name); }); });
+  arr(m.security_hub).concat(arr(m.cis_aws)).forEach(function (x) { parts.push(x); });
+  return parts.filter(function (p) { return p != null; }).join(' ').toLowerCase();
+}
+function matches(f) {
+  const m = f.mappings || {};
+  if (filters.severity && f.severity !== filters.severity) return false;
+  if (filters.status && f.status !== filters.status) return false;
+  if (filters.domain && f.domain !== filters.domain) return false;
+  if (filters.tool && !arr(m[filters.tool]).length) return false;
+  if (filters.norm === 'soc2' && !arr(m.tsc).length) return false;
+  if (filters.norm === 'iso' && !arr(m.iso27001_2022).length) return false;
+  const q = filters.q.trim().toLowerCase();
+  return !q || haystack(f).indexOf(q) !== -1;
+}
+function visible() { return FINDINGS.filter(matches); }
+
+// ---------------------------------------------------------------- bulk copy of low-risk fixes
+
+function resourceLabel(f) {
+  const r = f.resource || {};
+  if (!r.id) return I18N.findings.noResource;
+  if (r.id === 'account') return I18N.findings.account + (r.region ? ' · ' + r.region : '');
+  const name = r.name && r.name !== r.id ? r.name + ' (' + r.id + ')' : r.id;
+  return (r.type ? r.type + ' ' : '') + name + (r.region ? ' · ' + r.region : '');
+}
+// The bulk copy is only for fixes the verification stage stamped OK, so it needs a verification that matches the findings:
+// without one (never run, or stale) the buttons are disabled with the reason. Findings with unresolved __COMPLETAR_
+// placeholders are left out too, and so is anything that is not stamped OK (CONFLICTO, REVISAR, no entry).
+function bulkRaw(sev) {
+  return FINDINGS.filter(function (f) {
+    const rem = f.remediation;
+    return f.status === 'FAIL' && f.severity === sev && rem && rem.kind === 'cli' && rem.risk === 'low' && arr(rem.commands).length &&
+      !arr(rem.commands).some(function (c) { return c.indexOf('__COMPLETAR_') !== -1; });
+  });
+}
+function bulkCandidates(sev) {
+  return VERIF ? bulkRaw(sev).filter(function (f) { return verifStatus(f) === 'OK'; }) : [];
+}
+function lowRiskBundle(sev) {
+  return bulkCandidates(sev).map(function (f) {
+    // One line only: a newline inside a hostile title would escape the comment and become a command.
+    const head = '# ' + f.id + ' ' + oneLine(f.title) + ' | ' + oneLine(resourceLabel(f));
+    return [head].concat(arr(f.remediation.commands)).join('\n');
+  }).join('\n\n');
+}
+function renderBulk() {
+  document.getElementById('h-bulk').textContent = I18N.bulk.title;
+  const body = mount('bulk-body');
+  body.appendChild(el('p', { cls: 'muted', text: I18N.bulk.hint }));
+  const reason = DATA.verification_stale ? I18N.bulk.stale : I18N.bulk.noVerification;
+  if (!VERIF) body.appendChild(el('div', { cls: 'alert', text: reason, attrs: { id: 'bulk-reason', role: 'alert' } }));
+  const row = el('div', { cls: 'row' });
+  let shown = 0;
+  SEVERITIES.forEach(function (sev) {
+    const n = VERIF ? bulkCandidates(sev).length : bulkRaw(sev).length;
+    if (!n) return;
+    shown += 1;
+    const btn = copyButton(I18N.bulk.button + ': ' + I18N.severity[sev] + ' (' + n + ')', function () { return lowRiskBundle(sev); });
+    if (!VERIF) { btn.disabled = true; btn.title = reason; }
+    row.appendChild(btn);
+  });
+  if (shown) body.appendChild(row); else if (VERIF) body.appendChild(el('p', { cls: 'muted', text: I18N.bulk.none }));
+}
+
+// ---------------------------------------------------------------- cards
+
+function mappingChip(text, cls, title) {
+  return el('span', { cls: 'chip ' + cls, text: text, attrs: title ? { title: title } : null });
+}
+function linkChip(text, href, title) {
+  if (typeof href === 'string' && /^https:\/\//.test(href)) {
+    return el('a', { cls: 'chip', text: text, attrs: { href: href, target: '_blank', rel: 'noopener noreferrer', title: title || href } });
+  }
+  return mappingChip(text, '', title);
+}
+function renderMappings(f) {
+  const m = f.mappings || {};
+  const row = el('div', { cls: 'row' });
+  [['tsc', 'tsc', 'SOC 2'], ['iso27001_2022', 'iso', 'ISO 27001:2022']].forEach(function (g) {
+    arr(m[g[0]]).forEach(function (x) {
+      const inferred = x.sourced === false;
+      row.appendChild(mappingChip(x.id + (inferred ? ' · ' + I18N.findings.inferred : ''), g[1] + (inferred ? ' inferred' : ''),
+        g[2] + (inferred ? ' — ' + I18N.findings.inferredHint : x.sourced ? ' — ' + x.sourced : '')));
+    });
+  });
+  arr(m.drata).forEach(function (x) { row.appendChild(linkChip('Drata ' + x.test, x.source, x.name)); });
+  arr(m.vanta).forEach(function (x) { row.appendChild(linkChip('Vanta: ' + x.test, x.source)); });
+  arr(m.security_hub).forEach(function (x) { row.appendChild(mappingChip('Security Hub ' + x, '')); });
+  arr(m.cis_aws).forEach(function (x) { row.appendChild(mappingChip('CIS AWS ' + x, '')); });
+  return row;
+}
+
+function codeBlock(text) {
+  const code = el('code');
+  appendMarked(code, text);
+  return el('pre', null, [code]);
+}
+function section(title, node) {
+  return el('div', null, [el('h3', { text: title }), node]);
+}
+function commandBlock(text, ariaLabel) {
+  return el('div', { cls: 'cmd' }, [el('div', { cls: 'cmd-bar no-print' }, [copyButton(I18N.rem.copy, function () { return text; }, '', ariaLabel)]), codeBlock(text)]);
+}
+function renderRemediation(f) {
+  const rem = f.remediation;
+  if (!rem) return null;
+  const box = el('div');
+  box.appendChild(el('h3', { text: I18N.rem.title }));
+  if (rem.note_status) {
+    if (f.status === 'PASS' || f.status === 'N/A') box.appendChild(el('p', { cls: 'muted', text: rem.note_status }));
+    else box.appendChild(el('div', { cls: 'alert', text: rem.note_status, attrs: { role: 'alert' } }));
+    if (rem.verify_after) box.appendChild(section(I18N.rem.verifyWith, commandBlock(rem.verify_after, I18N.rem.copyVerifyAria + ' ' + I18N.rem.of + ' ' + f.id)));
+    return box;
+  }
+  const tags = el('div', { cls: 'row' });
+  tags.appendChild(badge(I18N.rem.kind[rem.kind] || rem.kind, ''));
+  tags.appendChild(badge(I18N.rem.risk[rem.risk] || rem.risk, rem.risk === 'high' ? 'sev-critical' : rem.risk === 'medium' ? 'sev-medium' : 'sev-low'));
+  tags.appendChild(badge(rem.downtime ? I18N.rem.downtime : I18N.rem.noDowntime, rem.downtime ? 'sev-high' : ''));
+  box.appendChild(tags);
+  if (rem.kind === 'planned_change') box.appendChild(el('div', { cls: 'alert', text: I18N.rem.planned, attrs: { role: 'alert' } }));
+  if (rem.kind === 'console_only') box.appendChild(el('p', { cls: 'muted', text: I18N.rem.consoleOnly }));
+  if (arr(rem.steps).length) {
+    const ol = el('ol', { cls: 'steps' });
+    arr(rem.steps).forEach(function (s) { const li = el('li'); appendMarked(li, s); ol.appendChild(li); });
+    box.appendChild(section(I18N.rem.steps, ol));
+  }
+  const cmds = rem.kind === 'console_only' ? [] : arr(rem.commands);
+  if (cmds.length) {
+    const wrap = el('div');
+    const all = cmds.join('\n\n');
+    if (/__COMPLETAR_/.test(all)) wrap.appendChild(el('p', { cls: 'muted', text: I18N.rem.placeholders }));
+    // Copy-all only where the blocks are a sequence (cli); the other kinds hold alternatives or review-first steps.
+    if (cmds.length > 1 && rem.kind === 'cli') wrap.appendChild(el('div', { cls: 'cmd-bar no-print' }, [copyButton(I18N.rem.copyAll, function () { return all; }, '', I18N.rem.copyAllAria + ' ' + I18N.rem.of + ' ' + f.id)]));
+    cmds.forEach(function (c, i) {
+      wrap.appendChild(commandBlock(c, I18N.rem.copyCmdAria + ' ' + (i + 1) + ' ' + I18N.rem.ofN + ' ' + cmds.length + ' ' + I18N.rem.of + ' ' + f.id));
+    });
+    box.appendChild(section(I18N.rem.commands, wrap));
+  }
+  if (rem.verify_after) box.appendChild(section(I18N.rem.verify, commandBlock(rem.verify_after, I18N.rem.copyVerifyAria + ' ' + I18N.rem.of + ' ' + f.id)));
+  if (rem.notes) { const p = el('p'); appendMarked(p, rem.notes); box.appendChild(section(I18N.rem.notes, p)); }
+  return box;
+}
+
+function testLabel(t) { return (t.tool === 'drata' ? 'Drata ' + t.test : 'Vanta') + (t.name ? ': ' + t.name : t.tool === 'vanta' ? ': ' + t.test : ''); }
+
+function evidenceText(ev) {
+  if (ev == null) return '';
+  if (typeof ev === 'string') return ev;
+  if (typeof ev === 'object' && !Object.keys(ev).length) return '';
+  return JSON.stringify(ev, null, 2);
+}
+
+function verifIssues(entry) {
+  const ul = el('ul', { cls: 'plain' });
+  arr(entry.issues).forEach(function (i) {
+    const li = el('li');
+    li.appendChild(el('strong', { text: (I18N.ver.issueKind[i.kind] || i.kind) + ': ' }));
+    li.appendChild(document.createTextNode(oneLine(i.message)));
+    if (i.rule_id) li.appendChild(el('code', { text: ' ' + i.rule_id }));
+    if (i.source === 'claude' && i.kind !== 'claude') li.appendChild(document.createTextNode(' (' + I18N.ver.byClaude + ')'));
+    ul.appendChild(li);
+  });
+  return ul;
+}
+
+function cardBody(f) {
+  const body = el('div', { cls: 'card-body collapsible-body' });
+  const flags = el('div', { cls: 'row' });
+  if (f.check_id) flags.appendChild(badge(I18N.findings.checkId + ' ' + f.check_id, ''));
+  if (f.evaluated_by === 'claude') flags.appendChild(badge(I18N.findings.byClaude, 'st-NOT_TOUCHED'));
+  if (f.evaluated_by === 'vault') flags.appendChild(badge(I18N.findings.fromVault, 'st-DOCUMENTED_ONLY'));
+  if (f.vacuous && f.status === 'N/A') flags.appendChild(badge(I18N.findings.vacuous, 'st-NA'));
+  if (flags.childNodes.length) body.appendChild(flags);
+  const mp = renderMappings(f);
+  if (mp.childNodes.length) body.appendChild(section(I18N.findings.mappings, mp));
+  if (f.status === 'NO_VERIFICADO' && arr(f.missing).length) {
+    const ul = el('ul', { cls: 'plain' });
+    arr(f.missing).forEach(function (p) { ul.appendChild(el('li', null, [el('code', { text: p })])); });
+    body.appendChild(section(I18N.findings.missing, ul));
+  }
+  if (f.vault_claim || f.vault_note) {
+    const v = el('div');
+    if (f.vault_claim) v.appendChild(el('p', { text: f.vault_claim }));
+    if (f.vault_note) v.appendChild(el('p', { cls: 'muted', text: I18N.findings.vaultNote + ': ' + f.vault_note }));
+    body.appendChild(section(I18N.findings.vault, v));
+  }
+  if (f.status === 'DOCUMENTED_ONLY' && f.evidence && f.evidence.catalog_severity) {
+    body.appendChild(el('p', { cls: 'muted', text: I18N.findings.catalogSeverity + ': ' + (I18N.severity[f.evidence.catalog_severity] || f.evidence.catalog_severity).toLowerCase() + ', ' + I18N.findings.notVerified }));
+  }
+  if (arr(f.breaks_tests).length) {
+    body.appendChild(el('div', { cls: 'alert', text: I18N.findings.breaks + ': ' + arr(f.breaks_tests).map(testLabel).join('; ') }));
+  }
+  if (arr(f.depends_on_me).length) {
+    const ul = el('ul', { cls: 'plain' });
+    arr(f.depends_on_me).forEach(function (t) { ul.appendChild(el('li', { text: testLabel(t) })); });
+    body.appendChild(section(I18N.findings.dependsOnMe, ul));
+  }
+  const ver = verifEntry(f);
+  if (ver && arr(ver.issues).length) body.appendChild(section(I18N.ver.reasons, verifIssues(ver)));
+  const ev = evidenceText(f.evidence);
+  if (ev) body.appendChild(section(I18N.findings.evidence, el('pre', null, [el('code', { text: ev })])));
+  const rem = renderRemediation(f);
+  if (rem) body.appendChild(rem);
+  return body;
+}
+
+function setOpen(card, open) {
+  card.classList.toggle('open', open);
+  card.querySelector('.card-head').setAttribute('aria-expanded', open ? 'true' : 'false');
+  card.querySelector('.card-body').hidden = !open;
+}
+function verifState(f) { const state = verifStatus(f); return state ? verifBadge(state) : null; }
+function buildCard(f) {
+  const card = el('article', { cls: 'card', attrs: { id: f.id || '' } });
+  const head = el('button', { cls: 'card-head', attrs: { type: 'button' } });
+  const line = el('span', { cls: 'line' }, [
+    el('code', { text: f.id }), sevBadge(f.severity), statusBadge(f.status), verifState(f), el('span', { cls: 'title', text: f.title })
+  ]);
+  head.appendChild(line);
+  head.appendChild(el('span', { cls: 'sub', text: resourceLabel(f) }));
+  const body = cardBody(f);
+  card.appendChild(head);
+  card.appendChild(body);
+  setOpen(card, openIds.has(f.id));
+  head.addEventListener('click', function () {
+    const open = !card.classList.contains('open');
+    if (open) openIds.add(f.id); else openIds.delete(f.id);
+    setOpen(card, open);
+  });
+  return card;
+}
+function renderCards() {
+  document.getElementById('h-findings').textContent = I18N.findings.title;
+  const box = mount('cards');
+  const list = visible();
+  document.getElementById('count').textContent = I18N.filters.showing + ' ' + list.length + ' ' + I18N.filters.of + ' ' + FINDINGS.length;
+  if (!list.length) { box.appendChild(el('p', { cls: 'muted', text: FINDINGS.length ? I18N.findings.empty : I18N.findings.none })); return; }
+  const frag = document.createDocumentFragment();
+  list.forEach(function (f) { frag.appendChild(buildCard(f)); });
+  box.appendChild(frag);
+}
+
+// ---------------------------------------------------------------- fix verification
+
+function findingById(id) {
+  for (let i = 0; i < FINDINGS.length; i++) if (FINDINGS[i].id === id) return FINDINGS[i];
+  return null;
+}
+function verifCounts(body) {
+  const summary = VERIF.summary && typeof VERIF.summary === 'object' ? VERIF.summary : {};
+  body.appendChild(el('h3', { text: I18N.ver.counts }));
+  const row = el('div', { cls: 'row' });
+  VERIF_STATES.forEach(function (s) { row.appendChild(badge(I18N.ver.status[s] + ': ' + (Number(summary[s]) || 0), 'ver-' + s)); });
+  body.appendChild(row);
+  const pending = Number(VERIF.completar_pendientes) || 0;
+  body.appendChild(el('p', null, [el('strong', { text: I18N.ver.pending + ': ' + pending + '. ' }), document.createTextNode(pending ? I18N.ver.pendingHint : '')]));
+  const none = !VERIF.cli_checked && VERIF.cli_requested && Number(VERIF.cli_operations_checked) === 0;
+  body.appendChild(el('p', { cls: 'muted', text: VERIF.cli_checked ? I18N.ver.cliOn : none ? I18N.ver.cliNone : I18N.ver.cliOff }));
+}
+function verifConflicts(body) {
+  const conflicts = arr(VERIF.conflicts);
+  body.appendChild(el('h3', { text: I18N.ver.conflicts + ' (' + conflicts.length + ')' }));
+  if (!conflicts.length) { body.appendChild(el('p', { cls: 'muted', text: I18N.ver.noConflicts })); return; }
+  const ul = el('ul', { cls: 'plain' });
+  conflicts.forEach(function (c) {
+    const li = el('li');
+    if (VERIF_STATES.indexOf(c.status) !== -1) li.appendChild(verifBadge(c.status));
+    li.appendChild(el('code', { text: ' ' + (c.rule_id || '') + ' ' }));
+    li.appendChild(document.createTextNode(oneLine(c.message) + ' — ' + I18N.ver.findings + ': ' + arr(c.findings).join(', ')));
+    ul.appendChild(li);
+  });
+  body.appendChild(ul);
+}
+function verifGaps(body) {
+  const gaps = arr(VERIF.gaps);
+  body.appendChild(el('h3', { text: I18N.ver.gaps + ' (' + gaps.length + ')' }));
+  if (!gaps.length) { body.appendChild(el('p', { cls: 'muted', text: I18N.ver.noGaps })); return; }
+  const ul = el('ul', { cls: 'plain' });
+  gaps.forEach(function (g) {
+    const li = el('li');
+    li.appendChild(el('strong', { text: (I18N.ver.gapKind[g.kind] || g.kind) + ': ' }));
+    li.appendChild(document.createTextNode(oneLine(g.message)));
+    ul.appendChild(li);
+  });
+  body.appendChild(ul);
+}
+function verifWarnings(body) {
+  const warnings = arr(VERIF.warnings);
+  if (!warnings.length) return;
+  body.appendChild(el('h3', { text: I18N.ver.warnings + ' (' + warnings.length + ')' }));
+  const ul = el('ul', { cls: 'plain' });
+  warnings.forEach(function (w) { ul.appendChild(el('li', { text: oneLine(w) })); });
+  body.appendChild(ul);
+}
+function verifOrder(body) {
+  const order = arr(VERIF.apply_order);
+  body.appendChild(el('h3', { text: I18N.ver.order + ' (' + order.length + ')' }));
+  body.appendChild(el('p', { cls: 'muted', text: I18N.ver.orderHint }));
+  if (!order.length) return;
+  const ol = el('ol', { cls: 'steps' });
+  order.forEach(function (id) {
+    const f = findingById(id);
+    const li = el('li');
+    li.appendChild(el('code', { text: String(id) }));
+    if (f) {
+      const state = verifStatus(f);
+      li.appendChild(document.createTextNode(' '));
+      if (state) li.appendChild(verifBadge(state));
+      li.appendChild(document.createTextNode(' ' + oneLine(f.title) + ' | ' + oneLine(resourceLabel(f))));
+    }
+    ol.appendChild(li);
+  });
+  body.appendChild(ol);
+}
+function renderStaleWarning() {
+  const box = document.getElementById('stale-warning');
+  box.hidden = !DATA.verification_stale;
+  if (DATA.verification_stale) box.textContent = I18N.ver.stale;
+}
+function renderVerification() {
+  const box = document.getElementById('verification');
+  if (!VERIF) { box.hidden = true; return; }
+  box.hidden = false;
+  document.getElementById('h-verification').textContent = I18N.ver.title;
+  const body = mount('verification-body');
+  body.appendChild(el('p', { cls: 'muted', text: I18N.ver.hint }));
+  verifCounts(body);
+  verifConflicts(body);
+  verifGaps(body);
+  verifWarnings(body);
+  verifOrder(body);
+}
+
+// ---------------------------------------------------------------- dependencies, coverage, notes
+
+function table(headers, rows) {
+  const thead = el('thead', null, [el('tr', null, headers.map(function (h) { return el('th', { text: h, attrs: { scope: 'col' } }); }))]);
+  const tbody = el('tbody');
+  rows.forEach(function (r) { tbody.appendChild(el('tr', null, r.map(function (c) { return el('td', null, [typeof c === 'string' ? document.createTextNode(c) : c]); }))); });
+  return el('div', { cls: 'table-wrap' }, [el('table', null, [thead, tbody])]);
+}
+function renderDeps() {
+  document.getElementById('h-deps').textContent = I18N.deps.title;
+  const box = mount('deps-body');
+  box.appendChild(el('p', { cls: 'muted', text: I18N.deps.hint }));
+  const deps = arr(DATA.dependencies);
+  if (!deps.length) { box.appendChild(el('p', { text: I18N.deps.empty })); return; }
+  box.appendChild(table([I18N.deps.resource, I18N.deps.type, I18N.deps.tests], deps.map(function (d) {
+    return [d.resource_id || '', d.resource_type || '', arr(d.tests).map(testLabel).join('; ')];
+  })));
+}
+
+function coverageGroup(title, entries, open) {
+  const group = el('div', { cls: 'group' });
+  const head = el('button', { cls: 'group-head', text: title + ' (' + entries.length + ')', attrs: { type: 'button' } });
+  const body = el('div', { cls: 'collapsible-body' });
+  body.appendChild(table([I18N.cov.id, I18N.cov.name, I18N.cov.status], entries.map(function (e) {
+    return [e.id, e.name || '', badge(I18N.cov.st[e.status] || e.status, 'st-' + e.status)];
+  })));
+  function set(o) { group.classList.toggle('open', o); head.setAttribute('aria-expanded', o ? 'true' : 'false'); body.hidden = !o; }
+  head.addEventListener('click', function () { set(!group.classList.contains('open')); });
+  group.appendChild(head); group.appendChild(body);
+  set(open);
+  return group;
+}
+function renderCoverage() {
+  document.getElementById('h-coverage').textContent = I18N.cov.title;
+  const box = mount('coverage-body');
+  box.appendChild(el('p', { cls: 'muted', text: I18N.cov.hint }));
+  const cov = DATA.coverage || {};
+  [['iso', I18N.cov.iso], ['tsc', I18N.cov.tsc]].forEach(function (set) {
+    const entries = arr(cov[set[0]]);
+    if (!entries.length) return;
+    box.appendChild(el('h3', { text: set[1] }));
+    ['technical', 'inherited', 'organizational'].forEach(function (cat) {
+      const group = entries.filter(function (e) { return e.category === cat; });
+      if (cat !== 'organizational') { if (group.length) box.appendChild(coverageGroup(I18N.cov.groups[cat], group, cat === 'technical')); return; }
+      // an organizational control that a finding maps to has a state: it is not "out of scope", it is mentioned and not evaluated
+      const touched = group.filter(function (e) { return e.status !== 'NOT_TOUCHED'; });
+      const rest = group.filter(function (e) { return e.status === 'NOT_TOUCHED'; });
+      if (touched.length) box.appendChild(coverageGroup(I18N.cov.groups.touched, touched, true));
+      if (rest.length) box.appendChild(coverageGroup(I18N.cov.groups.organizational, rest, false));
+    });
+  });
+}
+
+function listBlock(title, items) {
+  const box = el('div', null, [el('h3', { text: title })]);
+  const ul = el('ul', { cls: 'plain' });
+  items.forEach(function (w) { ul.appendChild(el('li', { text: w })); });
+  box.appendChild(ul);
+  return box;
+}
+function renderNotes() {
+  document.getElementById('h-notes').textContent = I18N.notes.title;
+  const box = mount('notes-body');
+  const warnings = arr(DATA.warnings); const notes = arr(DATA.notes);
+  if (!warnings.length && !notes.length) { box.appendChild(el('p', { cls: 'muted', text: I18N.notes.none })); return; }
+  if (warnings.length) box.appendChild(listBlock(I18N.notes.warnings, warnings));
+  if (notes.length) box.appendChild(listBlock(I18N.notes.notes, notes));
+}
+
+renderHeader();
+renderVerdict();
+renderSummary();
+renderStaleWarning();
+renderVerification();
+renderFilters();
+renderBulk();
+renderCards();
+renderDeps();
+renderCoverage();
+renderNotes();
+document.getElementById('disclaimer').textContent = I18N.footer;
+})();
+</script>
+</body>
+</html>

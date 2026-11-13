@@ -1,0 +1,20 @@
+{
+  "Attributes": [
+    {
+      "Key": "deletion_protection.enabled",
+      "Value": "false"
+    },
+    {
+      "Key": "access_logs.s3.enabled",
+      "Value": "false"
+    },
+    {
+      "Key": "access_logs.s3.bucket",
+      "Value": ""
+    },
+    {
+      "Key": "access_logs.s3.prefix",
+      "Value": ""
+    }
+  ]
+}

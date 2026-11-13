@@ -1,0 +1,1 @@
+{"Reservations": [{"Instances": [{"InstanceId": "i-0acme00000000001", "Tags": [{"Key": "Name", "Value": "web-1"}, {"Key": "Env", "Value": "prod"}]}]}]}

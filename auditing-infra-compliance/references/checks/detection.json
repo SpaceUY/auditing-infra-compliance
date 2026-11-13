@@ -1,0 +1,647 @@
+{
+  "domain": "detection",
+  "checks": [
+    {
+      "id": "DET-001",
+      "title": "GuardDuty está activo en cada región con recursos (las regiones sin recursos y sin detector se reportan con severidad baja)",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [
+        "ec2_instance",
+        "lambda_function",
+        "rds_instance",
+        "s3_bucket",
+        "eks_cluster"
+      ],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "fail",
+      "verify": {
+        "calls": [
+          {
+            "name": "detectors",
+            "service": "guardduty",
+            "operation": "list-detectors",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "detector",
+            "service": "guardduty",
+            "operation": "get-detector",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "detectors",
+              "path": "DetectorIds[]",
+              "arg": "--detector-id"
+            }
+          }
+        ],
+        "evaluator": "python:guardduty_regions",
+        "params": {
+          "resource_types": [
+            "ec2_instance",
+            "ebs_volume",
+            "rds_instance",
+            "rds_cluster",
+            "dynamodb_table",
+            "efs",
+            "elbv2",
+            "asg",
+            "lambda_function",
+            "sqs_queue",
+            "sns_topic",
+            "eks_cluster",
+            "elasticache_group",
+            "secret"
+          ],
+          "inventory_types": [
+            "ec2_instance",
+            "ebs_volume",
+            "rds_instance",
+            "rds_cluster",
+            "dynamodb_table",
+            "efs",
+            "elbv2",
+            "asg",
+            "lambda_function",
+            "sqs_queue",
+            "sns_topic",
+            "eks_cluster",
+            "elasticache_group",
+            "secret",
+            "s3_bucket"
+          ]
+        },
+        "pass_when_text": "Cada región con recursos tiene un detector de GuardDuty con Status=ENABLED. Una región sin recursos y sin detector no rompe el test de Drata, pero se reporta con severidad baja: un atacante puede usar regiones sin monitoreo. Las cuentas con buckets de S3 cuentan us-east-1 como región con recursos.",
+        "needs": [
+          "guardduty:ListDetectors",
+          "guardduty:GetDetector"
+        ]
+      },
+      "vault_signals": [
+        "GuardDuty",
+        "detección de amenazas",
+        "threat detection",
+        "GuardDuty en todas las regiones"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 105,
+            "name": "Threat Detection in Place",
+            "source": "https://help.drata.com/en/articles/4778757-test-105-threat-detection-in-place"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [
+          "GuardDuty.1"
+        ],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Habilitar GuardDuty en la región {region} con S3 Protection activado, ejecutando el comando en esa región.",
+          "Si la región ya tiene un detector (por ejemplo deshabilitado), el comando lo reactiva con update-detector en lugar de crear otro.",
+          "Verificar con get-detector que Status es ENABLED."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# crea el detector; si la región ya tiene uno (por ejemplo deshabilitado), lo reactiva con S3 Protection\nDETECTOR_ID=$(aws guardduty list-detectors --region \"$REGION\" --query 'DetectorIds[0]' --output text) || DETECTOR_ID=\"LECTURA_FALLIDA\"\nif [ \"$DETECTOR_ID\" = \"LECTURA_FALLIDA\" ]; then echo \"DETENIDO: no se pudieron listar los detectores de GuardDuty (guardduty:ListDetectors); no se cambió nada\"; elif [ -z \"$DETECTOR_ID\" ] || [ \"$DETECTOR_ID\" = \"None\" ]; then aws guardduty create-detector --enable --region \"$REGION\" --features '[{\"Name\":\"S3_DATA_EVENTS\",\"Status\":\"ENABLED\"}]'; else aws guardduty update-detector --detector-id \"$DETECTOR_ID\" --enable --features '[{\"Name\":\"S3_DATA_EVENTS\",\"Status\":\"ENABLED\"}]' --region \"$REGION\"; fi"
+        ],
+        "verify_after": "aws guardduty get-detector --detector-id \"$(aws guardduty list-detectors --region \"{region}\" --query 'DetectorIds[0]' --output text)\" --region \"{region}\" --query '{Status: Status, S3: Features[?Name==`S3_DATA_EVENTS`].Status | [0]}'",
+        "notes": "Sin downtime. Costo: 30 días de prueba gratis y después GuardDuty cobra por volumen de eventos analizados (CloudTrail, flow logs, DNS y, con S3 Protection, eventos de datos de S3); en una región sin actividad el costo es mínimo. Los findings de regiones sin recursos tienen severidad baja: habilitarlos igual cierra el hueco de las regiones sin monitoreo que recomienda la línea base de seguridad de AWS. El detector es por región: repetir el comando en cada región ofensora."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4778757-test-105-threat-detection-in-place",
+        "https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_settingup.html",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/guardduty-controls.html",
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/welcome.html"
+      ]
+    },
+    {
+      "id": "DET-002",
+      "title": "GuardDuty tiene S3 Protection habilitado (si la cuenta tiene buckets de S3)",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [
+        "s3_bucket"
+      ],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "fail",
+      "verify": {
+        "calls": [
+          {
+            "name": "detectors",
+            "service": "guardduty",
+            "operation": "list-detectors",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "detector",
+            "service": "guardduty",
+            "operation": "get-detector",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "detectors",
+              "path": "DetectorIds[]",
+              "arg": "--detector-id"
+            }
+          }
+        ],
+        "evaluator": "python:guardduty_s3_protection",
+        "params": {
+          "inventory_types": [
+            "s3_bucket"
+          ]
+        },
+        "pass_when_text": "Todo detector habilitado tiene S3_DATA_EVENTS=ENABLED. Si la cuenta no tiene buckets de S3 pasa, igual que el test 105 de Drata. Sin ningún detector habilitado falla: no hay S3 Protection.",
+        "needs": [
+          "guardduty:ListDetectors",
+          "guardduty:GetDetector"
+        ]
+      },
+      "vault_signals": [
+        "S3 Protection",
+        "GuardDuty S3",
+        "eventos de datos de S3",
+        "protección de S3"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 105,
+            "name": "Threat Detection in Place",
+            "source": "https://help.drata.com/en/articles/4778757-test-105-threat-detection-in-place"
+          }
+        ],
+        "vanta": [],
+        "tsc_inferred": [],
+        "iso_inferred": [],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Activar S3 Protection en el detector de GuardDuty de la región {region}.",
+          "Si la región no tiene detector habilitado, el hallazgo se resuelve con el comando de DET-001, que ya lo crea con S3 Protection.",
+          "Verificar con get-detector que S3_DATA_EVENTS está en ENABLED."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDETECTOR_ID=$(aws guardduty list-detectors --region \"$REGION\" --query 'DetectorIds[0]' --output text) && aws guardduty update-detector --detector-id \"$DETECTOR_ID\" --features '[{\"Name\":\"S3_DATA_EVENTS\",\"Status\":\"ENABLED\"}]' --region \"$REGION\""
+        ],
+        "verify_after": "aws guardduty get-detector --detector-id \"$(aws guardduty list-detectors --region \"{region}\" --query 'DetectorIds[0]' --output text)\" --region \"{region}\" --query 'Features[?Name==`S3_DATA_EVENTS`]'",
+        "notes": "Sin downtime. Costo: GuardDuty cobra S3 Protection por millón de eventos de datos de S3 analizados; en buckets con mucho tráfico de objetos puede ser relevante. Drata 105 exige S3 Protection junto con GuardDuty activo en las regiones con recursos."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4778757-test-105-threat-detection-in-place",
+        "https://docs.aws.amazon.com/guardduty/latest/ug/s3-protection.html"
+      ]
+    },
+    {
+      "id": "DET-003",
+      "title": "Existe una regla de EventBridge para los findings de GuardDuty con al menos un destino",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [
+        "ec2_instance",
+        "lambda_function",
+        "rds_instance",
+        "s3_bucket",
+        "eks_cluster"
+      ],
+      "all_regions": false,
+      "severity": "medium",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "rules",
+            "service": "events",
+            "operation": "list-rules",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "targets",
+            "service": "events",
+            "operation": "list-targets-by-rule",
+            "args": [],
+            "region": "each",
+            "for_each": {
+              "from": "rules",
+              "path": "Rules[].Name",
+              "arg": "--rule"
+            }
+          }
+        ],
+        "evaluator": "python:guardduty_eventbridge",
+        "pass_when_text": "Al menos una región tiene una regla de EventBridge habilitada, en el bus por defecto, cuyo patrón selecciona source aws.guardduty (y detail-type GuardDuty Finding si lo declara) y que tiene al menos un destino. Patrones con operadores no modelados (prefix, etc.) no cuentan.",
+        "needs": [
+          "events:ListRules",
+          "events:ListTargetsByRule"
+        ]
+      },
+      "vault_signals": [
+        "findings de GuardDuty",
+        "alertas de GuardDuty",
+        "EventBridge",
+        "notificación de amenazas"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [],
+        "tsc_inferred": [
+          "CC7.2",
+          "CC7.3"
+        ],
+        "iso_inferred": [
+          "A.8.16"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Decidir el destino de los findings (un tópico SNS con suscriptores reales, un Lambda hacia el chat del equipo, una herramienta de tickets) y permitir en su política que events.amazonaws.com publique.",
+          "Crear la regla de EventBridge para los findings de GuardDuty y agregarle el destino.",
+          "Confirmar que el destino recibe un finding de prueba (sample findings de GuardDuty)."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRULE_NAME=\"guardduty-findings\"\nSNS_TOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws events put-rule --name \"$RULE_NAME\" --event-pattern '{\"source\":[\"aws.guardduty\"],\"detail-type\":[\"GuardDuty Finding\"]}' --state ENABLED --region \"$REGION\" && aws events put-targets --rule \"$RULE_NAME\" --targets \"Id=notify,Arn=$SNS_TOPIC_ARN\" --region \"$REGION\""
+        ],
+        "verify_after": "aws events list-targets-by-rule --rule \"guardduty-findings\" --region \"{region}\"",
+        "notes": "Decisión: tópico SNS u otro destino, y qué severidad notificar (el patrón puede filtrar por detail.severity para recibir solo HIGH y CRITICAL). La política del tópico SNS debe permitir sns:Publish a events.amazonaws.com o los eventos se pierden sin error visible; el aviso de la suscripción por correo hay que confirmarlo. Si ya existe una regla con otro nombre y sin destino, alcanza con put-targets sobre ella. Costo despreciable. Hay que repetirlo por cada región con GuardDuty si se quiere alertar en todas. Es parte del how-to del test 105 de Drata, aunque Drata no lo evalúa."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4778757-test-105-threat-detection-in-place",
+        "https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_findings_cloudwatch.html"
+      ]
+    },
+    {
+      "id": "DET-004",
+      "title": "Security Hub está habilitado con el estándar FSBP o CIS",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "fail",
+      "verify": {
+        "calls": [
+          {
+            "name": "standards",
+            "service": "securityhub",
+            "operation": "get-enabled-standards",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:securityhub_standards",
+        "pass_when_text": "Cada región con recursos tiene Security Hub habilitado con AWS Foundational Security Best Practices o CIS AWS Foundations en estado READY. Otros estándares solos (PCI DSS) no alcanzan; Security Hub apagado es un fallo.",
+        "needs": [
+          "securityhub:GetEnabledStandards"
+        ]
+      },
+      "vault_signals": [
+        "Security Hub",
+        "AWS Foundational Security Best Practices",
+        "FSBP",
+        "CIS AWS Foundations",
+        "estándares de seguridad"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "AWS Security Hub is enabled",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          }
+        ],
+        "tsc_inferred": [
+          "CC7.1",
+          "CC7.2"
+        ],
+        "iso_inferred": [
+          "A.8.16"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Habilitar Security Hub en la región {region} sin los estándares por defecto (si ya estaba habilitado, el comando lo deja como está) y activar FSBP.",
+          "Esperar unos minutos y verificar que el estándar pasa a READY."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# si Security Hub ya está habilitado en la región solo activa el estándar; si no, lo habilita primero (y el estándar solo se activa si eso salió bien)\nif aws securityhub describe-hub --region \"$REGION\" > /dev/null 2>&1; then HUB_READY=1; else aws securityhub enable-security-hub --no-enable-default-standards --region \"$REGION\" && HUB_READY=1; fi\n[ \"$HUB_READY\" = \"1\" ] && aws securityhub batch-enable-standards --standards-subscription-requests '[{\"StandardsArn\":\"arn:aws:securityhub:{region}::standards/aws-foundational-security-best-practices/v/1.0.0\"}]' --region \"$REGION\""
+        ],
+        "verify_after": "aws securityhub get-enabled-standards --region \"{region}\" --query 'StandardsSubscriptions[].[StandardsArn,StandardsStatus]'",
+        "notes": "Sin downtime. Los controles de Security Hub dependen de AWS Config con el grabador activo (ver DET-005): sin él, los controles quedan sin datos. Costo: se cobra por cada chequeo de seguridad ejecutado y por los findings ingeridos, con 30 días de prueba. Para sumar CIS además de FSBP, habilitar también su estándar. Hay que repetirlo en cada región con recursos; la agregación entre regiones es opcional y no la evalúa este chequeo."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-standards.html",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-settingup.html",
+        "https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/welcome.html"
+      ]
+    },
+    {
+      "id": "DET-005",
+      "title": "AWS Config está habilitado en todas las regiones: grabando, todos los tipos de recurso, IAM diario y con delivery channel",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [],
+      "all_regions": true,
+      "severity": "high",
+      "not_enabled_means": "fail",
+      "verify": {
+        "calls": [
+          {
+            "name": "recorders",
+            "service": "configservice",
+            "operation": "describe-configuration-recorders",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "status",
+            "service": "configservice",
+            "operation": "describe-configuration-recorder-status",
+            "args": [],
+            "region": "each"
+          },
+          {
+            "name": "channels",
+            "service": "configservice",
+            "operation": "describe-delivery-channels",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:config_recorder",
+        "pass_when_text": "Cada región habilitada tiene un grabador de AWS Config en recording=true, sin último estado FAILURE, que graba todos los tipos de recurso, con los tipos IAM globales (User, Role, Group, Policy) en frecuencia DAILY, y un delivery channel con bucket de S3.",
+        "needs": [
+          "config:DescribeConfigurationRecorders",
+          "config:DescribeConfigurationRecorderStatus",
+          "config:DescribeDeliveryChannels"
+        ]
+      },
+      "vault_signals": [
+        "AWS Config",
+        "grabador de Config",
+        "configuration recorder",
+        "Config en todas las regiones",
+        "inventario de configuración"
+      ],
+      "mappings": {
+        "drata": [],
+        "vanta": [
+          {
+            "test": "AWS Config is enabled in all regions",
+            "source": "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta"
+          },
+          {
+            "test": "AWS Config is enabled correctly in all regions",
+            "source": "https://help.vanta.com/en/articles/11345517-resolve-aws-config-is-enabled-correctly-in-all-regions-internal"
+          }
+        ],
+        "tsc_inferred": [
+          "CC7.1",
+          "CC8.1"
+        ],
+        "iso_inferred": [
+          "A.8.9",
+          "A.8.16"
+        ],
+        "security_hub": [
+          "Config.1"
+        ],
+        "cis_aws": [
+          "3.3"
+        ]
+      },
+      "remediation": {
+        "kind": "cli_with_decision",
+        "risk": "medium",
+        "downtime": false,
+        "steps": [
+          "Decidir el bucket de S3 que recibe los datos de Config (un bucket exclusivo, con la bucket policy que permite escribir a config.amazonaws.com) y, si se quiere, un tópico SNS para los cambios.",
+          "Crear el rol vinculado a servicio de Config si no existe.",
+          "Crear el grabador de la región {region} con todos los tipos de recurso y los tipos IAM globales en DAILY, crear el delivery channel y arrancar el grabador.",
+          "Verificar con describe-configuration-recorder-status que recording es true."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# create-service-linked-role falla si el rol ya existe: es esperable\naws iam create-service-linked-role --aws-service-name config.amazonaws.com",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_BUCKET=\"__COMPLETAR_BUCKET_CONFIG__\"\nCONFIG_ROLE_ARN=\"arn:aws:iam::$ACCOUNT_ID:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig\"\n# el grabador solo arranca si se creó el grabador y el delivery channel\nCHANNELS=$(aws configservice describe-delivery-channels --region \"$REGION\" --query 'length(DeliveryChannels)' --output text)\n# si la región ya tiene un delivery channel (o no se pudo leer), no hace nada: put-delivery-channel lo reemplazaría y desviaría la entrega de Config\nif [ \"$CHANNELS\" != \"0\" ]; then echo \"DETENIDO: la región ya tiene un delivery channel (o no se pudo leer): put-delivery-channel lo reemplazaría; revisar describe-delivery-channels y describe-configuration-recorders antes de seguir\"; else aws configservice put-configuration-recorder --configuration-recorder \"{\\\"name\\\":\\\"default\\\",\\\"roleARN\\\":\\\"$CONFIG_ROLE_ARN\\\",\\\"recordingGroup\\\":{\\\"allSupported\\\":true,\\\"includeGlobalResourceTypes\\\":true},\\\"recordingMode\\\":{\\\"recordingFrequency\\\":\\\"CONTINUOUS\\\",\\\"recordingModeOverrides\\\":[{\\\"description\\\":\\\"IAM global types daily\\\",\\\"resourceTypes\\\":[\\\"AWS::IAM::User\\\",\\\"AWS::IAM::Role\\\",\\\"AWS::IAM::Group\\\",\\\"AWS::IAM::Policy\\\"],\\\"recordingFrequency\\\":\\\"DAILY\\\"}]}}\" --region \"$REGION\" && aws configservice put-delivery-channel --delivery-channel \"name=default,s3BucketName=$CONFIG_BUCKET\" --region \"$REGION\" && aws configservice start-configuration-recorder --configuration-recorder-name default --region \"$REGION\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRECORDER_NAME=\"default\"\n# solo si el grabador ya existe pero está detenido\naws configservice start-configuration-recorder --configuration-recorder-name \"$RECORDER_NAME\" --region \"$REGION\""
+        ],
+        "verify_after": "aws configservice describe-configuration-recorder-status --region \"{region}\"",
+        "notes": "Sin downtime. Costo: AWS Config cobra por cada item de configuración registrado y por evaluación de reglas; grabar los tipos IAM globales en cada región con frecuencia DAILY (en vez de continua) es lo que pide Vanta para no multiplicar ese costo. Hay que repetirlo en cada región habilitada. Si la región ya tiene un grabador con otro nombre, put-configuration-recorder con ese nombre lo actualiza; solo puede haber un grabador y un delivery channel por región. Atención: put-configuration-recorder con el nombre default reemplaza los ajustes de un grabador existente con ese nombre, y put-delivery-channel reemplaza el delivery channel existente (redirigiría la entrega de Config, por ejemplo desde el bucket de agregación de la organización): por eso el segundo bloque se detiene con DETENIDO si la región ya tiene un delivery channel; en ese caso revisar lo existente y, si solo hace falta arrancar el grabador, usar el tercer bloque. Vanta además espera un tópico SNS en el delivery channel (snsTopicARN=... en put-delivery-channel); este chequeo no falla por eso. Decisión: bucket de destino y tópico SNS."
+      },
+      "sources": [
+        "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
+        "https://help.vanta.com/en/articles/11345517-resolve-aws-config-is-enabled-correctly-in-all-regions-internal",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/config-controls.html",
+        "https://docs.aws.amazon.com/config/latest/developerguide/select-resources.html"
+      ]
+    },
+    {
+      "id": "DET-006",
+      "title": "Inspector está activo para EC2, ECR y Lambda",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [
+        "ec2_instance",
+        "lambda_function"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "fail",
+      "verify": {
+        "calls": [
+          {
+            "name": "status",
+            "service": "inspector2",
+            "operation": "batch-get-account-status",
+            "args": [],
+            "region": "each"
+          }
+        ],
+        "evaluator": "python:inspector_status",
+        "params": {
+          "required": [
+            "ec2",
+            "ecr",
+            "lambda"
+          ]
+        },
+        "pass_when_text": "En cada región con recursos, Inspector tiene el escaneo de EC2, ECR y Lambda (estándar) en ENABLED. Un estado ENABLING todavía no cuenta; Inspector apagado es un fallo.",
+        "needs": [
+          "inspector2:BatchGetAccountStatus"
+        ]
+      },
+      "vault_signals": [
+        "Inspector",
+        "escaneo de vulnerabilidades",
+        "vulnerability scanning",
+        "Amazon Inspector",
+        "escaneo de imágenes ECR"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 21,
+            "name": "Critical/High Vulnerabilities Addressed",
+            "source": "https://help.drata.com/en/articles/4776909"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Critical vulnerabilities identified in packages are addressed (AWS Inspector)",
+            "source": "https://www.vanta.com/integrations/aws"
+          }
+        ],
+        "tsc_inferred": [
+          "CC7.1"
+        ],
+        "iso_inferred": [
+          "A.8.8"
+        ],
+        "security_hub": [
+          "Inspector.1",
+          "Inspector.2",
+          "Inspector.3",
+          "Inspector.4"
+        ],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "cli",
+        "risk": "low",
+        "downtime": false,
+        "steps": [
+          "Activar Inspector para EC2, ECR y Lambda en la región {region}.",
+          "Verificar con batch-get-account-status que los tres tipos están en ENABLED."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws inspector2 enable --resource-types EC2 ECR LAMBDA --region \"$REGION\""
+        ],
+        "verify_after": "aws inspector2 batch-get-account-status --region \"{region}\" --query 'accounts[].resourceState'",
+        "notes": "Sin downtime. Costo: Inspector cobra por instancia EC2 escaneada, por imagen de ECR (al subirla y en cada re-escaneo) y por función Lambda, con 15 días de prueba. El escaneo de EC2 con agente necesita que la instancia esté gestionada por Systems Manager (ver CMP-006). Los controles Inspector.3 y .4 de Security Hub piden además el escaneo de código de Lambda, que este chequeo no exige. Vanta toma los findings de Inspector y ECR para su test de vulnerabilidades críticas; el SLA se configura en la app de Vanta."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4776909",
+        "https://www.vanta.com/integrations/aws",
+        "https://docs.aws.amazon.com/securityhub/latest/userguide/inspector-controls.html",
+        "https://docs.aws.amazon.com/inspector/latest/user/getting_started_tutorial.html"
+      ]
+    },
+    {
+      "id": "DET-007",
+      "title": "No hay findings CRITICAL ni HIGH abiertos en Inspector",
+      "scope": "account",
+      "resource_types": [],
+      "account_context_for": [
+        "ec2_instance",
+        "lambda_function"
+      ],
+      "all_regions": false,
+      "severity": "high",
+      "not_enabled_means": "not_verified",
+      "verify": {
+        "calls": [
+          {
+            "name": "findings",
+            "service": "inspector2",
+            "operation": "list-findings",
+            "args": [
+              "--filter-criteria",
+              "{\"findingStatus\":[{\"comparison\":\"EQUALS\",\"value\":\"ACTIVE\"}],\"severity\":[{\"comparison\":\"EQUALS\",\"value\":\"CRITICAL\"},{\"comparison\":\"EQUALS\",\"value\":\"HIGH\"}]}",
+              "--max-items",
+              "100"
+            ],
+            "region": "each"
+          }
+        ],
+        "evaluator": "jmespath",
+        "offenders": "findings[].{resource_id: resources[0].id, detail: {severity: severity, title: title, vulnerability: packageVulnerabilityDetails.vulnerabilityId}}",
+        "pass_when_text": "Inspector no tiene findings en estado ACTIVE con severidad CRITICAL o HIGH. Se leen los primeros 100 findings por región: alcanza para decidir si el chequeo falla, no para contarlos todos. Cualquier finding abierto de esa severidad falla, sin importar su antigüedad; el SLA de remediación lo define cada herramienta.",
+        "needs": [
+          "inspector2:ListFindings"
+        ]
+      },
+      "vault_signals": [
+        "vulnerabilidades críticas",
+        "vulnerabilidades altas",
+        "findings de Inspector",
+        "CVE",
+        "parcheo",
+        "SLA de vulnerabilidades"
+      ],
+      "mappings": {
+        "drata": [
+          {
+            "test": 21,
+            "name": "Critical/High Vulnerabilities Addressed",
+            "source": "https://help.drata.com/en/articles/4776909"
+          }
+        ],
+        "vanta": [
+          {
+            "test": "Critical vulnerabilities identified in packages are addressed (AWS Inspector)",
+            "source": "https://www.vanta.com/integrations/aws"
+          }
+        ],
+        "tsc_inferred": [
+          "CC7.1"
+        ],
+        "iso_inferred": [
+          "A.8.8"
+        ],
+        "security_hub": [],
+        "cis_aws": []
+      },
+      "remediation": {
+        "kind": "planned_change",
+        "risk": "medium",
+        "downtime": true,
+        "steps": [
+          "Listar los findings CRITICAL y HIGH abiertos y agruparlos por recurso y por paquete o imagen.",
+          "Corregir según el tipo de recurso: parchear las instancias EC2 con Patch Manager en una ventana acordada; actualizar el paquete o la imagen base de los contenedores, reconstruir y publicar la imagen; actualizar la dependencia de las funciones Lambda y volver a desplegarlas.",
+          "Si un finding no se puede corregir, documentar la excepción con responsable y fecha de revisión y suprimirlo con un filtro de Inspector.",
+          "Esperar el re-escaneo (Inspector cierra solo los findings corregidos) y verificar que no quedan abiertos."
+        ],
+        "commands": [
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws inspector2 list-findings --filter-criteria '{\"findingStatus\":[{\"comparison\":\"EQUALS\",\"value\":\"ACTIVE\"}],\"severity\":[{\"comparison\":\"EQUALS\",\"value\":\"CRITICAL\"},{\"comparison\":\"EQUALS\",\"value\":\"HIGH\"}]}' --region \"$REGION\" --query 'findings[].[severity,resources[0].id,title]' --output table",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nINSTANCE_ID=\"{resource_id}\"\n# solo si el recurso del finding es una instancia EC2\n# NoReboot: los parches de kernel quedan pendientes hasta el próximo reinicio\naws ssm send-command --document-name \"AWS-RunPatchBaseline\" --parameters 'Operation=Install,RebootOption=NoReboot' --targets \"Key=instanceids,Values=$INSTANCE_ID\" --region \"$REGION\""
+        ],
+        "verify_after": "aws inspector2 list-findings --filter-criteria '{\"findingStatus\":[{\"comparison\":\"EQUALS\",\"value\":\"ACTIVE\"}],\"severity\":[{\"comparison\":\"EQUALS\",\"value\":\"CRITICAL\"},{\"comparison\":\"EQUALS\",\"value\":\"HIGH\"}]}' --region \"{region}\" --query 'length(findings)'",
+        "notes": "Parchear cambia el software en producción: probar primero en un entorno no productivo. Con RebootOption=RebootIfNeeded el parcheo reinicia la instancia (downtime si no hay redundancia); con NoReboot los parches de kernel no se aplican hasta el próximo reinicio. Los findings de imágenes de ECR y de Lambda no se resuelven parcheando el recurso en caliente: requieren reconstruir y desplegar. Un finding suprimido deja de contar, pero hay que poder justificarlo ante el auditor. Los SLA de remediación los fija cada herramienta (Vanta: Settings > Vulnerability remediation SLAs; Drata no los publica)."
+      },
+      "sources": [
+        "https://help.drata.com/en/articles/4776909",
+        "https://www.vanta.com/integrations/aws",
+        "https://help.vanta.com/en/articles/11951321-how-vanta-calculates-vulnerability-slas",
+        "https://docs.aws.amazon.com/inspector/latest/user/findings-managing.html"
+      ]
+    }
+  ]
+}

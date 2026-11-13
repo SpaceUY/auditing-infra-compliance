@@ -1,0 +1,5 @@
+{
+  "ResourceArns": [
+    "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/acme-notes-alb/50dc6c495c0c9188"
+  ]
+}
