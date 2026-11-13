@@ -607,6 +607,14 @@ class RenderTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_cli_tolerates_a_missing_inventory_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "findings.json").write_text(json.dumps(FINDINGS), encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(verify_remediation.main(["--run-dir", str(tmp)]), 0)
+            self.assertTrue((tmp / "verification.json").is_file())
+
     def test_cli_writes_verification_json(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)

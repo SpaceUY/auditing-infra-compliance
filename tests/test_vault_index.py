@@ -137,6 +137,32 @@ class IndexTests(VaultCase):
         self.assertEqual(index["obsidian_plugins"], ["dataview"])
         self.assertEqual(len(index["notes"]), 6)
 
+    def test_sensitive_files_are_listed_by_name_and_never_opened(self):
+        vault = self.copy_vault(FREE)
+        (vault / "ops").mkdir()
+        names = {".env": "archivo .env", ".env.production": "archivo .env", "ops/server.PEM": "archivo de clave privada (.pem/.key)",
+                 "api.key": "archivo de clave privada (.pem/.key)", "ops/AWS-Credentials.txt": "nombre con 'credentials'"}
+        for name in names:
+            (vault / name).write_text("hunter2\n", encoding="utf-8")
+        (vault / ".git").mkdir()
+        (vault / ".git" / "credentials").write_text("hunter2\n", encoding="utf-8")
+        (vault / "notas.txt").write_text("hunter2\n", encoding="utf-8")
+        real_open = builtins.open
+
+        def guarded(file, *args, **kwargs):
+            lower = Path(str(file)).name.lower()
+            if lower.startswith(".env") or lower.endswith((".pem", ".key")) or "credentials" in lower:
+                raise AssertionError(f"forbidden read: {file}")
+            return real_open(file, *args, **kwargs)
+
+        with mock.patch.object(builtins, "open", guarded):
+            index = vault_index.build_index(vault)
+        self.assertEqual({i["path"]: i["reason"] for i in index["sensitive_files"]}, names)
+        self.assertNotIn("hunter2", json.dumps(index))
+
+    def test_sensitive_files_empty_for_a_clean_vault(self):
+        self.assertEqual(vault_index.build_index(self.copy_vault(FREE))["sensitive_files"], [])
+
     def test_symlinks_are_not_followed(self):
         vault = self.copy_vault(FREE)
         outside = self.tmp / "outside.md"

@@ -3,7 +3,8 @@
 Only regular *.md files are read; dotfiles and dotdirs are skipped (.obsidian/plugins is only listed),
 symlinks are not followed and the top-level _meta/ folder (relations, generated edges) is not indexed as notes.
 Everything textual that enters the index (title, headings, kv, links, edges, sources) goes through redact.mask;
-detected secrets are reported by path and pattern only.
+detected secrets are reported by path and pattern only. Sensitive files (.env, .env.*, *.pem, *.key, *credentials*) found
+anywhere in the vault tree (except .git) are listed by NAME only in `sensitive_files` ({path, reason}) and never opened.
 
 CLI:
   vault_index.py index <vault> [-o vault-index.json]
@@ -59,6 +60,33 @@ def _note_files(vault):
             if name.endswith(".md") and not name.startswith(".") and not path.is_symlink():
                 found.append(path)
     return sorted(found, key=lambda p: p.relative_to(vault).as_posix())
+
+
+SENSITIVE_SKIP_DIRS = frozenset({".git", "node_modules"})
+
+
+def _sensitive_reason(name):
+    lower = name.lower()
+    if lower == ".env" or lower.startswith(".env."):
+        return "archivo .env"
+    if lower.endswith((".pem", ".key")):
+        return "archivo de clave privada (.pem/.key)"
+    if "credentials" in lower:
+        return "nombre con 'credentials'"
+    return None
+
+
+def _sensitive_files(vault):
+    """Sensitive files by NAME only (the files are never opened); symlinks are listed, not followed."""
+    found = []
+    for dirpath, dirs, files in os.walk(vault):
+        dirs[:] = sorted(d for d in dirs if d not in SENSITIVE_SKIP_DIRS)
+        for name in sorted(files):
+            reason = _sensitive_reason(name)
+            if reason:
+                rel = (Path(dirpath) / name).relative_to(vault).as_posix()
+                found.append({"path": redact.mask_secrets(rel), "reason": reason})
+    return sorted(found, key=lambda item: item["path"])
 
 
 def _plugins(vault):
@@ -213,7 +241,8 @@ def build_index(vault: Path) -> dict:
     broken = [{"from": rel, "target": redact.mask(target)} for rel, links in raw_links.items() for target in links
               if not NON_NOTE_LINK.search(target) and _key(target) not in names]
     return {"kind": "typed" if typed else "free", "root": str(vault), "notes": notes, "broken_links": broken,
-            "secrets_detected": secrets, "obsidian_plugins": _plugins(vault)}
+            "secrets_detected": secrets, "sensitive_files": _sensitive_files(vault),
+            "obsidian_plugins": _plugins(vault)}
 
 
 # ---------------------------------------------------------------- feature resolution
@@ -359,7 +388,7 @@ def _inside(path, folder):
         return False
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Índice del vault y resolución de feature (solo lectura)")
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("index")
@@ -368,7 +397,11 @@ def main(argv=None) -> int:
     feature = sub.add_parser("feature")
     feature.add_argument("index")
     feature.add_argument("text")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
 
     if args.command == "index":
         vault, output = Path(args.vault), Path(args.output)
@@ -382,7 +415,8 @@ def main(argv=None) -> int:
             return 2
         output.write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"Vault {index['kind']}: {len(index['notes'])} notas, {len(index['broken_links'])} links rotos, "
-              f"{len(index['secrets_detected'])} secretos detectados (enmascarados). Índice en: {output}")
+              f"{len(index['secrets_detected'])} secretos detectados (enmascarados), "
+              f"{len(index['sensitive_files'])} archivos sensibles (solo el nombre). Índice en: {output}")
         return 0
     index = json.loads(Path(args.index).read_text(encoding="utf-8"))
     print(json.dumps(resolve_feature(index, args.text), indent=2, ensure_ascii=False))

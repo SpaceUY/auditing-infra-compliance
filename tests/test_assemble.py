@@ -397,6 +397,20 @@ class MaskingTests(AssembleCase):
         self.assertEqual(out["meta"]["vault"], {"path": index["root"], "kind": "free"})
         self.assertTrue(any("secret-note.md" in w for w in out["warnings"]))
 
+    def test_sensitive_file_by_name_creates_critical_fail_finding(self):
+        index = {"kind": "free", "root": "/v", "notes": [], "secrets_detected": [], "broken_links": [],
+                 "sensitive_files": [{"path": ".env", "reason": "archivo .env"}]}
+        out = self.assemble(claims=[], index=index)
+        found = [f for f in out["findings"] if f["resource"]["id"] == ".env"]
+        self.assertEqual(len(found), 1)
+        finding = found[0]
+        self.assertEqual((finding["check_id"], finding["status"], finding["severity"]), (None, "FAIL", "critical"))
+        self.assertEqual(finding["evidence"], {"path": ".env", "detection": "nombre de archivo"})
+        self.assertEqual((finding["remediation"]["kind"], finding["remediation"]["commands"]), ("console_only", []))
+        self.assertEqual(out["findings"][0]["id"], "F-0001")
+        self.assertGreaterEqual(out["summary"]["by_severity_fail"]["critical"], 1)
+        self.assertTrue(any(".env" in w for w in out["warnings"]))
+
     def test_broken_links_become_warnings(self):
         index = {"kind": "typed", "root": "/v", "notes": [], "secrets_detected": [],
                  "broken_links": [{"from": "systems/A.md", "target": "Nope"}]}

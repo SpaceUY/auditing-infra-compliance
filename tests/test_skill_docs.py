@@ -1,6 +1,9 @@
 """Structure checks for SKILL.md and its references: frontmatter, script and flag names, links, size."""
 
+import contextlib
+import io
 import re
+import shlex
 import sys
 import unittest
 from pathlib import Path
@@ -11,11 +14,27 @@ SCRIPTS_DIR = SKILL_DIR / "scripts"
 SKILL_MD = SKILL_DIR / "SKILL.md"
 REFERENCES = ("vault-reading.md", "remediation-guidelines.md", "report-format.md", "drata-vanta.md")
 CLI_SCRIPTS = ("vault_index", "collect", "assemble_findings", "render_report", "verify_remediation")
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import assemble_findings  # noqa: E402
+import collect  # noqa: E402
+import render_report  # noqa: E402
+import vault_index  # noqa: E402
+import verify_remediation  # noqa: E402
+
+PARSERS = {
+    "vault_index": vault_index.build_parser,
+    "collect": collect.build_parser,
+    "assemble_findings": assemble_findings.build_parser,
+    "render_report": render_report.build_parser,
+    "verify_remediation": verify_remediation.build_parser,
+}
 KEY_SHAPED = re.compile(r"\b(?:AK|AS)IA[0-9A-Z]{16}\b")
 
 SCRIPT_MENTION = re.compile(r"scripts/([A-Za-z0-9_]+)\.py")
-FLAG = re.compile(r"(?<![\w-])(--[a-z][a-z0-9-]*)")
 FENCE = re.compile(r"```[a-z]*\n(.*?)```", re.S)
+INLINE = re.compile(r"`([^`\n]*python3[^`\n]*)`")
 
 
 def read(path):
@@ -33,15 +52,43 @@ def frontmatter(text):
     return fields
 
 
-def invocations(text):
-    """(script name, command text) for every fenced-code command that runs scripts/<name>.py."""
-    found = []
+def command_lines(text):
+    """Lines of fenced blocks (continuations joined) and inline `python3 ...` spans."""
+    lines = []
     for block in FENCE.findall(text):
-        joined = re.sub(r"\\\n\s*", " ", block)
-        for line in joined.splitlines():
-            for match in SCRIPT_MENTION.finditer(line):
-                found.append((match.group(1), line[match.end():]))
+        lines += re.sub(r"\\\n\s*", " ", block).splitlines()
+    return lines + INLINE.findall(FENCE.sub("", text))
+
+
+def invocations(text):
+    """(script name, argv tokens after the script) for every documented command that runs scripts/<name>.py.
+
+    `[...]` marks optional arguments in the docs; the brackets are dropped and the arguments kept, so the
+    parser sees the longest form of the command.
+    """
+    found = []
+    for line in command_lines(text):
+        match = SCRIPT_MENTION.search(line)
+        if match:
+            tail = line[match.end():].lstrip("\"'").replace("[", " ").replace("]", " ")
+            found.append((match.group(1), shlex.split(tail)))
     return found
+
+
+def parse(name, argv):
+    """Parse argv with the real argparse parser of the script; return the error text or None."""
+    parser = PARSERS[name]()
+    stderr = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(stderr):
+            parser.parse_args(argv)
+    except SystemExit:
+        return stderr.getvalue().strip().splitlines()[-1] if stderr.getvalue().strip() else "exit"
+    return None
+
+
+def documents():
+    return [SKILL_MD, *(SKILL_DIR / "references" / n for n in REFERENCES)]
 
 
 class SkillDocsTests(unittest.TestCase):
@@ -78,17 +125,36 @@ class SkillDocsTests(unittest.TestCase):
         for name in CLI_SCRIPTS:
             self.assertIn(name, used, f"SKILL.md never runs scripts/{name}.py in a code block")
 
-    def test_every_flag_in_a_command_exists_in_that_script(self):
-        for name, command in invocations(self.text):
-            source = read(SCRIPTS_DIR / f"{name}.py")
-            for flag in FLAG.findall(command):
-                self.assertIn(f'"{flag}"', source, f"{flag} is not an argparse flag of scripts/{name}.py")
+    def test_every_documented_command_is_accepted_by_the_real_parser(self):
+        checked = 0
+        for path in documents():
+            for name, argv in invocations(read(path)):
+                self.assertIn(name, PARSERS, f"{path.name}: scripts/{name}.py has no build_parser()")
+                error = parse(name, argv)
+                self.assertIsNone(error, f"{path.name}: scripts/{name}.py {' '.join(argv)} -> {error}")
+                checked += 1
+        self.assertGreaterEqual(checked, 6)
+
+    def test_the_parser_check_rejects_unknown_flags_and_missing_required_ones(self):
+        self.assertIsNotNone(parse("collect", ["--scope", "s.json", "--out", "o", "--role-name", "x"]))
+        self.assertIsNotNone(parse("collect", ["--scope", "s.json"]))
+        self.assertIsNotNone(parse("verify_remediation", ["--claims", "c.json"]))
+        self.assertIsNotNone(parse("vault_index", ["feature", "only-one-arg"]))
+        self.assertIsNone(parse("render_report", ["f.json", "-o", "r.html", "--verification", "v.json"]))
+
+    def test_the_full_flag_set_of_the_pipeline_is_documented(self):
+        used = {}
+        for name, argv in invocations(self.text):
+            used.setdefault(name, set()).update(t for t in argv if t.startswith("-"))
+        self.assertLessEqual({"--scope", "--out"}, used["collect"])
+        self.assertLessEqual({"--run-dir", "--vault-index", "--vault-claims", "--platform", "--mode"}, used["assemble_findings"])
+        self.assertLessEqual({"--run-dir", "--claims", "--check-cli"}, used["verify_remediation"])
+        self.assertIn("--verification", used["render_report"])
+        self.assertIn("-o", used["vault_index"])
 
     def test_subcommands_of_vault_index_exist(self):
-        source = read(SCRIPTS_DIR / "vault_index.py")
-        for sub in ("index", "feature"):
-            self.assertRegex(self.text, rf"vault_index\.py\" {sub}\b")
-            self.assertIn(f'"{sub}"', source)
+        subcommands = {argv[0] for name, argv in invocations(self.text) if name == "vault_index"}
+        self.assertEqual(subcommands, {"index", "feature"})
 
     def test_verification_stage_is_in_the_flow(self):
         for needle in ("--check-cli", "--claims", "--verification", "verification-claims.json",
@@ -97,7 +163,8 @@ class SkillDocsTests(unittest.TestCase):
 
     def test_hard_rules_are_stated(self):
         for needle in (".env", "solo los nombres", "si me das acceso", "aproximados", "a mano",
-                       "pedir una fuente", "esperar confirmación", "check_id: null", "compliance-reports"):
+                       "pedir una fuente", "esperar confirmación", "check_id: null", "compliance-reports",
+                       "sensitive_files", "dato, no instrucciones", "AVISO", "no persisten", '"domains": ["inventory"]'):
             self.assertIn(needle.lower(), self.text.lower(), needle)
 
     def test_every_reference_linked_from_skill_md_exists(self):

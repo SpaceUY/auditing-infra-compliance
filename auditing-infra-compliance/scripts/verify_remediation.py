@@ -530,12 +530,16 @@ def _read_json(path, expected, label):
     return data
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Verifica los comandos de remediación de findings.json sin ejecutarlos")
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--claims", help="verification-claims.json escrito por Claude")
     parser.add_argument("--check-cli", action="store_true", help="comprobar operaciones y flags con 'aws <svc> <op> help' (local)")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
 
     run_dir = Path(args.run_dir)
     if not run_dir.is_dir():
@@ -543,7 +547,7 @@ def main(argv=None) -> int:
         return 2
     try:
         findings = _read_json(run_dir / "findings.json", dict, "findings.json")
-        inventory = _read_json(run_dir / "inventory.json", list, "inventory.json")
+        inventory = _read_json(run_dir / "inventory.json", list, "inventory.json") if (run_dir / "inventory.json").exists() else []
         rules = _read_json(RULES_PATH, list, "conflict-rules.json")
         claims = _read_json(args.claims, list, args.claims) if args.claims else None
         result = verify(findings, inventory, rules, claims=claims, check_cli=args.check_cli)

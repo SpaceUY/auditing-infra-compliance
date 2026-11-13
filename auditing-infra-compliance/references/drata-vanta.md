@@ -45,7 +45,8 @@ Tags organizacionales por defecto: `Project`, `Environment`, `Owner` (INV-004). 
 - Drata evalúa los objetos de red por defecto (VPC, SG, NACL, Flow Logs) de **todas las regiones habilitadas**, no solo de la VPC de la aplicación.
 - Un test de Drata corre solo si su control DCF está en los frameworks del workspace y hay una conexión AWS activa; si no, figura `Unused`. Sin conexión viva, el skill no lo sabe: no afirma "Drata hoy no lo monitorea".
 - Los tests de alarmas exigen una **suscripción SNS confirmada** detrás de cada alarma.
-- Umbrales documentados: claves de acceso ≤ 90 días, credenciales sin uso ≤ 45 días, contraseña ≥ 14 con reuso de 24, uso de root: 2 o más logins en 7 días falla, retención de logs ≥ 365 días.
+- Umbrales documentados: claves de acceso ≤ 90 días, credenciales sin uso ≤ 45 días, contraseña ≥ 14 con reuso de 24, uso de root: 2 o más logins en 7 días falla.
+- **Retención de logs de 365 días:** Drata 111 ("Logs are Retained for 365 Days") lo documenta, pero su artículo habla de Datadog y no detalla CloudWatch: aplicarlo a CloudWatch Logs es **inferido**. En Vanta ("AWS Server Logs") el umbral es editable y el valor por defecto para AWS no está publicado: el 365 es **inferido** (por analogía con su test de GCP). Decirlo así en el chat; no presentarlo como umbral documentado de Vanta.
 
 ## 6. Fase 2 (opcional): MCP de Drata o Vanta conectado
 

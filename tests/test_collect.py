@@ -292,6 +292,7 @@ class EngineTests(CollectCase):
         self.assertEqual(self.code, 2)
         self.assertIsNone(self.result["aws"])
         self.assertEqual([c[1:3] for c in self.runner.calls], [["sts", "get-caller-identity"]])
+        self.assertEqual(json.loads((self.out / "inventory.json").read_text(encoding="utf-8")), [])
 
     def test_raw_outputs_written(self):
         self.run_collect()

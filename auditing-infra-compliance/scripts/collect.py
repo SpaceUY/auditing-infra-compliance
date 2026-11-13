@@ -430,13 +430,17 @@ def _masked_inventory(items):
     return masked
 
 
-def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Inventario y recolección de chequeos (solo lectura)")
     parser.add_argument("--scope", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--checks-dir", default=str(SKILL_DIR / "references" / "checks"))
     parser.add_argument("--inventory", default=str(SKILL_DIR / "references" / "inventory.json"))
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which) -> int:
+    args = build_parser().parse_args(argv)
 
     scope = json.loads(Path(args.scope).read_text(encoding="utf-8"))
     specs = json.loads(Path(args.inventory).read_text(encoding="utf-8"))
@@ -450,6 +454,7 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     if not identity.ok:
         message = f"sin credenciales AWS válidas ({identity.error_kind})"
         _write_json(out / "checks-result.json", {"aws": None, "results": [], "warnings": [message]})
+        _write_json(out / "inventory.json", [])
         print(redact.mask(f"{message}. Configurar credenciales o --profile y reintentar.\nDetalle en: {out}"))
         return 2
     account_id, identity_arn = (identity.data or {}).get("Account"), (identity.data or {}).get("Arn", "")

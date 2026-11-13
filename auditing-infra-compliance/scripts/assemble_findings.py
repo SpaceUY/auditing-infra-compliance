@@ -54,6 +54,14 @@ CLAIM_TITLES = {
     "DOCUMENTED_GAP": "Brecha reconocida en el vault",
 }
 SECRET_TITLE = "Credenciales en texto plano en el vault"
+SENSITIVE_TITLE = "Archivo sensible dentro del vault (probables credenciales en texto plano)"
+SENSITIVE_REMEDIATION = {
+    "kind": "console_only", "risk": "low", "downtime": False,
+    "steps": ["Rotar las credenciales que pudiera contener el archivo (no se abrió: se detectó solo por el nombre).",
+              "Sacar el archivo del vault y del repositorio que lo sincroniza, y guardar las credenciales en un gestor de secretos.",
+              "Revisar el historial del vault y de los repos por copias del archivo."],
+    "commands": [], "verify_after": "", "notes": "El skill nunca abre este tipo de archivos: dar por comprometido lo que contenga.",
+}
 SECRET_REMEDIATION = {
     "kind": "console_only", "risk": "low", "downtime": False,
     "steps": ["Revocar o rotar la credencial expuesta desde la consola de AWS (IAM) antes de editar la nota.",
@@ -320,6 +328,13 @@ def _secret_findings(env, vault_index):
             env, None, status="FAIL", severity="critical", resource=resource, title=SECRET_TITLE,
             evidence={"path": path, "pattern": secret["pattern"]}, vault_note=path))
         findings[-1]["remediation"] = json.loads(json.dumps(SECRET_REMEDIATION))
+    for sensitive in (vault_index or {}).get("sensitive_files") or []:
+        path = redact.mask_secrets(sensitive["path"])
+        resource = {"type": "vault_note", "id": path, "region": None, "name": path}
+        findings.append(_finding(
+            env, None, status="FAIL", severity="critical", resource=resource, title=SENSITIVE_TITLE,
+            evidence={"path": path, "detection": "nombre de archivo"}, vault_note=path))
+        findings[-1]["remediation"] = json.loads(json.dumps(SENSITIVE_REMEDIATION))
     return findings
 
 
@@ -405,8 +420,10 @@ def _vault_warnings(vault_index):
     if not vault_index:
         return []
     warnings = [f"link roto en {b['from']}: [[{b['target']}]]" for b in vault_index.get("broken_links") or []]
-    return warnings + [f"credencial detectada en el vault: {s['path']} ({s['pattern']})"
-                       for s in vault_index.get("secrets_detected") or []]
+    warnings += [f"credencial detectada en el vault: {s['path']} ({s['pattern']})"
+                 for s in vault_index.get("secrets_detected") or []]
+    return warnings + [f"archivo sensible en el vault (no se abrió): {s['path']}"
+                       for s in vault_index.get("sensitive_files") or []]
 
 
 def _notes(aws, vault_index):
@@ -486,14 +503,15 @@ def _load_index(path):
     index = _read_json(path, None)
     if not isinstance(index, dict) or not isinstance(index.get("kind"), str):
         raise ValueError(f"{path}: no es un vault-index.json (falta 'kind')")
-    for key, required in (("broken_links", ("from", "target")), ("secrets_detected", ("path", "pattern"))):
+    for key, required in (("broken_links", ("from", "target")), ("secrets_detected", ("path", "pattern")),
+                          ("sensitive_files", ("path",))):
         items = _list_of_dicts(index.get(key) or [], f"{path} {key}")
         if any(field not in item for item in items for field in required):
             raise ValueError(f"{path}: {key} con forma inválida (faltan {', '.join(required)})")
     return index
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Arma findings.json a partir de collect, el vault y los claims")
     parser.add_argument("--run-dir", required=True)
     parser.add_argument("--vault-index")
@@ -502,7 +520,11 @@ def main(argv=None) -> int:
     parser.add_argument("--mode", required=True)
     parser.add_argument("--target")
     parser.add_argument("--lang", default="es")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
 
     run_dir = Path(args.run_dir)
     if not run_dir.is_dir():

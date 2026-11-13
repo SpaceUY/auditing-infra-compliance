@@ -9,7 +9,7 @@ Se carga antes de escribir `scope.json`, `vault-claims.json` o `verification-cla
 | Archivo | Quién lo escribe |
 |---|---|
 | `scope.json`, `vault-claims.json`, `verification-claims.json` | Claude |
-| `vault-index.json` | `vault_index.py index` |
+| `vault-index.json` (incluye `sensitive_files`) | `vault_index.py index` |
 | `checks-result.json`, `inventory.json`, `raw/<CHECK_ID>/…` | `collect.py` |
 | `findings.json` | `assemble_findings.py` |
 | `verification.json` | `verify_remediation.py` |
@@ -68,7 +68,7 @@ Lista de objetos. Todos los campos salvo `kind` pueden ser `null` u omitirse.
 | `actual` | Lo observado en la cuenta (o "no verificado: sin credenciales"). |
 | `severity` | `critical` \| `high` \| `medium` \| `low` o `null`. Prioridad: `detail.severity_override` > `severity` del claim > severidad del catálogo (`low` para `UNDOCUMENTED` y claims sin chequeo). |
 | `breaks_tests` | `[{"tool": "drata", "test": 30}]` o `[{"tool": "vanta", "test": "<nombre>"}]` si una recomendación del vault rompería esos tests. Convierte el claim en `DRIFT` de severidad al menos `high`. |
-| `status`, `detail` | Solo en `EVAL`: `status` es un estado válido (`PASS`, `FAIL`, `N/A`…), `detail.reason` la justificación. |
+| `status`, `detail` | Solo en `EVAL`: `status` es un estado válido (`PASS`, `FAIL`, `N/A`, `NO_VERIFICADO`), `detail.reason` la justificación. |
 
 **EVAL:** resuelve la fila `PENDING_CLAUDE` con el mismo `check_id` (el `resource` debe coincidir, salvo que la fila sea la de cuenta). Se puede escribir un `EVAL` `FAIL` por cada recurso ofensor. Sin claim, la fila queda `NO_VERIFICADO` con una advertencia. Los hallazgos de un `EVAL` salen marcados "evaluado por Claude".
 
@@ -78,6 +78,7 @@ Lista de objetos. Todos los campos salvo `kind` pueden ser `null` u omitirse.
 
 Claves de primer nivel: `meta`, `summary`, `findings`, `dependencies`, `coverage`, `warnings`, `notes`.
 
+- Hallazgos que salen solos del índice del vault: cada `secrets_detected` y cada `sensitive_files` (`.env*`, `*.pem`, `*.key`, `*credentials*`, detectados solo por el nombre) generan un `FAIL` `critical` con `check_id: null` y remediación `console_only` (rotar y sacar el archivo).
 - `meta`: plataforma, modo, target, fecha, `lang`, `catalog_checks`, `vault` (`path`, `kind`), `aws` (`account_id`, `identity_arn`, `regions`; `null` sin credenciales).
 - `summary`: `by_status`, `by_severity_fail`, `drata_tests_failing`, `vanta_tests_failing`, `not_verified`. **Nunca hay porcentaje.**
 - `findings[]`: `id` (`F-0001`…), `check_id`, `title`, `domain`, `status`, `severity`, `resource` (`type`, `id`, `region`, `name`), `evidence`, `vault_claim`, `vault_note`, `mappings`, `remediation`, `evaluated_by` (`script` \| `claude`), `vacuous`, `breaks_tests`, `missing` (permisos que faltan), `depends_on_me` (tests que dependen del recurso).
@@ -148,7 +149,7 @@ PY
 ]
 ```
 
-`status`: `OK` \| `REVISAR` \| `CONFLICTO`. `message` y `vault_note` son texto o `null`. El script combina ambas fuentes y **gana el estado más severo**: un claim nunca baja un `CONFLICTO` del script. Un `OK` no cambia nada; un id desconocido se ignora; un claim con forma inválida se ignora con advertencia.
+`status`: `OK` \| `REVISAR` \| `CONFLICTO`. `message` y `vault_note` son texto o `null`. El script combina ambas fuentes y **gana el estado más severo**: un claim nunca baja un `CONFLICTO` del script. Un `OK` no cambia nada; un `status` fuera de `OK`\|`REVISAR`\|`CONFLICTO` se trata como `REVISAR`; un id desconocido se ignora; un claim con forma inválida se ignora con advertencia.
 
 ## 8. Qué ve el usuario en el HTML
 

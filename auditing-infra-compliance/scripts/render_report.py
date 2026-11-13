@@ -42,12 +42,16 @@ def render(findings: dict, template: str, verification: dict | None = None) -> s
     return template.replace(MARKER, _embeddable_json(findings))
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Genera el reporte HTML a partir de findings.json")
     parser.add_argument("findings", help="ruta de findings.json")
     parser.add_argument("--verification", help="ruta de verification.json (etapa de verificación de arreglos)")
     parser.add_argument("-o", "--output", help="ruta del HTML (por defecto report.html junto a findings.json)")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
 
     source = Path(args.findings)
     output = Path(args.output) if args.output else source.with_name("report.html")
