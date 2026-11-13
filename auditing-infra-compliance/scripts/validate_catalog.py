@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import catalog  # noqa: E402
+import evaluators  # noqa: E402
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 
@@ -29,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--type", help="con --list: solo chequeos de este tipo de inventario")
     parser.add_argument("--grep", help="con --list: solo chequeos cuyo id, título o tipos contienen el texto")
     return parser
+
+
+def contract_arguments(specs) -> dict:
+    """What the engine contract checks need: the inventory types, the registered python evaluators and their mandatory params."""
+    return {"inventory_types": set(specs), "registered": set(evaluators.EVALUATORS), "required_params": evaluators.REQUIRED_PARAMS}
 
 
 def _row(check):
@@ -61,7 +67,9 @@ def main(argv=None) -> int:
     tsc_ids, iso_ids = catalog.load_frameworks(refs / "frameworks")
     drata = catalog.load_drata_map(refs / "mappings" / "drata-dcf.json")
     rules = json.loads((refs / "conflict-rules.json").read_text(encoding="utf-8"))
-    errors = catalog.validate(checks, tsc_ids, iso_ids, drata, rules)
+    specs = json.loads((refs / "inventory.json").read_text(encoding="utf-8"))
+    errors = catalog.validate_inventory(specs)
+    errors += catalog.validate(checks, tsc_ids, iso_ids, drata, rules, **contract_arguments(specs))
     for error in errors:
         print(error)
     if errors:

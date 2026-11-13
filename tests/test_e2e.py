@@ -194,6 +194,31 @@ class FullPipelineTests(PipelineCase):
         self.assertTrue(all(kwargs.get("shell") is not True for kwargs in self.aws.kwargs))
 
 
+class UnknownRegionsPipelineTests(PipelineCase):
+    """Review 2: if the enabled regions cannot be listed, no "all regions" check may come out PASS and the verdict is never OPTIMO."""
+
+    def test_describe_regions_failure_never_yields_a_pass_for_all_regions_checks(self):
+        responses = acme_responses()
+        responses[("ec2", "describe-regions", REGION)] = err(ACCESS_DENIED.format(op="DescribeRegions", perm="ec2:DescribeRegions"))
+        scope = self.tmp / "scope.json"
+        scope.write_text(json.dumps(load_fixture("scope-full.json")), encoding="utf-8")
+        run_dir = self.tmp / "run"
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = collect.main(["--scope", str(scope), "--out", str(run_dir), "--quiet"], runner=AcmeAws(responses),
+                                sleep=lambda s: None, which=lambda name: None)
+        self.assertEqual(code, 0)
+        checks = {c["id"]: c for c in catalog.load_checks(SKILL_DIR / "references" / "checks")}
+        results = json.loads((run_dir / "checks-result.json").read_text(encoding="utf-8"))["results"]
+        regional_all = [r for r in results if checks[r["check_id"]]["all_regions"]
+                        and any(c.get("region") == "each" for c in checks[r["check_id"]]["verify"]["calls"])]
+        self.assertGreater(len(regional_all), 5)
+        self.assertEqual({r["status"] for r in regional_all if r["resource_id"] == "account"} - {"NO_VERIFICADO", "FAIL"}, set())
+        self.assertIn("NO_VERIFICADO", {r["status"] for r in results if r["check_id"] == "DET-005"})
+        self.assertNotIn("PASS", {r["status"] for r in results if r["check_id"] in ("DET-005", "IAM-015")})
+        findings = assemble_findings.assemble(run_dir, vault_index.build_index(FIXTURES_DIR / "typed-vault"), CLAIMS, dict(META), SKILL_DIR)
+        self.assertNotEqual(findings["summary"]["verdict"], "OPTIMO")
+
+
 class WithoutAwsTests(PipelineCase):
     def test_pipeline_without_aws(self):
         vault = self.tmp / "vault"

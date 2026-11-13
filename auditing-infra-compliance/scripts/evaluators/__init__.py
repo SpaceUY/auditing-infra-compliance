@@ -41,6 +41,31 @@ def register(name: str) -> Callable[[Evaluator], Evaluator]:
     return decorator
 
 
+# Keys an evaluator reads with params["key"] (a missing one would crash it at run time): validate_catalog.py requires them in the
+# check's verify.params. Keep in sync when an evaluator starts reading a new mandatory parameter.
+REQUIRED_PARAMS: dict[str, tuple[str, ...]] = {
+    "inspector_status": ("required",),
+    "acm_expiry": ("min_days",),
+    "root_usage": ("days", "max"),
+    "cred_report_key_age": ("fail_at_days",),
+    "cred_report_unused": ("max_days",),
+    "password_min_length": ("min_length",),
+    "password_reuse_prevention": ("min_reuse",),
+    "drata_role": ("role_name",),
+    "drata_backup_perms": ("role_name", "actions"),
+    "vanta_role": ("role_name", "additional_policy"),
+    "kms_auditor_access": ("auditors",),
+    "tag_present": ("inventory_types", "key"),
+    "user_data_flag": ("inventory_types", "key"),
+    "nonprod_on_prod": ("inventory_types",),
+    "tags_present": ("inventory_types",),
+    "alarm_coverage": ("metric", "namespace", "resource_dimension"),
+    "trail_cw_metric_filters": ("categories",),
+    "log_bucket_lifecycle": ("min_days", "name_regex"),
+    "sg_open_port": ("port",),
+}
+
+
 @register("always_empty")
 def always_empty(responses: dict, params: dict) -> list[dict]:
     return []

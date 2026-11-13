@@ -157,6 +157,79 @@ class ArgHardeningTest(unittest.TestCase):
                 aws_runner.assert_read_only(*pair, [])
 
 
+class ReviewTwoReadOnlyTests(unittest.TestCase):
+    NEW_DENIED = (
+        ("kinesis", "get-records"), ("kinesis", "get-shard-iterator"), ("dynamodbstreams", "get-records"),
+        ("dynamodbstreams", "get-shard-iterator"), ("ebs", "get-snapshot-block"),
+        ("lightsail", "get-instance-access-details"), ("lightsail", "get-relational-database-master-user-password"),
+        ("glue", "get-connection"), ("glue", "get-connections"), ("connect", "get-federation-token"),
+        ("ecr", "get-download-url-for-layer"), ("lambda", "get-layer-version-by-arn"), ("lambda", "get-layer-version"),
+        ("quicksight", "get-dashboard-embed-url"), ("quicksight", "get-session-embed-url"),
+        ("appconfig", "get-configuration"), ("appconfigdata", "get-latest-configuration"),
+        ("redshift-data", "get-statement-result"), ("redshift-data", "get-statement-result-v2"),
+        ("stepfunctions", "get-activity-task"), ("ec2", "get-launch-template-data"),
+        ("cloudformation", "get-template"), ("apigateway", "get-export"), ("apigateway", "get-sdk"),
+        ("codecommit", "get-commit"), ("codecommit", "get-differences"),
+    )
+
+    def test_review_two_denylist_additions(self):
+        for service, op in self.NEW_DENIED:
+            with self.subTest(op=f"{service} {op}"), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only(service, op, [])
+
+    def test_operations_that_look_like_they_return_secrets_are_refused_without_being_listed(self):
+        for service, op in (("newsvc", "get-signing-credentials"), ("newsvc", "describe-admin-password"),
+                            ("newsvc", "get-auth-token"), ("newsvc", "list-secret-values"),
+                            ("newsvc", "get-private-key"), ("newsvc", "get-signed-download-url")):
+            with self.subTest(op=op), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only(service, op, [])
+
+    def test_named_exceptions_to_the_sensitive_name_rule_still_run(self):
+        for service, op in (("iam", "get-credential-report"), ("iam", "generate-credential-report"),
+                            ("iam", "get-account-password-policy"), ("secretsmanager", "list-secrets"),
+                            ("secretsmanager", "describe-secret")):
+            with self.subTest(op=op):
+                aws_runner.assert_read_only(service, op, [])
+
+    def test_flags_that_make_a_listing_return_secret_values_are_refused(self):
+        for arg in ("--include-values", "--include-value", "--include-value=true", "--include-val"):
+            with self.subTest(arg=arg), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only("apigateway", "get-api-keys", [arg])
+
+    def test_denylist_and_allowlist_do_not_overlap(self):
+        for service, op in aws_runner.DENYLIST:
+            self.assertNotIn((service, op), aws_runner.ALLOWED_PAIRS)
+            self.assertNotIn((service, op), aws_runner.SENSITIVE_NAME_EXCEPTIONS)
+
+
+class ReviewTwoRunTests(unittest.TestCase):
+    def test_a_cancelled_run_does_not_retry_a_throttled_call(self):
+        runner = FakeRunner({("ec2", "describe-instances", "us-east-1"): THROTTLED})
+        sleeps = []
+        result = aws_runner.run_aws("ec2", "describe-instances", [], region="us-east-1", profile=None, runner=runner,
+                                    sleep=sleeps.append, cancelled=lambda: True)
+        self.assertEqual((result.ok, result.error_kind, len(runner.calls), sleeps), (False, "ERROR", 1, []))
+        self.assertIn("cancelada", result.error_message)
+
+    def test_credential_report_expired_is_retried(self):
+        expired = {"stdout": "", "returncode": 254, "stderr": "An error occurred (ReportExpired) when calling the GetCredentialReport operation: expired"}
+        result, _, sleeps = run({("iam", "get-credential-report", "us-east-1"): [expired, OK]}, "iam", "get-credential-report")
+        self.assertTrue(result.ok)
+        self.assertEqual(sleeps, [1])
+
+    def test_new_error_spellings_are_classified(self):
+        table = {
+            "NO_CREDENTIALS": ["An error occurred (UnrecognizedClientException) when calling the ListFunctions operation: The security token included in the request is invalid",
+                               "An error occurred (SignatureDoesNotMatch) when calling the ListUsers operation"],
+            "THROTTLED": ["An error occurred (ThrottledException) when calling the X operation",
+                          "An error occurred (RequestLimitExceeded) when calling the DescribeInstances operation"],
+        }
+        for expected, samples in table.items():
+            for stderr in samples:
+                with self.subTest(stderr=stderr):
+                    self.assertEqual(aws_runner.classify_error(stderr), expected)
+
+
 class RunAwsTest(unittest.TestCase):
     def test_never_uses_shell(self):
         result, runner, _ = run({("ec2", "describe-instances", "us-east-1"): OK})

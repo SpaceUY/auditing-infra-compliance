@@ -22,6 +22,11 @@ NO_VERIFICADO (never for ACCESS_DENIED / NO_CREDENTIALS, never for jmespath).
 A for_each call may also declare "item_errors": "evaluator" (python evaluators only): when one expanded item call fails
 (any error kind, including ACCESS_DENIED, except NO_CREDENTIALS) the evaluator gets that item's data as
 {"__error__": <ok_errors code or error kind, e.g. "ACCESS_DENIED">} and the check no longer collapses to NO_VERIFICADO.
+No vacuous PASS: a check whose regions are unknown or empty (describe-regions failed, every scoped region blocked) is
+NO_VERIFICADO with the reason, and a resource-scope check gets a NO_VERIFICADO row for every (type, region) whose inventory
+listing failed, next to the PASS/FAIL rows of the regions that were listed. N/A only when the listing worked and found nothing.
+When NET-001..004 fail on a security group, CMP-006 is also evaluated for the instances attached to it (the conflict rule
+CR-003 needs it), even in feature/resource scope; those rows carry detail.context_for.
 A check that declares `params.inventory_types` depends on those inventory types (`account_context_for` is only a
 feature-mode selection key and never blocks evaluation): if the listing of any of them failed, the check is NO_VERIFICADO (missing "inventory:<type>") instead of being evaluated
 on an incomplete inventory. Python evaluators also see `responses["__inventory_errors__"]` (set of broken types).
@@ -32,6 +37,7 @@ have a record of rrtype at the templated name matching must_match.
 """
 
 import argparse
+import dataclasses
 import json
 import os
 import re
@@ -62,6 +68,13 @@ SEVERITY_ORDER = {s: i for i, s in enumerate(catalog.SEVERITIES)}
 ADMIN_POLICY = "AdministratorAccess"
 OWNER_TAG = "VantaOwner"
 ENABLED_REGIONS_FILTER = "Name=opt-in-status,Values=opt-in-not-required,opted-in"
+REGIONS_REASON = "no se pudieron listar las regiones"
+NO_REGIONS_REASON = "sin regiones en el alcance"
+REGIONS_UNKNOWN = "REGIONS_UNKNOWN"  # pseudo error kind of the inventory when the enabled regions are unknown
+ALL_REGIONS = "*"
+SG_CHECKS = frozenset({"NET-001", "NET-002", "NET-003", "NET-004"})  # their FAIL rows list the attached instances
+SSM_CHECK = "CMP-006"  # evidence the conflict rule CR-003 reads for those instances
+_REGION_NAME = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d+$")
 SCP_REASON = "bloqueado por SCP"
 _SCP = re.compile(r"service control polic", re.IGNORECASE)
 CHECKPOINT_SECONDS = 15
@@ -81,8 +94,11 @@ class Ctx:
     enabled_regions: list = field(default_factory=list)
     regions: list = field(default_factory=list)
     inventory: list = field(default_factory=list)
-    inventory_errors: dict = field(default_factory=dict)  # type -> {error kinds}
+    inventory_errors: dict = field(default_factory=dict)  # type -> {(region, error kind)}; region "*" = every other region
+    specs: dict = field(default_factory=dict)  # inventory spec (type -> spec)
+    regions_error: str | None = None  # error kind when describe-regions failed (the enabled regions are unknown)
     scope_entries: list | None = None  # [(type, ref)] in feature/resource mode, None in full mode
+    scope_resources: list = field(default_factory=list)  # the scope's resources as written ({type, id, region})
     allowed: frozenset | None = None  # {(service, operation)} the run may execute; None = unrestricted (tests only)
     blocked_regions: list = field(default_factory=list)  # regions whose inventory is denied by an SCP
     cache: dict = field(default_factory=dict)  # call key -> _Slot
@@ -110,7 +126,8 @@ def _masked_line(text, limit):
 def allowed_operations(checks, specs):
     """Closed allowlist: every (service, operation) of the catalog calls and the inventory spec, plus the preflight."""
     pairs = {(c["service"], c["operation"]) for check in checks for c in check["verify"]["calls"]}
-    return frozenset(pairs | {(s["service"], s["operation"]) for s in specs.values()} | PREFLIGHT_OPERATIONS)
+    pairs |= {(s["service"], s["operation"]) for s in specs.values()} | PREFLIGHT_OPERATIONS
+    return frozenset(pairs & catalog.REVIEWED_OPERATIONS)  # a call nobody reviewed (see catalog.REVIEWED_OPERATIONS) never runs
 
 
 def _refused(message):
@@ -120,14 +137,14 @@ def _refused(message):
 def _run_aws(ctx, service, operation, args, region, query):
     try:
         return aws_runner.run_aws(service, operation, args, region=region, profile=ctx.profile,
-                                  query=query, runner=ctx.runner, sleep=ctx.sleep)
+                                  query=query, runner=ctx.runner, sleep=ctx.sleep, cancelled=ctx.cancelled.is_set)
     except aws_runner.ReadOnlyViolation as exc:
         return _refused(str(exc))
 
 
 def _aws(ctx, service, operation, args, region, query=None):
     if ctx.allowed is not None and (service, operation) not in ctx.allowed:
-        return _refused(f"operación fuera del catálogo, no se ejecuta: {service} {operation}")
+        return _refused(f"operación fuera del catálogo revisado, no se ejecuta: {service} {operation}")
     if ctx.cancelled.is_set():
         return _refused("ejecución cancelada")
     if (service, operation) in NEVER_CACHED:
@@ -158,20 +175,59 @@ def _row(check, status, resource_id, region, detail=None, missing=None, vacuous=
 def _inventory_warnings(ctx, errors):
     grouped = {}
     for type_, region, kind in errors:
-        ctx.inventory_errors.setdefault(type_, set()).add(kind)
+        ctx.inventory_errors.setdefault(type_, set()).add((region, kind))
         grouped.setdefault((type_, kind), []).append(region)
     return [f"inventario incompleto: {t} {k} en {', '.join(sorted(rs))}" for (t, k), rs in sorted(grouped.items())]
 
 
-def _enabled_regions(ctx, wanted, warnings):
+def _enabled_regions(ctx, warnings):
+    """(enabled region names, known). When the listing fails nothing is guessed: ([], False) and ctx.regions_error is set."""
     res = _aws(ctx, "ec2", "describe-regions", ["--filters", ENABLED_REGIONS_FILTER], DEFAULT_REGION)
     if res.ok:
         return sorted(paths.extract(res.data, "Regions[].RegionName")), True
-    warnings.append(f"no se pudieron listar las regiones habilitadas ({res.error_kind}); se usa el alcance")
-    return (list(wanted) if isinstance(wanted, list) else [DEFAULT_REGION]), False
+    ctx.regions_error = res.error_kind
+    warnings.append(f"no se pudieron listar las regiones habilitadas ({res.error_kind}): los chequeos de todas las regiones "
+                    "quedan sin verificar y solo se audita el alcance indicado")
+    return [], False
+
+
+def _regions_problem(wanted):
+    """Why scope.regions is unusable (a message), or None. It is "auto" or a non-empty list of region names."""
+    if wanted == "auto":
+        return None
+    if not isinstance(wanted, list):
+        return ('scope.regions debe ser "auto" o una lista de regiones, por ejemplo ["us-east-1"]; '
+                f"se recibió {_oneline(json.dumps(wanted, ensure_ascii=False), 60)}")
+    if not wanted:
+        return 'scope.regions está vacío: usar "auto" o al menos una región, por ejemplo ["us-east-1"]'
+    bad = [w for w in wanted if not (isinstance(w, str) and _REGION_NAME.fullmatch(w))]
+    if bad:
+        return f"scope.regions tiene nombres que no son regiones de AWS: {_oneline(json.dumps(bad, ensure_ascii=False), 80)}"
+    return None
+
+
+def _scope_failure(message):
+    print(redact.mask(f"{message}. Corregir scope.json y reintentar."))
+    return 2
 
 
 # ---------------------------------------------------------------- calls
+
+def _regional_calls_without_regions(ctx, check):
+    return [c for c in check["verify"]["calls"] if c.get("region", "global") == "each" and not _call_regions(ctx, check, c)]
+
+
+def _regions_gap_row(ctx, check):
+    """NO_VERIFICADO when a regional call has no region to run in (never a PASS from zero regions, never us-east-1 alone)."""
+    if not _regional_calls_without_regions(ctx, check):
+        return None
+    if check["all_regions"] and ctx.regions_error is not None:
+        detail = {"reason": REGIONS_REASON, "error_kind": ctx.regions_error}
+        missing = ["ec2:DescribeRegions"] if ctx.regions_error == "ACCESS_DENIED" else []
+    else:
+        detail, missing = {"reason": NO_REGIONS_REASON}, []
+    return _row(check, "NO_VERIFICADO", "account", None, detail, missing=missing)
+
 
 def _call_regions(ctx, check, call):
     if call.get("region", "global") == "global":
@@ -269,6 +325,8 @@ def _run_calls(ctx, check, items):
                 values = [None]
             for index, value in enumerate(values):
                 res = _execute(ctx, call, region, _args_for(call, value), query)
+                if ctx.cancelled.is_set():  # the run was cancelled: no raw file and no evaluation of partial data
+                    return collected
                 _write_raw(ctx.out / "raw" / check["id"], name, region, index if "for_each" in call else None, res)
                 if res.ok:
                     collected["responses"][name].append((region, res.data))
@@ -364,12 +422,33 @@ def _dns_offenders(ctx, check, domains):
     return offenders
 
 
-def _vacuous_row(ctx, check, types):
-    broken = sorted(t for t in types if t in ctx.inventory_errors)
-    if broken:
-        return _row(check, "NO_VERIFICADO", "account", None,
-                    {"reason": "inventario no disponible", "types": broken}, missing=[f"inventory:{t}" for t in broken])
+def _vacuous_row(check):
     return _row(check, "N/A", "account", None, {"reason": "sin recursos en el alcance"}, vacuous=True)
+
+
+def _gap_in_scope(ctx, type_, region):
+    """In feature/resource mode only the regions of the scoped resources of that type matter (global types: any region)."""
+    if ctx.scope_entries is None:
+        return True
+    anywhere = region == ALL_REGIONS or ctx.specs.get(type_, {}).get("region") == "global"
+    return any(r.get("type") == type_ and (anywhere or r.get("region") in (None, region)) for r in ctx.scope_resources)
+
+
+def _inventory_gap_rows(ctx, check, types):
+    """One NO_VERIFICADO row per (type, region) whose listing failed: the items of that region are unknown, so the PASS rows
+    of the other regions must not be read as covering the whole account."""
+    rows = []
+    for type_ in sorted(types):
+        for region, kind in sorted(ctx.inventory_errors.get(type_, ()), key=lambda e: (e[0], e[1])):
+            if not _gap_in_scope(ctx, type_, region):
+                continue
+            if kind == REGIONS_UNKNOWN:
+                detail = {"reason": REGIONS_REASON, "type": type_, "error_kind": ctx.regions_error}
+                missing = ["ec2:DescribeRegions"] if ctx.regions_error == "ACCESS_DENIED" else []
+            else:
+                detail, missing = {"reason": "inventario incompleto", "type": type_, "error_kind": kind}, [f"inventory:{type_}"]
+            rows.append(_row(check, "NO_VERIFICADO", "account", None if region == ALL_REGIONS else region, detail, missing=missing))
+    return rows
 
 
 def _inventory_dependencies(check):
@@ -390,15 +469,28 @@ def _run_check(ctx, check):
 
 
 def _check_rows(ctx, check):
-    kind, _, name = check["verify"]["evaluator"].partition(":")
-    is_resource = check["scope"] == "resource"
-    items = _dns_items(ctx, check) if kind == "dns" else _items_for(ctx, check)
-    if (is_resource or kind == "dns") and not items:
-        return [_vacuous_row(ctx, check, [_dns_source(check)] if kind == "dns" else check["resource_types"])]
+    gap = _regions_gap_row(ctx, check)
+    if gap:
+        return [gap]
     broken = _broken_dependencies(ctx, check)
     if broken:
         return [_row(check, "NO_VERIFICADO", "account", None, {"reason": "inventario no disponible", "types": broken},
                      missing=[f"inventory:{t}" for t in broken])]
+    kind = check["verify"]["evaluator"].partition(":")[0]
+    types = [_dns_source(check)] if kind == "dns" else check["resource_types"] if check["scope"] == "resource" else []
+    gaps = _inventory_gap_rows(ctx, check, types)
+    rows = _evaluated_rows(ctx, check)
+    if gaps:  # a "nothing applies" N/A would claim the unlisted regions are empty
+        rows = [r for r in rows if not (r["status"] == "N/A" and r["vacuous"])]
+    return gaps + rows
+
+
+def _evaluated_rows(ctx, check):
+    kind, _, name = check["verify"]["evaluator"].partition(":")
+    is_resource = check["scope"] == "resource"
+    items = _dns_items(ctx, check) if kind == "dns" else _items_for(ctx, check)
+    if (is_resource or kind == "dns") and not items:
+        return [_vacuous_row(check)]
     collected = _run_calls(ctx, check, items)
     failures = collected["failures"]
     blocking = [f for f in failures if f["error_kind"] != "NOT_ENABLED" or check["not_enabled_means"] != "fail"]
@@ -462,6 +554,41 @@ def _pass_rows(check, items, offenders, skipped, failed_regions, any_fail):
     return [_row(check, "PASS", i["id"], i["region"]) for i in items
             if i["region"] not in failed_regions
             and not any((x, i["region"]) in bad or (x, None) in bad for x in _ids(i))]
+
+
+def _attached_instances(rows):
+    """{(instance id, region): {NET check ids}} for the failing security groups (their detail.attachments)."""
+    found = {}
+    for row in rows:
+        attachments = row["detail"].get("attachments") if row["status"] == "FAIL" and row["check_id"] in SG_CHECKS else None
+        for attachment in attachments if isinstance(attachments, list) else []:
+            instance = attachment.get("instance_id") if isinstance(attachment, dict) else None
+            if isinstance(instance, str) and instance:
+                found.setdefault((instance, row["region"]), set()).add(row["check_id"])
+    return found
+
+
+def _evidence_rows(ctx, checks, selected, rows, warnings):
+    """CMP-006 for the instances attached to a failing security group: the conflict rule CR-003 needs to know whether closing
+    SSH/RDP leaves them without Systems Manager. In feature/resource scope CMP-006 would not run for them otherwise.
+    Returns the rows with the CMP-006 rows replaced by the evaluation of the scope plus those instances."""
+    wanted = _attached_instances(rows)
+    check = next((c for c in checks if c["id"] == SSM_CHECK), None)
+    in_run = any(c["id"] == SSM_CHECK for c in selected)
+    if not wanted or check is None or (in_run and ctx.scope_entries is None):  # full mode: every instance was evaluated
+        return rows
+    known = {(i["id"], i["region"]) for i in ctx.inventory if i["type"] == "ec2_instance"}
+    warnings += [f"instancia adjunta a un security group sin coincidencia en el inventario, no se evalúa {SSM_CHECK}: {i}"
+                 for i, region in sorted(wanted) if (i, region) not in known]
+    found = {i: sorted(ids) for (i, region), ids in sorted(wanted.items()) if (i, region) in known}
+    if not found:
+        return rows
+    existing = list(ctx.scope_entries or [])
+    new = _run_check(dataclasses.replace(ctx, scope_entries=existing + [("ec2_instance", i) for i in found]), check)
+    for row in new:  # the instances nobody asked about are there because of the security group
+        if row["resource_id"] in found and ("ec2_instance", row["resource_id"]) not in existing:
+            row["detail"] = {**row["detail"], "context_for": found[row["resource_id"]]}
+    return [r for r in rows if r["check_id"] != SSM_CHECK] + new
 
 
 def _select(checks, scope):
@@ -607,12 +734,15 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     args = build_parser().parse_args(argv)
 
     scope = json.loads(Path(args.scope).read_text(encoding="utf-8"))
+    wanted = scope.get("regions", "auto")
+    if problem := _regions_problem(wanted):  # before any AWS call: a bad scope must not turn into an empty audit
+        return _scope_failure(problem)
     specs = json.loads(Path(args.inventory).read_text(encoding="utf-8"))
     checks = catalog.load_checks(Path(args.checks_dir))
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     ctx = Ctx(runner=runner, sleep=sleep, which=which, out=out, profile=scope.get("profile"),
-              allowed=allowed_operations(checks, specs))
+              allowed=allowed_operations(checks, specs), specs=specs)
     warnings = []
 
     identity = _aws(ctx, "sts", "get-caller-identity", [], DEFAULT_REGION)
@@ -624,13 +754,16 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
         return 2
     account_id, identity_arn = (identity.data or {}).get("Account"), (identity.data or {}).get("Arn", "")
 
-    wanted = scope.get("regions", "auto")
-    enabled, known = _enabled_regions(ctx, wanted, warnings)
+    enabled, known = _enabled_regions(ctx, warnings)
     if wanted == "auto":
-        inventory_regions = enabled
+        inventory_regions = enabled if known else [DEFAULT_REGION]
     else:
+        wanted = list(dict.fromkeys(wanted))
         inventory_regions = [r for r in wanted if r in enabled or not known]
         warnings += [f"región fuera de las habilitadas, se omite: {r}" for r in wanted if r not in inventory_regions]
+        if not inventory_regions:
+            return _scope_failure(f"ninguna región de scope.regions ({', '.join(wanted)}) está habilitada en la cuenta "
+                                  f"(habilitadas: {', '.join(enabled)})")
     scp_calls = set()
 
     def list_inventory(service, op, call_args, region):
@@ -658,6 +791,9 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     inventory_regions = [r for r in inventory_regions if r not in ctx.blocked_regions]
     ctx.enabled_regions = [r for r in enabled if r not in ctx.blocked_regions]
     warnings += _inventory_warnings(ctx, errors)
+    if not known and wanted == "auto":  # only us-east-1 was listed: the regional types are unknown everywhere else
+        for type_ in (t for t, s in specs.items() if s["region"] == "each"):
+            ctx.inventory_errors.setdefault(type_, set()).add((ALL_REGIONS, REGIONS_UNKNOWN))
     if wanted == "auto":
         with_resources = {i["region"] for i in ctx.inventory if specs[i["type"]]["region"] == "each"}
         ctx.regions = sorted(with_resources | {DEFAULT_REGION})
@@ -666,7 +802,8 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     _dump(out / "inventory.json", _masked_inventory(ctx.inventory))
     _progress(args, f"[inventario] {len(ctx.inventory)} recursos")
     if scope["mode"] != "full":
-        ctx.scope_entries = [(r["type"], r["id"]) for r in scope.get("resources") or []]
+        ctx.scope_resources = [r for r in scope.get("resources") or [] if isinstance(r, dict)]
+        ctx.scope_entries = [(r["type"], r["id"]) for r in ctx.scope_resources]
         warnings += [f"recurso del alcance sin coincidencia en el inventario: {t} {ref}" for t, ref in ctx.scope_entries
                      if not any(_matches(i, t, ref) for i in ctx.inventory)]
 
@@ -678,7 +815,15 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
         _dump(out / "checks-result.json", _results_payload(aws, rows, warnings, pending))
 
     rows, pending = _run_checks(ctx, args, selected, checkpoint)
+    if not pending:
+        try:
+            rows = _evidence_rows(ctx, checks, selected, rows, warnings)
+        except KeyboardInterrupt:
+            ctx.cancelled.set()
+            pending = {SSM_CHECK}
+    severities.update({c["id"]: c["severity"] for c in checks if c["id"] == SSM_CHECK})
     if pending:
+        checkpoint(rows, pending)
         print(redact.mask(_summary(rows, severities, warnings, aws, out, pending)))
         return 130
     admin = _admin_warning(ctx, identity_arn)

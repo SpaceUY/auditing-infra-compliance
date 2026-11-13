@@ -250,17 +250,36 @@ def vpc_flow_logs(responses: dict, params: dict) -> list[dict]:
     return offenders
 
 
+_NARROWING_FILTERS = ("Tag", "Tags", "ObjectSizeGreaterThan", "ObjectSizeLessThan")
+
+
+def _rule_prefix(rule: dict) -> str | bool | None:
+    """None when the rule covers the whole bucket; the prefix when it only covers a sub-tree; False when a tag or object-size
+    filter selects objects that are not the logs as a whole."""
+    filt = rule.get("Filter") or {}
+    conditions = filt.get("And") or {}
+    if any(key in filt or key in conditions for key in _NARROWING_FILTERS):
+        return False
+    return filt.get("Prefix") or conditions.get("Prefix") or rule.get("Prefix") or None
+
+
 def _short_expiration(rule: dict, now: datetime, minimum: timedelta) -> dict | None:
-    """The enabled rule's current-version expiration when it is shorter than `minimum` (exact, not floored days)."""
+    """The enabled rule's current-version expiration when it is shorter than `minimum` (exact, not floored days). A rule that
+    selects objects by tag or size is ignored (it does not expire the logs); one limited to a prefix is reported with it."""
     if rule.get("Status") != "Enabled":
         return None
+    prefix = _rule_prefix(rule)
+    if prefix is False:
+        return None
     expiration = rule.get("Expiration") or {}
+    found = None
     if "Days" in expiration and timedelta(days=expiration["Days"]) < minimum:
-        return {"rule": rule.get("ID", ""), "expires_after_days": expiration["Days"]}
-    date = _parse_time(expiration.get("Date"))
-    if date is not None and date - now < minimum:
-        return {"rule": rule.get("ID", ""), "expires_on": expiration["Date"]}
-    return None
+        found = {"rule": rule.get("ID", ""), "expires_after_days": expiration["Days"]}
+    else:
+        date = _parse_time(expiration.get("Date"))
+        if date is not None and date - now < minimum:
+            found = {"rule": rule.get("ID", ""), "expires_on": expiration["Date"]}
+    return found if found is None or prefix is None else {**found, "prefix": prefix}
 
 
 @register("log_bucket_lifecycle")
@@ -287,7 +306,9 @@ def log_bucket_lifecycle(responses: dict, params: dict) -> list[dict]:
             continue
         short = [found for rule in data.get("Rules", []) if (found := _short_expiration(rule, now, minimum))]
         if short:
-            offenders.append(_offender(bucket, region, rules=short, min_days=params["min_days"]))
+            # only prefix rules: they may expire a sub-tree that is not logs (tmp/), so the finding is a hygiene one
+            extra = {"severity_override": "low"} if all("prefix" in found for found in short) else {}
+            offenders.append(_offender(bucket, region, rules=short, min_days=params["min_days"], **extra))
     return offenders
 
 

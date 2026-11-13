@@ -31,8 +31,64 @@ _REQUIRED_VERIFY = ("calls", "evaluator", "pass_when_text", "needs")
 _REQUIRED_REMEDIATION = ("kind", "risk", "downtime", "steps", "commands", "verify_after", "notes")
 _DNS_REQUIRED_PARAMS = ("rrtype", "name_template", "must_match")
 _REQUIRED_MAPPINGS = ("drata", "vanta", "tsc_inferred", "iso_inferred", "security_hub", "cis_aws")
+SCOPES = ("account", "resource")
+NOT_ENABLED_MEANS = ("fail", "not_verified")
+CALL_REGIONS = ("each", "global")
+INVENTORY_SOURCE = "__inventory__"
+_CALL_KEYS = frozenset({"name", "service", "operation", "args", "region", "for_each", "ok_errors", "item_errors"})
+_INVENTORY_SPEC_KEYS = ("service", "operation", "args", "region", "items_path", "id_path", "name_path", "tags_path", "arn_path")
 RULE_STATUSES = ("CONFLICTO", "REVISAR")
 RULE_SCOPES = ("same_resource", "same_account")
+
+# Every (service, operation) a catalog call or the inventory spec may run. aws_runner.assert_read_only (verb allowlist plus
+# denylist and sensitive-name rule) is the floor; this list is the explicit review gate: adding a call means reading what the
+# operation returns (no secret values, no object data) and adding the pair here. Nothing else is accepted by validate_catalog.
+_REVIEWED = {
+    "accessanalyzer": ("list-analyzers",),
+    "account": ("get-alternate-contact",),
+    "acm": ("describe-certificate", "list-certificates"),
+    "apigateway": ("get-rest-apis", "get-stages"),
+    "apigatewayv2": ("get-apis",),
+    "autoscaling": ("describe-auto-scaling-groups",),
+    "backup": ("get-backup-plan", "get-backup-vault-notifications", "list-backup-jobs", "list-backup-plans", "list-backup-vaults"),
+    "cloudfront": ("list-distributions",),
+    "cloudtrail": ("describe-trails", "get-event-selectors", "get-trail-status", "lookup-events"),
+    "cloudwatch": ("describe-alarms",),
+    "configservice": ("describe-configuration-recorder-status", "describe-configuration-recorders", "describe-delivery-channels"),
+    "dynamodb": ("describe-continuous-backups", "list-tables"),
+    "ec2": ("describe-flow-logs", "describe-instances", "describe-launch-template-versions", "describe-launch-templates",
+            "describe-network-acls", "describe-network-interfaces", "describe-regions", "describe-route-tables",
+            "describe-security-groups", "describe-subnets", "describe-volumes", "describe-vpcs", "get-ebs-encryption-by-default"),
+    "efs": ("describe-file-systems",),
+    "eks": ("describe-cluster", "list-clusters"),
+    "elasticache": ("describe-replication-groups",),
+    "elb": ("describe-load-balancers",),
+    "elbv2": ("describe-listeners", "describe-load-balancer-attributes", "describe-load-balancers"),
+    "events": ("list-rules", "list-targets-by-rule"),
+    "guardduty": ("get-detector", "list-detectors"),
+    "iam": ("generate-credential-report", "get-account-authorization-details", "get-account-password-policy",
+            "get-account-summary", "get-credential-report", "list-attached-role-policies", "list-attached-user-policies",
+            "list-entities-for-policy", "list-role-policies", "list-roles", "list-users", "list-virtual-mfa-devices"),
+    "inspector2": ("batch-get-account-status", "list-findings"),
+    "kms": ("describe-key", "get-key-policy", "get-key-rotation-status", "list-aliases", "list-keys"),
+    "lambda": ("list-functions",),
+    "logs": ("describe-log-groups", "describe-metric-filters"),
+    "rds": ("describe-db-cluster-parameter-groups", "describe-db-cluster-parameters", "describe-db-clusters",
+            "describe-db-instances", "describe-db-parameter-groups", "describe-db-parameters"),
+    "resourcegroupstaggingapi": ("get-resources",),
+    "s3api": ("get-bucket-encryption", "get-bucket-lifecycle-configuration", "get-bucket-logging", "get-bucket-policy",
+              "get-bucket-versioning", "get-public-access-block", "list-buckets"),
+    "secretsmanager": ("list-secrets",),
+    "securityhub": ("describe-hub", "get-enabled-standards"),
+    "sesv2": ("get-account", "get-configuration-set", "get-configuration-set-event-destinations", "get-email-identity",
+              "list-email-identities"),
+    "sns": ("list-subscriptions-by-topic", "list-topics"),
+    "sqs": ("list-queues",),
+    "ssm": ("describe-instance-information", "describe-instance-patch-states"),
+    "sts": ("get-caller-identity",),
+    "wafv2": ("get-logging-configuration", "list-resources-for-web-acl", "list-web-acls"),
+}
+REVIEWED_OPERATIONS = frozenset((service, op) for service, ops in _REVIEWED.items() for op in ops)
 
 
 def _read_json(path):
@@ -162,14 +218,115 @@ def _check_enums(check):
     return errors
 
 
+def _call_operation_errors(label, call):
+    """Read-only by the runner's rules AND reviewed (an explicit allowlist): both must hold for a call to be accepted."""
+    service, operation = call.get("service", ""), call.get("operation", "")
+    args = call.get("args") or []
+    if not _is_read_only(service, operation, args if isinstance(args, list) else []):
+        return [f"{label} no es de solo lectura ({service} {operation})"]
+    if (service, operation) not in REVIEWED_OPERATIONS:
+        return [f"{label} usa una operación no revisada ({service} {operation}): leer qué devuelve y agregarla a REVIEWED_OPERATIONS"]
+    return []
+
+
 def _check_calls_read_only(check):
     cid = check["id"]
-    return [
-        f"{cid}: llamada '{c.get('name')}' no es de solo lectura "
-        f"({c.get('service')} {c.get('operation')})"
-        for c in check["verify"]["calls"]
-        if not _is_read_only(c.get("service", ""), c.get("operation", ""), c.get("args") or [])
-    ]
+    return [e for c in check["verify"]["calls"] for e in _call_operation_errors(f"{cid}: llamada '{c.get('name')}'", c)]
+
+
+def validate_inventory(specs) -> list[str]:
+    """references/inventory.json: every entry is complete, read-only, reviewed and has a valid region mode."""
+    if not isinstance(specs, dict):
+        return ["inventory: se esperaba un objeto {tipo: especificación}"]
+    errors = []
+    for type_, spec in specs.items():
+        label = f"inventory {type_}"
+        if not isinstance(spec, dict):
+            errors.append(f"{label}: la especificación debe ser un objeto")
+            continue
+        errors += [f"{label}: falta el campo '{k}'" for k in _INVENTORY_SPEC_KEYS if k not in spec]
+        if spec.get("region") not in CALL_REGIONS:
+            errors.append(f"{label}: region invalida '{spec.get('region')}'")
+        if "service" in spec and "operation" in spec:
+            errors += _call_operation_errors(label, spec)
+    return errors
+
+
+def _inventory_type_errors(cid, field, types, known):
+    if not isinstance(types, list) or not all(isinstance(t, str) for t in types):
+        return [f"{cid}: {field} debe ser una lista de textos"]
+    return [f"{cid}: {field} cita un tipo de inventario inexistente '{t}'" for t in types if known is not None and t not in known]
+
+
+def _check_contract(check, inventory_types, registered, required_params):
+    """What collect.py needs from a check: enums, region modes, call shape, for_each sources, inventory types, evaluator and params."""
+    cid = check["id"]
+    errors = []
+    if check["scope"] not in SCOPES:
+        errors.append(f"{cid}: scope invalido '{check['scope']}' (account | resource)")
+    if check["not_enabled_means"] not in NOT_ENABLED_MEANS:
+        errors.append(f"{cid}: not_enabled_means invalido '{check['not_enabled_means']}' (fail | not_verified)")
+    if not isinstance(check["all_regions"], bool):
+        errors.append(f"{cid}: all_regions debe ser booleano")
+    errors += _inventory_type_errors(cid, "resource_types", check["resource_types"], inventory_types)
+    if "account_context_for" in check:
+        errors += _inventory_type_errors(cid, "account_context_for", check["account_context_for"], inventory_types)
+    verify = check["verify"]
+    params = verify.get("params")
+    if params is not None and not isinstance(params, dict):
+        errors.append(f"{cid}: verify.params debe ser un objeto")
+        params = None
+    if params and "inventory_types" in params:
+        errors += _inventory_type_errors(cid, "params.inventory_types", params["inventory_types"], inventory_types)
+    if not (isinstance(verify["needs"], list) and all(isinstance(n, str) and n for n in verify["needs"])):
+        errors.append(f"{cid}: verify.needs debe ser una lista de textos no vacios")
+    errors += _check_call_shapes(check)
+    errors += _check_evaluator_contract(check, params or {}, registered, required_params)
+    return errors
+
+
+def _check_call_shapes(check):
+    cid, calls = check["id"], check["verify"]["calls"]
+    dns = check["verify"]["evaluator"] == "dns"  # the engine runs the dns evaluator itself: it makes no AWS call
+    if not isinstance(calls, list) or (not calls and not dns) or not all(isinstance(c, dict) for c in calls):
+        return [f"{cid}: verify.calls debe ser una lista no vacia de objetos"]
+    errors, earlier = [], set()
+    for call in calls:
+        label = f"{cid}: llamada '{call.get('name')}'"
+        errors += [f"{label} tiene un campo desconocido '{k}'" for k in sorted(set(call) - _CALL_KEYS)]
+        errors += [f"{label}: falta '{k}'" for k in ("name", "service", "operation") if not (isinstance(call.get(k), str) and call[k])]
+        if call.get("name") in earlier:
+            errors.append(f"{label}: nombre duplicado")
+        if "args" in call and not (isinstance(call["args"], list) and all(isinstance(a, str) for a in call["args"])):
+            errors.append(f"{label}: args debe ser una lista de textos")
+        if call.get("region", "global") not in CALL_REGIONS:
+            errors.append(f"{label}: region invalida '{call.get('region')}' (each | global)")
+        if "for_each" in call:
+            errors += _for_each_errors(label, call["for_each"], earlier, check)
+        earlier.add(call.get("name"))
+    return errors
+
+
+def _for_each_errors(label, for_each, earlier, check):
+    if not isinstance(for_each, dict) or not all(isinstance(for_each.get(k), str) and for_each[k] for k in ("from", "path", "arg")):
+        return [f"{label}: for_each requiere {{from, path, arg}} como textos no vacios"]
+    if for_each["from"] == INVENTORY_SOURCE:
+        return [] if check["resource_types"] else [f"{label}: for_each de {INVENTORY_SOURCE} requiere resource_types no vacio"]
+    if for_each["from"] not in earlier:
+        return [f"{label}: for_each.from '{for_each['from']}' no es una llamada anterior ni {INVENTORY_SOURCE}"]
+    return []
+
+
+def _check_evaluator_contract(check, params, registered, required_params):
+    cid = check["id"]
+    kind, _, name = check["verify"]["evaluator"].partition(":")
+    if kind != "python" or not name:
+        return []
+    errors = []
+    if registered is not None and name not in registered:
+        errors.append(f"{cid}: evaluador python '{name}' no esta registrado")
+    errors += [f"{cid}: el evaluador '{name}' requiere params.{key}" for key in (required_params or {}).get(name, ()) if key not in params]
+    return errors
 
 
 def _check_framework_ids(check, tsc_ids, iso_ids):
@@ -358,7 +515,10 @@ def validate_conflict_rules(rules, checks) -> list[str]:
     return errors
 
 
-def validate(checks, tsc_ids, iso_ids, drata, conflict_rules=None) -> list[str]:
+def validate(checks, tsc_ids, iso_ids, drata, conflict_rules=None, *, inventory_types=None, registered=None,
+             required_params=None) -> list[str]:
+    """`inventory_types` (keys of inventory.json), `registered` (python evaluator names) and `required_params`
+    ({evaluator: keys}) enable the checks that need them; validate_catalog.py always passes all three."""
     errors = []
     seen_ids = set()
     for check in checks:
@@ -368,6 +528,7 @@ def validate(checks, tsc_ids, iso_ids, drata, conflict_rules=None) -> list[str]:
             errors += missing
             continue
         errors += _check_enums(check)
+        errors += _check_contract(check, inventory_types, registered, required_params)
         errors += _check_calls_read_only(check)
         errors += _check_framework_ids(check, tsc_ids, iso_ids)
         errors += _check_jmespath(check)

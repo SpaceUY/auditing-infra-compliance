@@ -19,7 +19,11 @@ PENDING_DELETION_STATES = frozenset({"pendingdeletion", "pendingreplicadeletion"
 # ---------------------------------------------------------------- policy documents
 
 def _document(raw: object) -> dict:
-    return json.loads(unquote(raw)) if isinstance(raw, str) else raw or {}
+    """A policy document as an object. IAM returns URL-encoded JSON (starts with %7B) in some calls and raw JSON in others
+    (KMS get-key-policy); only the encoded form is decoded, a raw one may legitimately contain a '%'."""
+    if not isinstance(raw, str):
+        return raw or {}
+    return json.loads(raw if raw.lstrip().startswith(("{", "[")) else unquote(raw))
 
 
 def _statements(document: dict) -> list[dict]:

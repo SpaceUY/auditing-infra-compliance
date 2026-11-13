@@ -234,7 +234,7 @@
       "title": "El usuario root no se usa para iniciar sesión (máximo 1 ConsoleLogin en 7 días)",
       "scope": "account",
       "resource_types": [],
-      "all_regions": false,
+      "all_regions": true,
       "severity": "high",
       "not_enabled_means": "not_verified",
       "verify": {
@@ -247,7 +247,7 @@
               "--lookup-attributes",
               "AttributeKey=Username,AttributeValue=root"
             ],
-            "region": "global"
+            "region": "each"
           }
         ],
         "evaluator": "python:root_usage",
@@ -255,7 +255,7 @@
           "days": 7,
           "max": 1
         },
-        "pass_when_text": "El root tiene como máximo 1 ConsoleLogin (también los fallidos) en los últimos 7 días.",
+        "pass_when_text": "El root tiene como máximo 1 ConsoleLogin (también los fallidos) en los últimos 7 días, sumando todas las regiones habilitadas (un inicio de sesión por un endpoint regional se registra en esa región). El uso de la API por root no se cuenta.",
         "needs": [
           "cloudtrail:LookupEvents"
         ]

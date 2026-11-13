@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timedelta
 from urllib.parse import unquote
 
-from evaluators import _age, _first, _now, _offender, _parse_time, register
+from evaluators import _age, _first, _now, _offender, _parse_time, _unverified, register
 
 
 # ---------------------------------------------------------------- IAM: root account
@@ -38,12 +38,21 @@ def _is_recent_login(event: dict, cutoff: datetime) -> bool:
 
 @register("root_usage")
 def root_usage(responses: dict, params: dict) -> list[dict]:
-    region, data = _first(responses, "events")
+    """Root console logins (also failed ones) of the last params["days"] days, added up over every region that answered:
+    a sign-in through a regional endpoint is logged in that region. API use by root is not counted."""
     cutoff = _now(params) - timedelta(days=params["days"])
-    logins = [e for e in (data or {}).get("Events", []) if _is_recent_login(e, cutoff)]
-    if len(logins) > params["max"]:
-        return [_offender("root", region, console_logins=len(logins), days=params["days"])]
-    return []
+    by_region: dict[str, int] = {}
+    for region, data in responses.get("events", []):
+        found = sum(1 for e in (data or {}).get("Events", []) if _is_recent_login(e, cutoff))
+        if found:
+            by_region[region] = found
+    total = sum(by_region.values())
+    if total <= params["max"]:
+        return []
+    detail = {"console_logins": total, "days": params["days"]}
+    if len(by_region) > 1:
+        detail["regions"] = sorted(by_region)
+    return [_offender("root", min(by_region, key=lambda r: (-by_region[r], r)), **detail)]
 
 
 # ---------------------------------------------------------------- IAM: credential report
@@ -56,6 +65,13 @@ def _credential_users(responses: dict) -> tuple[str, list[dict]]:
     region, data = _first(responses, "report")
     content = base64.b64decode(data["Content"]).decode("utf-8")
     return region, [row for row in csv.DictReader(io.StringIO(content)) if row["user"] != "<root_account>"]
+
+
+def _unlisted_users(responses: dict, users: list[dict]) -> list[dict]:
+    """Inventory users absent from the credential report (created after it was generated, which can be 4 hours old): unverified."""
+    listed = {u["user"] for u in users}
+    return [_unverified(i["id"], i["region"], reason="usuario ausente del reporte de credenciales (se generó antes de que existiera)")
+            for i in responses.get("__inventory__", []) if i["type"] == "iam_user" and i["id"] not in listed]
 
 
 def _is_true(value: str | None) -> bool:
@@ -75,7 +91,7 @@ def _first_age(user: dict, fields: tuple[str, ...], now: datetime) -> timedelta 
 def cred_report_console_mfa(responses: dict, params: dict) -> list[dict]:
     region, users = _credential_users(responses)
     return [_offender(u["user"], region, password_enabled=True, mfa_active=False)
-            for u in users if _is_true(u["password_enabled"]) and not _is_true(u["mfa_active"])]
+            for u in users if _is_true(u["password_enabled"]) and not _is_true(u["mfa_active"])] + _unlisted_users(responses, users)
 
 
 @register("cred_report_key_age")
@@ -89,7 +105,7 @@ def cred_report_key_age(responses: dict, params: dict) -> list[dict]:
                if (age := _age(user[f"{slot}_last_rotated"], now)) is not None and age >= fail_at]
         if old:
             offenders.append(_offender(user["user"], region, keys=old, fail_at_days=params["fail_at_days"]))
-    return offenders
+    return offenders + _unlisted_users(responses, users)
 
 
 def _unused_credentials(user: dict, now: datetime, max_days: int) -> list[dict]:
@@ -108,14 +124,14 @@ def cred_report_unused(responses: dict, params: dict) -> list[dict]:
     region, users = _credential_users(responses)
     now, max_days = _now(params), params["max_days"]
     found = [(u["user"], _unused_credentials(u, now, max_days)) for u in users]
-    return [_offender(name, region, credentials=stale, max_days=max_days) for name, stale in found if stale]
+    return [_offender(name, region, credentials=stale, max_days=max_days) for name, stale in found if stale] + _unlisted_users(responses, users)
 
 
 @register("cred_report_multi_keys")
 def cred_report_multi_keys(responses: dict, params: dict) -> list[dict]:
     region, users = _credential_users(responses)
     return [_offender(u["user"], region, active_keys=len(_active_keys(u)))
-            for u in users if len(_active_keys(u)) > 1]
+            for u in users if len(_active_keys(u)) > 1] + _unlisted_users(responses, users)
 
 
 @register("iam_human_users")
@@ -123,7 +139,7 @@ def iam_human_users(responses: dict, params: dict) -> list[dict]:
     """IAM users with console access are the human ones; Identity Center is the recommended replacement."""
     region, users = _credential_users(responses)
     return [_offender(u["user"], region, console_access=True, mfa_active=_is_true(u["mfa_active"]))
-            for u in users if _is_true(u["password_enabled"])]
+            for u in users if _is_true(u["password_enabled"])] + _unlisted_users(responses, users)
 
 
 # ---------------------------------------------------------------- IAM: policies, password policy, contacts

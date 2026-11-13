@@ -57,9 +57,51 @@ DENYLIST = frozenset(
         ("codecommit", "get-file"),
         ("codecommit", "get-blob"),
         ("codecommit", "get-folder"),
+        ("codecommit", "get-commit"),
+        ("codecommit", "get-differences"),
+        ("kinesis", "get-records"),
+        ("kinesis", "get-shard-iterator"),
+        ("dynamodbstreams", "get-records"),
+        ("dynamodbstreams", "get-shard-iterator"),
+        ("ebs", "get-snapshot-block"),
+        ("lightsail", "get-instance-access-details"),
+        ("lightsail", "get-relational-database-master-user-password"),
+        ("glue", "get-connection"),
+        ("glue", "get-connections"),
+        ("connect", "get-federation-token"),
+        ("ecr", "get-download-url-for-layer"),
+        ("lambda", "get-layer-version"),
+        ("lambda", "get-layer-version-by-arn"),
+        ("quicksight", "get-dashboard-embed-url"),
+        ("quicksight", "get-session-embed-url"),
+        ("appconfig", "get-configuration"),
+        ("appconfigdata", "get-latest-configuration"),
+        ("redshift-data", "get-statement-result"),
+        ("redshift-data", "get-statement-result-v2"),
+        ("stepfunctions", "get-activity-task"),
+        ("ec2", "get-launch-template-data"),
+        ("cloudformation", "get-template"),
+        ("apigateway", "get-export"),
+        ("apigateway", "get-sdk"),
     }
 )
-FORBIDDEN_ARGS = frozenset({"--with-decryption"})
+# Operation names that suggest the response carries a secret, a credential or the data itself. They are refused for every
+# service, listed or not (a future service or a renamed operation is caught), except for these reviewed metadata-only pairs.
+SENSITIVE_NAME = re.compile(
+    r"credential|password|token|secret|private-key|embed-url|download-url|access-details|records|shard-iterator"
+)
+SENSITIVE_NAME_EXCEPTIONS = frozenset(
+    {
+        ("iam", "get-credential-report"),
+        ("iam", "generate-credential-report"),
+        ("iam", "get-account-password-policy"),
+        ("iam", "list-service-specific-credentials"),
+        ("secretsmanager", "list-secrets"),
+        ("secretsmanager", "describe-secret"),
+        ("secretsmanager", "list-secret-version-ids"),
+    }
+)
+FORBIDDEN_ARGS = frozenset({"--with-decryption", "--include-value", "--include-values"})
 # Flags the runner sets itself or that could redirect/expand the call; rejected exactly,
 # with "=value", and as argparse-style abbreviations (the real CLI honours any unambiguous
 # prefix, so every prefix of at least 3 characters, e.g. "--end", is rejected).
@@ -123,6 +165,8 @@ def assert_read_only(service: str, operation: str, args: list[str]) -> None:
         raise ReadOnlyViolation(f"nombre de servicio/operación inválido: {service!r} {operation!r}")
     if (service, "*") in DENYLIST or (service, operation) in DENYLIST:
         raise ReadOnlyViolation(f"{service} {operation} está en la denylist (puede exponer secretos o datos)")
+    if SENSITIVE_NAME.search(operation) and (service, operation) not in SENSITIVE_NAME_EXCEPTIONS:
+        raise ReadOnlyViolation(f"{service} {operation} puede devolver secretos o datos (nombre sensible)")
     allowed = (service, operation) in ALLOWED_PAIRS or operation in ALLOWED_EXACT or operation.startswith(ALLOWED_PREFIXES)
     if not allowed:
         raise ReadOnlyViolation(f"{service} {operation} no es una operación de solo lectura")
@@ -138,7 +182,7 @@ def _check_arg(arg: object) -> None:
     if _URL_ARG.match(arg):  # the CLI replaces such an argument with the body fetched by GET
         raise ReadOnlyViolation(f"argumento prohibido (el CLI descargaría la URL): {arg}")
     flag = arg.split("=", 1)[0].strip()
-    if flag.startswith("--with-dec") or flag in FORBIDDEN_ARGS:
+    if flag.startswith("--with-dec") or flag.startswith("--include-val") or flag in FORBIDDEN_ARGS:
         raise ReadOnlyViolation(f"argumento prohibido: {arg}")
     if flag.startswith("--") and len(flag) >= _MIN_ABBREVIATION:
         if any(forbidden.startswith(flag) for forbidden in FORBIDDEN_FLAGS):
@@ -164,12 +208,14 @@ def classify_error(stderr: str) -> str:
     ):
         return "NOT_ENABLED"
     if (
-        any(p in text for p in ("unable to locate credentials", "expiredtoken", "invalidclienttokenid"))
+        any(p in text for p in ("unable to locate credentials", "expiredtoken", "invalidclienttokenid",
+                                "unrecognizedclientexception", "signaturedoesnotmatch"))
         or ("config profile" in text and "could not be found" in text)
     ):
         return "NO_CREDENTIALS"
-    # ReportInProgress/ReportNotPresent: the IAM credential report is still being generated; retrying fixes it
-    if any(p in text for p in ("throttling", "rate exceeded", "toomanyrequests", "reportinprogress", "reportnotpresent")):
+    # ReportInProgress/ReportNotPresent/ReportExpired: the IAM credential report is being (re)generated; retrying fixes it
+    if any(p in text for p in ("throttling", "throttled", "rate exceeded", "toomanyrequests", "requestlimitexceeded",
+                               "reportinprogress", "reportnotpresent", "reportexpired")):
         return "THROTTLED"
     return "ERROR"
 
@@ -188,6 +234,7 @@ def run_aws(
     query: str | None = None,
     runner=subprocess.run,
     sleep=time.sleep,
+    cancelled=None,
 ) -> CallResult:
     assert_read_only(service, operation, args)
     argv = ["aws", service, operation, *args, "--output", "json"]
@@ -211,6 +258,8 @@ def run_aws(
                                   MASK.get((service, operation), frozenset()), _passes_max_items(args))
         kind = classify_error(proc.stderr or "")
         if kind == "THROTTLED" and attempt < len(BACKOFF_SECONDS):
+            if cancelled is not None and cancelled():  # a cancelled run must not keep retrying
+                return _failure("ERROR", "ejecución cancelada", argv)
             sleep(BACKOFF_SECONDS[attempt])
             continue
         return _failure(kind, (proc.stderr or "").strip(), argv)
