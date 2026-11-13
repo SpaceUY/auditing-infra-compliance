@@ -412,7 +412,7 @@ class IntegrationCollectTests(unittest.TestCase):
         ])
         with contextlib.redirect_stdout(io.StringIO()):
             code = collect.main(["--scope", str(tmp / "scope.json"), "--out", str(tmp / "out"), "--checks-dir", str(tmp / "checks"),
-                                 "--inventory", str(tmp / "inventory.json")], runner=runner, sleep=lambda s: None, which=lambda name: None)
+                                 "--inventory", str(tmp / "inventory.json"), "--quiet"], runner=runner, sleep=lambda s: None, which=lambda name: None)
         result = json.loads((tmp / "out" / "checks-result.json").read_text(encoding="utf-8"))
         return code, result, runner
 

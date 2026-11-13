@@ -10,12 +10,14 @@ Se carga antes de escribir `scope.json`, `vault-claims.json` o `verification-cla
 |---|---|
 | `scope.json`, `vault-claims.json`, `verification-claims.json` | Claude |
 | `vault-index.json` (incluye `sensitive_files`) | `vault_index.py index` |
-| `checks-result.json`, `inventory.json`, `raw/<CHECK_ID>/…` | `collect.py` |
+| `checks-result.json`, `inventory.json`, `raw/<CHECK_ID>/…` | `collect.py` (ver "Resultado parcial" abajo) |
 | `findings.json` | `assemble_findings.py` |
 | `verification.json` | `verify_remediation.py` |
 | `report.html` | `render_report.py` |
 
 Todo lo que se escribe está enmascarado: `AKIA…WXYZ` (4 últimos caracteres), emails `u***@dominio` (salvo los del tag `VantaOwner`), secretos `[REDACTED]`.
+
+**Resultado parcial.** `collect.py` escribe `inventory.json` apenas termina el inventario y `checks-result.json` antes de los chequeos y cada ~15 s; mientras no termina lleva `"partial": true` y `"pending_checks": [<ids>]`, y una corrida completa no trae `partial`. Si se interrumpe (Ctrl-C, SIGTERM, timeout de Bash) el archivo parcial queda en disco y el exit es `130` (`0` completo, `2` sin credenciales). `assemble_findings.py` convierte `partial` y `pending_checks` en una advertencia de `findings.json` ("resultado PARCIAL…", con los chequeos sin terminar) que el HTML muestra con las demás. Campos aditivos: `aws.blocked_regions` (regiones cuyo inventario negó una SCP; se descartan con aviso y `assemble_findings.py` las suma a las advertencias como "bloqueado por SCP"), `failed_calls[].item` y `.reason`, y en las filas `detail.reason` "bloqueado por SCP" (con `missing: []`: no falta un permiso del perfil). Una región cuyas llamadas fallan queda `NO_VERIFICADO` por región; las sanas conservan su `FAIL`/`PASS`, y no hay `PASS` de cuenta si alguna región falló.
 
 ## 2. `scope.json`
 
@@ -127,7 +129,7 @@ Para quien lee o extiende el catálogo: la expresión `verify.offenders` de un c
 - `findings_digest`: huella de los ids, `check_id` y ids de recurso de `findings.json`. `render_report.py` la compara: si no coincide (se volvió a correr `assemble_findings.py`), ignora la verificación y el reporte muestra "verificación desactualizada: volver a correr verify_remediation".
 - Un arreglo con `remediation.downtime: true` nunca queda en `OK`: el piso es `REVISAR` ("el arreglo declara downtime").
 
-Listar lo que Claude debe revisar (solo lectura):
+Listar lo que Claude debe revisar (solo lectura; solo los hallazgos presentes en `per_finding`: un hallazgo de solo verificación conserva el `risk` del chequeo pero no lleva arreglo que revisar):
 
 ```bash
 python3 - "$RUN" <<'PY'
@@ -138,7 +140,7 @@ v = json.load(open(f"{run}/verification.json"))["per_finding"]
 for x in f:
     r = x.get("remediation") or {}
     s = v.get(x["id"], {}).get("status")
-    if s in ("REVISAR", "CONFLICTO") or r.get("risk") in ("medium", "high"):
+    if x["id"] in v and (s in ("REVISAR", "CONFLICTO") or r.get("risk") in ("medium", "high")):
         print(x["id"], s, r.get("risk"), x["check_id"], x["resource"]["id"])
 PY
 ```
@@ -158,4 +160,4 @@ PY
 
 ## 8. Qué ve el usuario en el HTML
 
-Encabezado, resumen (conteos por estado y severidad, tests de Drata/Vanta afectados, lista de no verificado; sin porcentaje), filtros, tarjetas por severidad con chips de mapeo (marca "inferido" donde corresponde), evidencia, lo que afirma el vault, bloque de remediación con Copy, sello de verificación, "No tocar sin revisar", cobertura de normas, advertencias de la corrida y el pie "Pre-auditoría técnica automatizada. No es una opinión de auditoría ni cubre controles organizacionales.". Idioma por defecto: castellano; IDs, comandos y nombres de tests quedan en su idioma original.
+Encabezado, resumen (conteos por estado y severidad, tests de Drata/Vanta afectados, lista de no verificado; sin porcentaje), filtros, tarjetas por severidad con chips de mapeo (marca "inferido" donde corresponde), evidencia, lo que afirma el vault, bloque de remediación con Copy ("Copiar todo" solo en los arreglos `cli` con más de un bloque; los `cli_with_decision` y `planned_change` se copian bloque por bloque, nunca de una vez), sello de verificación, el aviso "verificación desactualizada" si `findings.json` se volvió a ensamblar después de verificar (repetir `verify_remediation.py`), "No tocar sin revisar", cobertura de normas, advertencias de la corrida y el pie "Pre-auditoría técnica automatizada. No es una opinión de auditoría ni cubre controles organizacionales.". Idioma por defecto: castellano; IDs, comandos y nombres de tests quedan en su idioma original.

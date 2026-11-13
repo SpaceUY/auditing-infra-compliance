@@ -440,6 +440,40 @@ class MaskingTests(AssembleCase):
         self.assertIn("link roto en systems/A.md: [[Nope]]", self.assemble(claims=[], index=index)["warnings"])
 
 
+class PartialRunTests(AssembleCase):
+    def test_partial_run_becomes_a_warning_with_the_pending_checks(self):
+        self.edit_results(lambda data: data.update(partial=True, pending_checks=["LOG-002", "IAM-001"]))
+        warnings = self.assemble()["warnings"]
+        partial = [w for w in warnings if "parcial" in w.lower()]
+        self.assertEqual(len(partial), 1, warnings)
+        self.assertIn("IAM-001, LOG-002", partial[0])  # sorted
+        self.assertRegex(partial[0], r"(?i)volver a correr|re-?ejecutar|correr de nuevo")
+
+    def test_partial_run_without_pending_list_still_warns(self):
+        self.edit_results(lambda data: data.update(partial=True))
+        self.assertTrue(any("parcial" in w.lower() for w in self.assemble()["warnings"]))
+
+    def test_complete_run_has_no_partial_warning(self):
+        warnings = self.assemble()["warnings"]
+        self.assertFalse([w for w in warnings if "parcial" in w.lower() or "SCP" in w])
+
+    def test_blocked_regions_become_a_warning(self):
+        self.edit_results(lambda data: data["aws"].update(blocked_regions=["sa-east-1", "af-south-1"]))
+        warnings = self.assemble()["warnings"]
+        blocked = [w for w in warnings if "bloqueado por SCP" in w]
+        self.assertEqual(len(blocked), 1, warnings)
+        self.assertIn("af-south-1, sa-east-1", blocked[0])
+        self.assertIn("no se verificaron", blocked[0])
+
+    def test_empty_blocked_regions_is_silent(self):
+        self.edit_results(lambda data: data["aws"].update(blocked_regions=[]))
+        self.assertFalse([w for w in self.assemble()["warnings"] if "SCP" in w])
+
+    def test_malformed_partial_fields_do_not_break_assembly(self):
+        self.edit_results(lambda data: (data.update(partial=True, pending_checks="LOG-002"), data["aws"].update(blocked_regions=None)))
+        self.assertTrue(any("parcial" in w.lower() for w in self.assemble()["warnings"]))
+
+
 class EvalTests(AssembleCase):
     def test_eval_claim_resolves_pending(self):
         out = self.assemble()

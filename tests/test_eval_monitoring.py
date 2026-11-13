@@ -522,7 +522,7 @@ class AlarmCoverageCatalogTests(unittest.TestCase):
             resolved = catalog.resolve_mappings(catalog_check(check_id), drata)
             self.assertEqual([m["test"] for m in resolved["drata"]], tests, check_id)
             self.assertTrue(resolved["tsc"] and all(t["sourced"] == catalog.DCF_SOURCE for t in resolved["tsc"]), check_id)
-            self.assertTrue(catalog_check(check_id)["mappings"]["vanta"], check_id)
+            self.assertEqual(catalog_check(check_id)["mappings"]["vanta"], [], check_id)  # no public Vanta test name: never invented
 
     def test_remediation_is_cli_with_decision_and_steps_are_not_numbered_by_hand(self):
         for check in self.checks:
@@ -659,7 +659,7 @@ class MonitoringCollectTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             cls.code = collect.main(
                 ["--scope", str(cls.tmp / "scope.json"), "--out", str(cls.out), "--checks-dir", str(cls.tmp / "checks"),
-                 "--inventory", str(cls.tmp / "inventory.json")],
+                 "--inventory", str(cls.tmp / "inventory.json"), "--quiet"],
                 runner=cls.runner, sleep=lambda s: None, which=lambda name: None)
         cls.result = json.loads((cls.out / "checks-result.json").read_text(encoding="utf-8"))
 

@@ -78,12 +78,7 @@
             "source": "https://help.drata.com/en/articles/4776977"
           }
         ],
-        "vanta": [
-          {
-            "test": "Pruebas de alarmas de CloudWatch de AWS (una alarma por recurso marcado, sobre la métrica que indica el test)",
-            "source": "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [],
         "iso_inferred": [],
         "security_hub": [],
@@ -192,12 +187,7 @@
             "source": "https://help.drata.com/en/articles/4776980"
           }
         ],
-        "vanta": [
-          {
-            "test": "Pruebas de alarmas de CloudWatch de AWS (una alarma por recurso marcado, sobre la métrica que indica el test)",
-            "source": "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [],
         "iso_inferred": [],
         "security_hub": [],
@@ -313,12 +303,7 @@
             "source": "https://help.drata.com/en/articles/9828793"
           }
         ],
-        "vanta": [
-          {
-            "test": "Pruebas de alarmas de CloudWatch de AWS (una alarma por recurso marcado, sobre la métrica que indica el test)",
-            "source": "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [],
         "iso_inferred": [],
         "security_hub": [],
@@ -428,12 +413,7 @@
             "source": "https://help.drata.com/en/articles/10029047"
           }
         ],
-        "vanta": [
-          {
-            "test": "Pruebas de alarmas de CloudWatch de AWS (una alarma por recurso marcado, sobre la métrica que indica el test)",
-            "source": "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [],
         "iso_inferred": [],
         "security_hub": [],
@@ -539,12 +519,7 @@
             "source": "https://help.drata.com/en/articles/4776997"
           }
         ],
-        "vanta": [
-          {
-            "test": "Pruebas de alarmas de CloudWatch de AWS (una alarma por recurso marcado, sobre la métrica que indica el test)",
-            "source": "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [],
         "iso_inferred": [],
         "security_hub": [],
@@ -654,12 +629,7 @@
             "name": "AWS Application Load Balancer Target Response Time Monitored"
           }
         ],
-        "vanta": [
-          {
-            "test": "Pruebas de alarmas de CloudWatch de AWS (una alarma por recurso marcado, sobre la métrica que indica el test)",
-            "source": "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [],
         "iso_inferred": [],
         "security_hub": [],
@@ -756,12 +726,7 @@
             "source": "https://help.drata.com/en/articles/4776986"
           }
         ],
-        "vanta": [
-          {
-            "test": "Pruebas de alarmas de CloudWatch de AWS (una alarma por recurso marcado, sobre la métrica que indica el test)",
-            "source": "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [],
         "iso_inferred": [],
         "security_hub": [],
@@ -854,12 +819,7 @@
             "name": "AWS Lambda Error Rate Monitored"
           }
         ],
-        "vanta": [
-          {
-            "test": "Pruebas de alarmas de CloudWatch de AWS (una alarma por recurso marcado, sobre la métrica que indica el test)",
-            "source": "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [],
         "iso_inferred": [],
         "security_hub": [],
@@ -962,12 +922,7 @@
             "source": "https://help.drata.com/en/articles/4776995"
           }
         ],
-        "vanta": [
-          {
-            "test": "Pruebas de alarmas de CloudWatch de AWS (una alarma por recurso marcado, sobre la métrica que indica el test)",
-            "source": "https://help.vanta.com/hc/en-us/articles/12264595240724-Create-AWS-Cloud-Watch-Alarms-to-pass-Vanta-Tests"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [],
         "iso_inferred": [],
         "security_hub": [],

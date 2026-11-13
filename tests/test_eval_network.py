@@ -471,8 +471,8 @@ class NetworkCatalogTests(unittest.TestCase):
         self.assertEqual({c["id"]: (c["verify"]["evaluator"], c["verify"].get("params"), c["severity"]) for c in self.checks}, expected)
 
     def test_remediation_kinds_follow_the_brief(self):
-        expected = {"NET-001": "cli", "NET-002": "cli", "NET-003": "cli_with_decision", "NET-004": "cli", "NET-005": "cli_with_decision",
-                    "NET-006": "cli", "NET-007": "planned_change", "NET-008": "cli_with_decision"}
+        expected = {"NET-001": "cli_with_decision", "NET-002": "cli_with_decision", "NET-003": "cli_with_decision",
+                    "NET-004": "cli_with_decision", "NET-005": "cli_with_decision", "NET-006": "cli_with_decision", "NET-007": "planned_change", "NET-008": "cli_with_decision"}
         self.assertEqual({c["id"]: c["remediation"]["kind"] for c in self.checks}, expected)
 
     def test_scopes_resource_types_and_regions(self):
@@ -603,19 +603,37 @@ class NetworkCatalogTests(unittest.TestCase):
         self.assertIn("--no-publicly-accessible", text)
         self.assertRegex(text, r"create-db-subnet-group [^\n]*&&[^\n]*modify-db-instance [^\n]*--db-subnet-group-name")
 
-    def test_net_005_never_gives_port_range_to_an_all_protocols_rule(self):
+    def test_net_005_split_keeps_udp_and_icmp_so_return_traffic_survives(self):
         commands = catalog_check("NET-005")["remediation"]["commands"]
-        creates = [c for c in commands if "create-network-acl-entry" in c]
-        self.assertEqual(len(creates), 2)
-        for command in creates:
-            self.assertIn('PROTOCOL="tcp"', command)
+        splits = [c for c in commands if "replace-network-acl-entry" in c and "$EXTRA_6" in c]
+        self.assertEqual(len(splits), 2)  # IPv4 and IPv6
+        for command in splits:
             self.assertNotIn("--protocol -1", command)
-            self.assertRegex(command, r'create-network-acl-entry [^\n]*"\$EXTRA_1"[^\n]*From=23,To=3388[^\n]*&&[^\n]*create-network-acl-entry [^\n]*"\$EXTRA_2"[^\n]*From=3390,To=65535[^\n]*&&[^\n]*replace-network-acl-entry [^\n]*From=1,To=21')
-        self.assertEqual(sum("--ipv6-cidr-block ::/0" in c for c in creates), 1)
-        for command in commands:
-            if "replace-network-acl-entry" in command:
-                self.assertNotRegex(command, r"--protocol (-1|all)\b")
-                self.assertRegex(command, r'--protocol "\$PROTOCOL"|--protocol tcp')
+            self.assertNotRegex(command, r"--protocol (-1|all)\b")
+            for proto in ("tcp", "udp"):
+                for ports in ("From=23,To=3388", "From=3390,To=65535"):
+                    self.assertRegex(command, rf"create-network-acl-entry [^\n&]*--protocol {proto} --port-range {ports}")
+            self.assertRegex(command, r"create-network-acl-entry [^\n&]*--protocol udp --port-range From=1,To=21")
+            self.assertRegex(command, r"create-network-acl-entry [^\n&]*--icmp-type-code Type=-1,Code=-1")
+            self.assertTrue(command.rindex("replace-network-acl-entry") > command.rindex("create-network-acl-entry"))
+            self.assertRegex(command, r"replace-network-acl-entry [^\n&]*--protocol tcp --port-range From=1,To=21")
+            self.assertIn("&&", command)
+        self.assertIn("--protocol 1 ", splits[0])
+        self.assertIn("--protocol 58 ", splits[1])
+        self.assertEqual(sum("--ipv6-cidr-block ::/0" in c for c in splits), 1)
+        self.assertRegex(commands[1], r"(?i)ADVERTENCIA")
+
+    def test_net_006_blocks_stop_when_network_interfaces_use_the_default_group(self):
+        rem = catalog_check("NET-006")["remediation"]
+        self.assertEqual(rem["kind"], "cli_with_decision")
+        self.assertEqual(rem["risk"], "high")
+        for command in rem["commands"][1:3]:
+            self.assertRegex(command, r"describe-network-interfaces --filters \"Name=group-id,Values=\$SG_ID\"")
+            self.assertIn("length(NetworkInterfaces)", command)
+            self.assertIn('[ "$ENIS" != "0" ]', command)
+            self.assertIn("DETENIDO", command)
+            # the revoke only runs in the branch reached when no interface uses the group
+            self.assertGreater(command.index("revoke-security-group-"), command.index('"$ENIS" != "0"'))
 
     def test_net_005_notes_warn_about_the_default_nacl_and_statelessness(self):
         notes = catalog_check("NET-005")["remediation"]["notes"]
@@ -649,7 +667,7 @@ class NetworkCollectTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             cls.code = collect.main(
                 ["--scope", str(cls.tmp / "scope.json"), "--out", str(out), "--checks-dir", str(cls.tmp / "checks"),
-                 "--inventory", str(cls.tmp / "inventory.json")],
+                 "--inventory", str(cls.tmp / "inventory.json"), "--quiet"],
                 runner=cls.runner, sleep=lambda s: None, which=lambda name: None)
         cls.result = json.loads((out / "checks-result.json").read_text(encoding="utf-8"))
 
@@ -748,7 +766,7 @@ class WafWithoutBalancersTests(unittest.TestCase):
             ("elbv2", "describe-load-balancers", None, "", ok({"LoadBalancers": []})), ("apigateway", "get-rest-apis", None, "", ok({"items": []}))])
         with contextlib.redirect_stdout(io.StringIO()):
             collect.main(["--scope", str(tmp / "scope.json"), "--out", str(tmp / "out"), "--checks-dir", str(tmp / "checks"),
-                          "--inventory", str(tmp / "inventory.json")], runner=runner, sleep=lambda s: None, which=lambda name: None)
+                          "--inventory", str(tmp / "inventory.json"), "--quiet"], runner=runner, sleep=lambda s: None, which=lambda name: None)
         results = json.loads((tmp / "out" / "checks-result.json").read_text(encoding="utf-8"))["results"]
         self.assertEqual([(r["status"], r["resource_id"]) for r in results if r["check_id"] == "NET-008"],
                          [("PASS", "E1A2B3C4D5E6F7"), ("FAIL", "E2B3C4D5E6F7A8")])

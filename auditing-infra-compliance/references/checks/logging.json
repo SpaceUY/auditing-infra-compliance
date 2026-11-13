@@ -130,7 +130,7 @@
         "drata": [
           {
             "test": 205,
-            "name": "CloudTrail log file integrity validation",
+            "name": "CloudTrail Log File Integrity Validation Enabled",
             "source": "https://help.drata.com/en/articles/10029049"
           }
         ],
@@ -299,7 +299,7 @@
         "drata": [
           {
             "test": 226,
-            "name": "AWS S3 Object-Level Logging Read & Write",
+            "name": "AWS S3 Object-Level Logging for Read & Write Events",
             "source": "https://help.drata.com/en/articles/9828791"
           }
         ],
@@ -532,17 +532,18 @@
         "downtime": false,
         "steps": [
           "Habilitar el versionado en el bucket del trail para que un log sobrescrito o borrado se pueda recuperar.",
-          "Revisar la bucket policy actual del bucket.",
-          "Decidir el ARN del trail y fusionar las statements de CloudTrail con aws:SourceArn dentro de la policy existente (conservar las otras statements, por ejemplo la que exige TLS).",
-          "Aplicar la policy y verificar con get-bucket-policy."
+          "Traer la policy actual del bucket a un archivo y mostrarla (segundo bloque, solo lectura): no se escribe nada hasta revisarla.",
+          "Decidir el ARN del trail y su prefijo de claves S3 (vacío si no tiene) y generar la policy fusionada (tercer bloque): agrega las statements de CloudTrail que falten y la condición aws:SourceArn a las existentes de cloudtrail.amazonaws.com, sin quitar ninguna otra statement (por ejemplo la que exige TLS).",
+          "Revisar el archivo fusionado y recién entonces aplicarlo (cuarto bloque), y verificar con get-bucket-policy."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws s3api put-bucket-versioning --bucket \"{resource_id}\" --versioning-configuration Status=Enabled",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws s3api get-bucket-policy --bucket \"{resource_id}\" --query Policy --output text",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# REEMPLAZA la policy completa: primero fusionar con la actual (comando anterior). En un trail de organización la ruta es AWSLogs/<id-de-organización>/*\nPOLICY='{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AWSCloudTrailAclCheck\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"cloudtrail.amazonaws.com\"},\"Action\":\"s3:GetBucketAcl\",\"Resource\":\"arn:aws:s3:::{resource_id}\",\"Condition\":{\"StringEquals\":{\"aws:SourceArn\":\"__COMPLETAR_TRAIL_ARN__\"}}},{\"Sid\":\"AWSCloudTrailWrite\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"cloudtrail.amazonaws.com\"},\"Action\":\"s3:PutObject\",\"Resource\":\"arn:aws:s3:::{resource_id}/AWSLogs/{account_id}/*\",\"Condition\":{\"StringEquals\":{\"s3:x-amz-acl\":\"bucket-owner-full-control\",\"aws:SourceArn\":\"__COMPLETAR_TRAIL_ARN__\"}}}]}'\naws s3api put-bucket-policy --bucket \"{resource_id}\" --policy \"$POLICY\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# solo lectura: trae la policy actual a un archivo y la muestra (si el bucket no tiene policy, el comando falla y el tercer bloque parte de una policy vacía)\naws s3api get-bucket-policy --bucket \"$BUCKET\" --query Policy --output text > \"policy-$BUCKET.json\" && cat \"policy-$BUCKET.json\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\nTRAIL_ARN=\"__COMPLETAR_TRAIL_ARN__\"\nTRAIL_PREFIX=\"__COMPLETAR_PREFIJO_TRAIL__\"\n# no aplica nada: fusiona con la policy actual (conserva todas las statements) y muestra el resultado. TRAIL_PREFIX es el prefijo de claves S3 del trail sin barras (cadena vacía si no tiene); en un trail de organización la ruta es AWSLogs/<id-de-organización>/*\n[ -f \"policy-$BUCKET.json\" ] || echo '{\"Version\":\"2012-10-17\",\"Statement\":[]}' > \"policy-$BUCKET.json\"\npython3 -c 'import json,sys; b,arn,pre,acct=sys.argv[1:5]; assert \"__COMPLETAR_\" not in arn+pre, \"completar TRAIL_ARN y TRAIL_PREFIX\"; p=json.load(open(\"policy-\"+b+\".json\")); s=p.get(\"Statement\",[]); s=[s] if isinstance(s,dict) else s; svc=lambda x: \"cloudtrail.amazonaws.com\" in json.dumps(x.get(\"Principal\",{})); [x.setdefault(\"Condition\",{}).setdefault(\"StringEquals\",{}).setdefault(\"aws:SourceArn\",arn) for x in s if isinstance(x,dict) and x.get(\"Effect\")==\"Allow\" and svc(x)]; sids={x.get(\"Sid\") for x in s if isinstance(x,dict)}; path=(pre+\"/\" if pre else \"\")+\"AWSLogs/\"+acct+\"/*\"; s.append({\"Sid\":\"AWSCloudTrailAclCheck\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"cloudtrail.amazonaws.com\"},\"Action\":\"s3:GetBucketAcl\",\"Resource\":\"arn:aws:s3:::\"+b,\"Condition\":{\"StringEquals\":{\"aws:SourceArn\":arn}}}) if \"AWSCloudTrailAclCheck\" not in sids else None; s.append({\"Sid\":\"AWSCloudTrailWrite\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"cloudtrail.amazonaws.com\"},\"Action\":\"s3:PutObject\",\"Resource\":\"arn:aws:s3:::\"+b+\"/\"+path,\"Condition\":{\"StringEquals\":{\"s3:x-amz-acl\":\"bucket-owner-full-control\",\"aws:SourceArn\":arn}}}) if \"AWSCloudTrailWrite\" not in sids else None; p[\"Statement\"]=s; json.dump(p,open(\"policy-\"+b+\"-new.json\",\"w\"),indent=2)' \"$BUCKET\" \"$TRAIL_ARN\" \"$TRAIL_PREFIX\" \"$ACCOUNT_ID\" && cat \"policy-$BUCKET-new.json\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# put-bucket-policy REEMPLAZA la policy completa: aplicar solo el archivo fusionado y revisado (policy-$BUCKET-new.json), nunca una policy escrita a mano\naws s3api put-bucket-policy --bucket \"$BUCKET\" --policy \"file://policy-$BUCKET-new.json\""
         ],
         "verify_after": "aws s3api get-bucket-versioning --bucket \"{resource_id}\"",
-        "notes": "put-bucket-policy reemplaza toda la policy del bucket: aplicar el tercer bloque tal cual pierde las statements que ya existían. Decisión: ARN del trail (__COMPLETAR_TRAIL_ARN__). El versionado se cobra por las versiones almacenadas; combinarlo con el lifecycle de LOG-010. MFA delete y Object Lock son opcionales y no los verifica este chequeo."
+        "notes": "put-bucket-policy reemplaza toda la policy del bucket: por eso el arreglo la trae primero (segundo bloque), la fusiona en un archivo (tercer bloque) y solo aplica ese archivo revisado (cuarto bloque); no se pega ninguna policy fija porque perdería las statements existentes (TLS, otros trails, lectura del auditor). Decisiones: ARN del trail (__COMPLETAR_TRAIL_ARN__) y prefijo de claves S3 del trail (__COMPLETAR_PREFIJO_TRAIL__, cadena vacía si no usa prefijo): con un prefijo, la clave real es PREFIJO/AWSLogs/..., y una statement sin el prefijo rompe la entrega de logs. Si la policy ya tiene statements con otro Sid para CloudTrail, revisar el archivo fusionado: el script solo agrega las que no existen por Sid y completa la condición aws:SourceArn en las existentes de cloudtrail.amazonaws.com. Si el bucket no tiene policy, el segundo bloque falla y el tercero crea el archivo desde una policy vacía. Los comandos usan python3, que CloudShell trae instalado. El versionado se cobra por las versiones almacenadas; combinarlo con el lifecycle de LOG-010. MFA delete y Object Lock son opcionales y no los verifica este chequeo."
       },
       "sources": [
         "https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/welcome.html",

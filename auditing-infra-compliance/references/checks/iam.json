@@ -343,7 +343,7 @@
         "drata": [
           {
             "test": 88,
-            "name": "MFA on Infrastructure Console",
+            "name": "MFA on Cloud Infrastructure",
             "source": "https://help.drata.com/en/articles/4777035"
           }
         ],

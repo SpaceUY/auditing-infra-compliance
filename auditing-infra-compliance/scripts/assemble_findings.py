@@ -459,6 +459,20 @@ def _vault_warnings(vault_index):
                        for s in vault_index.get("sensitive_files") or []]
 
 
+def _run_warnings(result):
+    """Warnings for an incomplete collection: a partial run (interrupted) and regions blocked by an SCP."""
+    warnings = []
+    if result.get("partial"):
+        pending = result.get("pending_checks")
+        names = ", ".join(sorted(str(c) for c in pending)) if isinstance(pending, list) and pending else None
+        detail = f"chequeos sin terminar: {names}" if names else "hay chequeos sin terminar"
+        warnings.append(f"resultado PARCIAL: la recolección se interrumpió ({detail}); lo que falta no está verificado: volver a correr collect.py")
+    blocked = ((result.get("aws") or {}).get("blocked_regions"))
+    if isinstance(blocked, list) and blocked:
+        warnings.append(f"bloqueado por SCP en las regiones {', '.join(sorted(str(r) for r in blocked))}: no se verificaron sus recursos")
+    return warnings
+
+
 def _notes(aws, vault_index):
     notes = []
     if not aws:
@@ -480,7 +494,7 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
               catalog.load_drata_map(skill_dir / "references" / "mappings" / "drata-dcf.json"),
               inventory, (aws or {}).get("account_id"), owners, specs)
     claims = claims or []
-    warnings = list(result.get("warnings") or []) + _vault_warnings(vault_index)
+    warnings = _run_warnings(result) + list(result.get("warnings") or []) + _vault_warnings(vault_index)
 
     rows = (result.get("results") or []) if aws else []
     findings = _row_findings(env, rows, [c for c in claims if c.get("kind") == "EVAL"], warnings)

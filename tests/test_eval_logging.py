@@ -703,7 +703,7 @@ class LoggingCollectTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             cls.code = collect.main(
                 ["--scope", str(cls.tmp / "scope.json"), "--out", str(out), "--checks-dir", str(cls.tmp / "checks"),
-                 "--inventory", str(cls.tmp / "inventory.json")],
+                 "--inventory", str(cls.tmp / "inventory.json"), "--quiet"],
                 runner=cls.runner, sleep=lambda s: None, which=lambda name: None)
         cls.result = json.loads((out / "checks-result.json").read_text(encoding="utf-8"))
 

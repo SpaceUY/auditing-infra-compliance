@@ -42,7 +42,7 @@
         "drata": [
           {
             "test": 107,
-            "name": "Daily Database Backups",
+            "name": "Database Backups",
             "source": "https://help.drata.com/en/articles/4777050"
           }
         ],
@@ -114,7 +114,7 @@
         "drata": [
           {
             "test": 30,
-            "name": "Availability Zones Used",
+            "name": "Zone Redundancy",
             "source": "https://help.drata.com/en/articles/4776928"
           }
         ],
@@ -208,7 +208,7 @@
       },
       "remediation": {
         "kind": "cli",
-        "risk": "low",
+        "risk": "medium",
         "downtime": false,
         "steps": [
           "Activar el auto minor version upgrade en la base {resource_id}; las actualizaciones se aplican desde ahora en su ventana de mantenimiento.",
@@ -340,7 +340,7 @@
         "drata": [
           {
             "test": 301,
-            "name": "AWS DynamoDB Point-in-Time Recovery",
+            "name": "AWS DynamoDB Point-in-Time Recovery Enabled",
             "source": "https://help.drata.com/en/articles/9999538"
           }
         ],
@@ -418,7 +418,7 @@
         "drata": [
           {
             "test": 108,
-            "name": "Storage Data Versioned or Retained",
+            "name": "Cloud Storage Buckets Versioned",
             "source": "https://help.drata.com/en/articles/4778759"
           }
         ],
@@ -585,7 +585,7 @@
         "drata": [
           {
             "test": 132,
-            "name": "Daily backup job status monitored",
+            "name": "Daily Backups Monitored",
             "source": "https://help.drata.com/en/articles/9999495"
           }
         ],
@@ -827,7 +827,7 @@
         "drata": [
           {
             "test": 30,
-            "name": "Availability Zones Used",
+            "name": "Zone Redundancy",
             "source": "https://help.drata.com/en/articles/4776928"
           }
         ],

@@ -279,12 +279,7 @@
       ],
       "mappings": {
         "drata": [],
-        "vanta": [
-          {
-            "test": "Alcance (scoping): VantaNonProd=true saca el recurso de todos los tests de Vanta",
-            "source": "https://help.vanta.com/en/articles/11345627-bulk-tags"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [
           "CC6.1"
         ],

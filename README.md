@@ -12,6 +12,9 @@ El diseño está en `docs/specs/2026-11-12-infra-compliance-audit-design.md` y e
 - Lee un vault de Obsidian (tipado o libre) para saber qué debería existir y para qué sirve.
 - Verifica la cuenta AWS con credenciales de **solo lectura**: inventario más el catálogo de chequeos (ver `validate_catalog.py --list`) en los
   dominios de IAM, logging, detección, cifrado, red, cómputo, datos, monitoreo, inventario, integración y email.
+- Muestra el progreso de la recolección por stderr (`--quiet` lo apaga) y escribe `checks-result.json` de forma
+  incremental: una corrida interrumpida (exit `130`) deja un resultado parcial (`partial`, `pending_checks`) que el
+  reporte declara como tal; las regiones bloqueadas por una SCP se informan como no verificadas.
 - Compara lo documentado con lo desplegado y lo informa como `DRIFT`, `UNDOCUMENTED`, `DOCUMENTED_ONLY` o
   `DOCUMENTED_GAP`.
 - Produce `report.html`, `findings.json`, `checks-result.json`, `inventory.json` y `raw/` en
@@ -26,7 +29,9 @@ El diseño está en `docs/specs/2026-11-12-infra-compliance-audit-design.md` y e
 - No es una opinión de auditoría ni un puntaje: no hay porcentaje ni nota de cumplimiento, solo conteos por
   estado y severidad.
 - No ejecuta ninguna operación de escritura en AWS. `aws_runner.py` admite solo `describe-*`, `list-*` y `get-*`
-  (más `lookup-events` y `generate-credential-report`) y rechaza una denylist de lecturas que exponen secretos.
+  (más `lookup-events`, `generate-credential-report` y la excepción acotada `inspector2 batch-get-account-status`),
+  rechaza una denylist de lecturas que exponen secretos y rechaza todo argumento `https://` o `http://` (la CLI
+  intentaría descargarlo).
 - No aplica arreglos: los comandos los pega una persona en CloudShell.
 - No lee archivos `.env*`, `~/.aws/credentials`, `*.pem` ni `*.key`; los detecta solo por nombre.
 - No escribe en el vault.

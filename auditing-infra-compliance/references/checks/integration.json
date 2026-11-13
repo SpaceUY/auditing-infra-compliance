@@ -129,7 +129,7 @@
         "drata": [
           {
             "test": 132,
-            "name": "Daily backup job status monitored",
+            "name": "Daily Backups Monitored",
             "source": "https://help.drata.com/en/articles/9999495"
           },
           {
@@ -225,12 +225,7 @@
       ],
       "mappings": {
         "drata": [],
-        "vanta": [
-          {
-            "test": "Permisos del rol vanta-auditor en la cuenta AWS (SecurityAudit + VantaAdditionalPermissions)",
-            "source": "https://help.vanta.com/en/articles/11345630-connecting-vanta-aws-accounts"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [
           "CC4.1"
         ],
@@ -361,12 +356,7 @@
             "source": "https://help.drata.com/en/articles/9828731"
           }
         ],
-        "vanta": [
-          {
-            "test": "Acceso del rol vanta-auditor a claves KMS con key policy propia",
-            "source": "https://help.vanta.com/en/articles/11345859-understanding-kms-key-policy-permissions-and-access-issues-in-vanta"
-          }
-        ],
+        "vanta": [],
         "tsc_inferred": [],
         "iso_inferred": [],
         "security_hub": [],

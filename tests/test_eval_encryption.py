@@ -798,9 +798,12 @@ class EncryptionCatalogTests(unittest.TestCase):
     def test_vanta_tests_follow_the_cis_table(self):
         expected = {"ENC-001": "EBS volume encryption is enabled in all regions", "ENC-003": "Encryption at rest is enabled for RDS instances",
                     "ENC-004": "EFS file systems are encrypted", "ENC-006": "Rotation is enabled for customer-created symmetric KMS keys",
-                    "TLS-001": "Bucket policies deny HTTP requests", "TLS-005": "Expired SSL/TLS certificates are removed from IAM"}
+                    "TLS-001": "Bucket policies deny HTTP requests"}
         for check_id, name in expected.items():
             self.assertEqual([m["test"] for m in catalog_check(check_id)["mappings"]["vanta"]], [name], check_id)
+
+    def test_tls_005_has_no_vanta_mapping_because_it_does_not_evaluate_iam_certificates(self):
+        self.assertEqual(catalog_check("TLS-005")["mappings"]["vanta"], [])
 
     def test_security_hub_and_cis_controls_follow_the_brief(self):
         expected = {"ENC-001": ("EC2.7", "5.1.1"), "ENC-002": ("EC2.3", None), "ENC-003": ("RDS.3", "2.2.1"), "ENC-004": ("EFS.1", None),
@@ -989,7 +992,7 @@ class EncryptionCollectTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             cls.code = collect.main(
                 ["--scope", str(cls.tmp / "scope.json"), "--out", str(out), "--checks-dir", str(cls.tmp / "checks"),
-                 "--inventory", str(cls.tmp / "inventory.json")],
+                 "--inventory", str(cls.tmp / "inventory.json"), "--quiet"],
                 runner=cls.runner, sleep=lambda s: None, which=lambda name: None)
         cls.result = json.loads((out / "checks-result.json").read_text(encoding="utf-8"))
 

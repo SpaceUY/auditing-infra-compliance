@@ -133,7 +133,7 @@ class FullPipelineTests(PipelineCase):
         self.aws = AcmeAws(acme_responses())
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
-            code = collect.main(["--scope", str(scope), "--out", str(self.run_dir)], runner=self.aws,
+            code = collect.main(["--scope", str(scope), "--out", str(self.run_dir), "--quiet"], runner=self.aws,
                                 sleep=lambda s: None, which=lambda name: None)
         self.assertEqual(code, 0, stdout.getvalue())
         self.assertLessEqual(len(stdout.getvalue().splitlines()), 40)

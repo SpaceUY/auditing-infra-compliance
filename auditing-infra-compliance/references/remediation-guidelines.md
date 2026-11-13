@@ -42,7 +42,7 @@ Reglas del catálogo (validadas por `validate_catalog.py`): cada arreglo que no 
 
 ## 5. Qué revisa Claude en la etapa de verificación
 
-Para cada hallazgo `FAIL` con `REVISAR`/`CONFLICTO` y para todo arreglo `medium` o `high`: qué depende del recurso según el vault y el inventario (una Lambda que usa la clave, un servicio que entra por el SSH que se cierra, un cliente HTTP que usa el bucket), y si el vault tiene una recomendación contraria. Resultado: `verification-claims.json` (esquema en `references/report-format.md`). Un `CONFLICTO` del script nunca se baja.
+Para cada hallazgo `FAIL` con `REVISAR`/`CONFLICTO` y para todo arreglo `medium` o `high` presente en `per_finding` de `verification.json` (los de solo verificación no lo están): qué depende del recurso según el vault y el inventario (una Lambda que usa la clave, un servicio que entra por el SSH que se cierra, un cliente HTTP que usa el bucket), y si el vault tiene una recomendación contraria. Resultado: `verification-claims.json` (esquema en `references/report-format.md`). Un `CONFLICTO` del script nunca se baja.
 
 Reglas de conflicto iniciales (`references/conflict-rules.json`): cerrar el 80 de un SG de ALB con redirección (`CR-001`), CloudTrail con CMK sin permiso en la key policy (`CR-002`), revocar SSH/RDP sin SSM (`CR-003`), IMDSv2 con SDKs viejos (`CR-004`), rotar o desactivar access keys en uso (`CR-005`), `Deny` sin TLS en S3 (`CR-006`), cifrar un recurso existente con migración y downtime (`CR-007`), quitar `VantaNonProd` a un recurso de producción (`CR-008`), `put-key-policy` (`CR-009`), Multi-AZ con costo y failover breve (`CR-010`).
 
@@ -50,7 +50,9 @@ Reglas de conflicto iniciales (`references/conflict-rules.json`): cerrar el 80 d
 
 - Aplicar **en el orden sugerido** (`apply_order`): identidad, logging y detección (visibilidad antes de tocar nada), claves KMS, cifrado, red, datos y backups, monitoreo, tags e integración; `planned_change` al final de cada grupo.
 - Completar todos los `__COMPLETAR_*__` antes de pegar; no pegar bloques con `CONFLICTO` sin resolver el motivo.
-- El botón "Copiar arreglos de bajo riesgo" agrupa solo `cli` de riesgo bajo, sin valores pendientes y excluye los `CONFLICTO`; igual se leen antes de pegar.
+- El botón "Copiar arreglos de bajo riesgo" agrupa solo `cli` de riesgo bajo, sin valores pendientes y excluye los `REVISAR` y los `CONFLICTO`; igual se leen antes de pegar. "Copiar todo" (los bloques de una tarjeta de una vez) existe solo para arreglos `cli`: un `cli_with_decision` o un `planned_change` se copia y se aplica bloque por bloque, leyendo cada uno.
+- Un arreglo que declara `downtime: true` nunca sale `OK`: el piso es `REVISAR` ("el arreglo declara downtime"), así que tampoco entra al copiado de bajo riesgo.
+- Si se vuelve a correr `assemble_findings.py` después de verificar, el reporte muestra "verificación desactualizada": repetir `verify_remediation.py` y volver a renderizar.
 - Después de aplicar, correr el comando "verificar después" de cada tarjeta, o volver a correr la auditoría.
 - Recursos de "No tocar sin revisar": cambiarlos puede poner en rojo tests que hoy pasan; la tarjeta lista cuáles.
 - Si el vault recomienda ahorros que rompen tests (apagar Multi-AZ, borrar Flow Logs, borrar el bucket destino de access logs de CloudTrail), el reporte lo marca `DRIFT` `high` con "esta recomendación del vault rompería <test>": se lo decís al usuario, no se aplica.

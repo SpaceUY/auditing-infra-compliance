@@ -97,17 +97,22 @@ Esquema de `scope.json` y mapeo ids → tipos de inventario: `references/report-
 ### 5. Recolectar
 
 ```bash
-python3 "$SKILL_DIR/scripts/collect.py" --scope "$RUN/scope.json" --out "$RUN"
+python3 "$SKILL_DIR/scripts/collect.py" --scope "$RUN/scope.json" --out "$RUN" [--quiet]
 ```
 
+En `full` o en una cuenta grande tarda minutos: correrlo **en segundo plano** (Bash con `run_in_background`) o con `timeout` de 600000 ms, y en cuentas con muchas regiones acotar `scope.regions` en `scope.json`. El progreso (`[n/total] CHECK-ID`) sale por stderr (`--quiet` lo apaga); `checks-result.json` se escribe de forma incremental con `"partial": true` y `pending_checks` hasta terminar, así que una corrida cortada (Ctrl-C, timeout, exit `130`) deja resultado parcial.
+
 Leer **solo el resumen de stdout** (≤ 40 líneas); el detalle está en `$RUN/checks-result.json`, `$RUN/inventory.json` y `$RUN/raw/`. El resumen imprime solo los primeros 5 `AVISO`: leer también `warnings` de `checks-result.json` (por ejemplo con un `python3 -c` de lectura) y repetir los relevantes, en especial el de la identidad con `AdministratorAccess`. Exit `2` = sin credenciales válidas: queda `checks-result.json` con `aws: null` y un `inventory.json` vacío; seguir en modo solo-vault. Las filas `NO_VERIFICADO` traen el permiso que falta: se informan, no se "adivinan".
+
+- **Resultado parcial** (`partial: true` o exit `130`): decirlo en el chat y en el reporte (el ensamblador agrega la advertencia "resultado PARCIAL" con los `pending_checks`) y ofrecer volver a correr `collect.py`. No existe una opción para correr solo los pendientes: se re-ejecuta, acotando `domains` o `regions` del scope en una carpeta nueva si hace falta.
+- **Regiones bloqueadas por SCP** (`aws.blocked_regions`, filas "bloqueado por SCP"): no es un permiso que falte en el perfil; informarlas como no verificadas (detalle en `references/drata-vanta.md`, sección 3).
 
 ### 6. Trabajo de Claude: EVAL, drift y claims
 
 Escribir `$RUN/vault-claims.json` (esquema en `references/report-format.md`):
 
 1. **EVAL.** Por cada fila `PENDING_CLAUDE` de `checks-result.json`, leer los datos crudos en `$RUN/raw/<CHECK_ID>/` y escribir un claim `EVAL` con `status` y `detail.reason`. Sin claim, la fila queda `NO_VERIFICADO`.
-2. **Drift.** Comparar lo que afirma el vault con `inventory.json` y `checks-result.json`: `DRIFT` (afirma algo distinto; agregar `"actual_status": "FAIL"` solo si lo real incumple el chequeo, y entonces conserva el arreglo), `UNDOCUMENTED` (existe y el vault no lo menciona), `DOCUMENTED_ONLY` / `DOCUMENTED_GAP` (solo vault, sin credenciales o recurso no hallado). Reglas por `status` del vault en `references/vault-reading.md`. **Qué arreglo lleva cada estado:** `FAIL`, `DOCUMENTED_GAP` y un `DRIFT` con `actual_status: FAIL` conservan el arreglo completo; `DOCUMENTED_ONLY`, `PASS`, `N/A`, `NO_VERIFICADO` y los demás `DRIFT` no traen comandos ni pasos, solo "Verificar con" y la nota "no verificado: no aplicar sin confirmar". Un `DOCUMENTED_ONLY` sale con severidad `low` y la del chequeo queda en `evidence.catalog_severity`.
+2. **Drift.** Comparar lo que afirma el vault con `inventory.json` y `checks-result.json`: `DRIFT` (afirma algo distinto; agregar `"actual_status": "FAIL"` solo si lo real incumple el chequeo, y entonces conserva el arreglo), `UNDOCUMENTED` (existe y el vault no lo menciona; con `"actual_status": "FAIL"` conserva el arreglo, igual que `DRIFT`), `DOCUMENTED_ONLY` / `DOCUMENTED_GAP` (solo vault, sin credenciales o recurso no hallado). Reglas por `status` del vault en `references/vault-reading.md`. **Qué arreglo lleva cada estado:** `FAIL`, `DOCUMENTED_GAP` y un `DRIFT` o `UNDOCUMENTED` con `actual_status: FAIL` conservan el arreglo completo; `DOCUMENTED_ONLY`, `PASS`, `N/A`, `NO_VERIFICADO` y los demás `DRIFT` y `UNDOCUMENTED` no traen comandos ni pasos, solo "Verificar con" y la nota "no verificado: no aplicar sin confirmar". Un `DOCUMENTED_ONLY` sale con severidad `low` y la del chequeo queda en `evidence.catalog_severity`.
    - **Elegir el `check_id`** sin abrir el catálogo: `python3 "$SKILL_DIR/scripts/validate_catalog.py" --list --type rds_instance --grep cifrado` (una línea por chequeo: `id | título | tipos de recurso | severidad`; sin filtros lista todo, así que filtrá). Un id que no sale de ahí no se usa.
    - **Región desconocida** de un recurso regional: dejar `region: null` (el ensamblador pone `__COMPLETAR_REGION__`) y mencionarlo en la respuesta; no adivinarla.
 3. **Recomendaciones del vault que romperían tests** (apagar Multi-AZ, borrar Flow Logs, borrar el bucket de access logs de CloudTrail…): claim con `breaks_tests` (`[{"tool": "drata", "test": 30}]`); el ensamblador las eleva a `DRIFT` de severidad al menos `high`.
@@ -135,7 +140,7 @@ Escribe `$RUN/report.html` (autocontenido, sin recursos externos). No abrir el H
 ### 9. Verificar los arreglos (nada se ejecuta en AWS)
 
 1. `python3 "$SKILL_DIR/scripts/verify_remediation.py" --run-dir "$RUN" --check-cli` (`--check-cli` solo si hay AWS CLI local; sin CLI avisa y sigue). Escribe `$RUN/verification.json`: sintaxis, placeholders, destructivos sin aviso, reglas de conflicto, impacto en tests que hoy pasan, faltantes y `apply_order`.
-2. **Revisión de Claude con el vault.** Para cada hallazgo con arreglo (`FAIL`, `DOCUMENTED_GAP`…) con estado `REVISAR` o `CONFLICTO` en `verification.json` y para todo arreglo con `remediation.risk` `medium` o `high`, cruzar con el vault y el inventario **qué depende del recurso** ("la clave `…MNOP` la usa la Lambda de envío según `systems/Mailer Lambda.md`"). Escribir `$RUN/verification-claims.json`: `[{"finding_id", "status": "OK|REVISAR|CONFLICTO", "message", "vault_note"}]`. **Nunca bajar** un `CONFLICTO` del script: gana el más severo.
+2. **Revisión de Claude con el vault.** Para cada hallazgo con arreglo (`FAIL`, `DOCUMENTED_GAP`…) con estado `REVISAR` o `CONFLICTO` en `verification.json` y para todo arreglo con `remediation.risk` `medium` o `high` **que figure en `per_finding` de `verification.json`** (los hallazgos de solo verificación no), cruzar con el vault y el inventario **qué depende del recurso** ("la clave `…MNOP` la usa la Lambda de envío según `systems/Mailer Lambda.md`"). Escribir `$RUN/verification-claims.json`: `[{"finding_id", "status": "OK|REVISAR|CONFLICTO", "message", "vault_note"}]`. **Nunca bajar** un `CONFLICTO` del script: gana el más severo.
 3. Repetir con los claims y re-renderizar con la verificación:
 
 ```bash
@@ -143,7 +148,7 @@ python3 "$SKILL_DIR/scripts/verify_remediation.py" --run-dir "$RUN" --claims "$R
 python3 "$SKILL_DIR/scripts/render_report.py" "$RUN/findings.json" --verification "$RUN/verification.json"
 ```
 
-Ahora el HTML trae el sello OK / REVISAR / CONFLICTO por tarjeta, la sección "Verificación" y el orden sugerido de aplicación. Los comandos nunca se tocan (`references/remediation-guidelines.md`).
+Ahora el HTML trae el sello OK / REVISAR / CONFLICTO por tarjeta, la sección "Verificación" y el orden sugerido de aplicación. Los comandos nunca se tocan (`references/remediation-guidelines.md`). Si después se vuelve a correr `assemble_findings.py`, hay que repetir `verify_remediation.py`: el render ignora una verificación desactualizada y muestra el aviso "verificación desactualizada".
 
 ### 10. Responder en el chat
 
@@ -152,7 +157,7 @@ Corto y en el idioma del pedido. Incluir, en este orden:
 1. **Ruta absoluta del HTML** (`realpath "$RUN/report.html"`).
 2. **Conteos** por severidad (FAIL) y por estado, tal como salen de `findings.json` `summary`. Sin porcentajes.
 3. **Los 3–5 hallazgos más graves**, una línea cada uno (severidad, qué falla, recurso).
-4. **Lo no verificado**: `NO_VERIFICADO` con el permiso faltante, regiones omitidas, "vault no tipado", sin credenciales.
+4. **Lo no verificado**: `NO_VERIFICADO` con el permiso faltante, regiones omitidas o bloqueadas por SCP, resultado parcial (qué chequeos faltan y la oferta de volver a correr), "vault no tipado", sin credenciales.
 5. **Verificación**: conflictos entre arreglos, faltantes (`gaps`), cantidad de `__COMPLETAR_*__` pendientes y que los arreglos los aplica una persona en CloudShell, en el orden sugerido.
 6. Regiones desconocidas dejadas como `__COMPLETAR_REGION__`, si las hay.
 

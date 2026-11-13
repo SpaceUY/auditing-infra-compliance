@@ -66,7 +66,7 @@
           "Si la firma está apagada, habilitarla con put-email-identity-dkim-attributes."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws sesv2 put-email-identity-dkim-signing-attributes --email-identity \"{resource_id}\" --signing-attributes-origin AWS_SES --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# solo si la identidad usa BYODKIM o no tiene Easy DKIM: en una identidad que ya usa Easy DKIM rota los tokens y cambia los CNAME\naws sesv2 put-email-identity-dkim-signing-attributes --email-identity \"{resource_id}\" --signing-attributes-origin AWS_SES --region \"$REGION\"",
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws sesv2 put-email-identity-dkim-attributes --email-identity \"{resource_id}\" --signing-enabled --region \"$REGION\"",
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws sesv2 get-email-identity --email-identity \"{resource_id}\" --region \"$REGION\" --query 'DkimAttributes.Tokens'"
         ],
@@ -385,7 +385,7 @@
         ],
         "commands": [],
         "verify_after": "dig +short TXT \"_dmarc.{resource_id}\"",
-        "notes": "Sin downtime, pero p=quarantine y p=reject hacen que los receptores manden a spam o rechacen el correo que no pasa DMARC: empezar con p=none y subir gradualmente, o se pierde correo legítimo (facturas, avisos). DMARC pasa si SPF o DKIM pasan y están alineados con el dominio del From. SES alinea DKIM con el dominio de la identidad cuando se usa Easy DKIM (ver EML-001). Reemplazar __COMPLETAR_EMAIL_DMARC__ por una casilla del equipo. Los subdominios heredan la política salvo que se defina sp=."
+        "notes": "Sin downtime, pero p=quarantine y p=reject hacen que los receptores manden a spam o rechacen el correo que no pasa DMARC: empezar con p=none y subir gradualmente, o se pierde correo legítimo (facturas, avisos). DMARC pasa si SPF o DKIM pasan y están alineados con el dominio del From. SES alinea DKIM con el dominio de la identidad cuando se usa Easy DKIM (ver EML-001). Reemplazar __COMPLETAR_EMAIL_DMARC__ por una casilla del equipo. Los subdominios heredan la política del dominio organizacional salvo que se defina sp= o que tengan su propio registro _dmarc (RFC 7489): si el subdominio de envío no tiene un _dmarc propio, verificar el registro del dominio padre antes de actuar."
       },
       "sources": [
         "https://docs.aws.amazon.com/ses/latest/dg/send-email-authentication-dmarc.html",

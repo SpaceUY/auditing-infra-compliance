@@ -652,7 +652,7 @@ class DataCollectTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             cls.code = collect.main(
                 ["--scope", str(cls.tmp / "scope.json"), "--out", str(out), "--checks-dir", str(cls.tmp / "checks"),
-                 "--inventory", str(cls.tmp / "inventory.json")],
+                 "--inventory", str(cls.tmp / "inventory.json"), "--quiet"],
                 runner=cls.runner, sleep=lambda s: None, which=lambda name: None)
         cls.result = json.loads((out / "checks-result.json").read_text(encoding="utf-8"))
 
@@ -767,7 +767,7 @@ class DataBackupVacuousTests(unittest.TestCase):
             ("backup", "get-backup-vault-notifications", None, "", err("An error occurred (ResourceNotFoundException) when calling the GetBackupVaultNotifications operation"))])
         with contextlib.redirect_stdout(io.StringIO()):
             collect.main(["--scope", str(tmp / "scope.json"), "--out", str(tmp / "out"), "--checks-dir", str(tmp / "checks"),
-                          "--inventory", str(tmp / "inventory.json")], runner=runner, sleep=lambda s: None, which=lambda name: None)
+                          "--inventory", str(tmp / "inventory.json"), "--quiet"], runner=runner, sleep=lambda s: None, which=lambda name: None)
         results = json.loads((tmp / "out" / "checks-result.json").read_text(encoding="utf-8"))["results"]
         return {c: [(r["status"], r["vacuous"]) for r in results if r["check_id"] == c] for c in ("DAT-008", "DAT-009", "DAT-010")}
 

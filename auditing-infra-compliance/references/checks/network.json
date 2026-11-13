@@ -79,7 +79,7 @@
         ]
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "medium",
         "downtime": false,
         "steps": [
@@ -152,7 +152,7 @@
         "drata": [
           {
             "test": 228,
-            "name": "AWS Security Groups Restrict Public RDP",
+            "name": "AWS Security Groups Restrict Public RDP Access",
             "source": "https://help.drata.com/en/articles/9828740"
           }
         ],
@@ -178,7 +178,7 @@
         ]
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "medium",
         "downtime": false,
         "steps": [
@@ -251,7 +251,7 @@
         "drata": [
           {
             "test": 291,
-            "name": "AWS SGs HTTP Access Restricted",
+            "name": "AWS Security Groups HTTP Access Restricted",
             "source": "https://help.drata.com/en/articles/9828797"
           }
         ],
@@ -343,7 +343,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "medium",
         "downtime": false,
         "steps": [
@@ -400,7 +400,7 @@
         "drata": [
           {
             "test": 227,
-            "name": "AWS Network ACLs Remote Admin Restricted",
+            "name": "AWS Network ACLs Public Remote Server Administration Access Restricted",
             "source": "https://help.drata.com/en/articles/9828735"
           }
         ],
@@ -425,19 +425,19 @@
         "downtime": false,
         "steps": [
           "Ver las reglas de entrada que permiten tráfico desde cualquier origen en el NACL {resource_id} (primer bloque, solo lectura) y anotar los números de regla afectados (detail.entries).",
-          "Decidir para cada regla: partirla en rangos que excluyan el 22 y el 3389 (segundo bloque para IPv4, tercero para IPv6), acotar una regla tcp o udp de administración a un CIDR (cuarto bloque) o eliminarla (quinto bloque).",
-          "Como los NACL no tienen estado, comprobar que el tráfico de retorno (puertos efímeros) sigue permitido en ambos sentidos.",
+          "Decidir para cada regla: si el protocolo es -1, partirla en tcp y udp sin el 22 ni el 3389 más icmp (segundo bloque para IPv4, tercero para IPv6; necesitan 6 números de regla libres); acotar una regla tcp o udp de administración a un CIDR (cuarto bloque) o eliminarla (quinto bloque).",
+          "Como los NACL no tienen estado, comprobar que el tráfico de retorno (tcp y udp efímeros, icmp) sigue permitido en ambos sentidos antes de aplicar en producción: probar primero en una subnet de staging.",
           "Verificar que ninguna regla de entrada allow desde 0.0.0.0/0 o ::/0 cubre el 22 ni el 3389."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\n# solo lectura: reglas de entrada allow desde cualquier origen\naws ec2 describe-network-acls --network-acl-ids \"$NACL_ID\" --region \"$REGION\" --query 'NetworkAcls[0].Entries[?Egress==`false` && RuleAction==`allow` && (CidrBlock==`0.0.0.0/0` || Ipv6CidrBlock==`::/0`)].[RuleNumber,Protocol,PortRange.From,PortRange.To,CidrBlock,Ipv6CidrBlock]' --output table",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\nEXTRA_1=\"__COMPLETAR_NUMERO_LIBRE_1__\"\nEXTRA_2=\"__COMPLETAR_NUMERO_LIBRE_2__\"\nPROTOCOL=\"tcp\"\n# regla IPv4 que abre el 22 o el 3389: una regla con protocolo -1 no admite --port-range, por eso se reemplaza por tcp. Primero se crean los rangos nuevos (sin el 22 ni el 3389) y solo si salen bien se reemplaza la regla original por el primer rango; tcp y los puertos 23-3388 y 3390-65535 quedan abiertos, udp e icmp hay que recrearlos si se usan\naws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_1\" --protocol \"$PROTOCOL\" --port-range From=23,To=3388 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_2\" --protocol \"$PROTOCOL\" --port-range From=3390,To=65535 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\" && aws ec2 replace-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --protocol \"$PROTOCOL\" --port-range From=1,To=21 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\nEXTRA_1=\"__COMPLETAR_NUMERO_LIBRE_1__\"\nEXTRA_2=\"__COMPLETAR_NUMERO_LIBRE_2__\"\nPROTOCOL=\"tcp\"\n# regla IPv6 que abre el 22 o el 3389: una regla con protocolo -1 no admite --port-range, por eso se reemplaza por tcp. Primero se crean los rangos nuevos (sin el 22 ni el 3389) y solo si salen bien se reemplaza la regla original por el primer rango; tcp y los puertos 23-3388 y 3390-65535 quedan abiertos, udp e icmp hay que recrearlos si se usan\naws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_1\" --protocol \"$PROTOCOL\" --port-range From=23,To=3388 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_2\" --protocol \"$PROTOCOL\" --port-range From=3390,To=65535 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\" && aws ec2 replace-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --protocol \"$PROTOCOL\" --port-range From=1,To=21 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\nPROTOCOL=\"__COMPLETAR_PROTOCOLO_TCP_O_UDP__\"\nPORT_FROM=\"__COMPLETAR_PUERTO_DESDE__\"\nPORT_TO=\"__COMPLETAR_PUERTO_HASTA__\"\nADMIN_CIDR=\"__COMPLETAR_CIDR_ADMIN__\"\n# solo para una regla tcp o udp de administración (una regla con protocolo -1 no admite --port-range: usar el bloque anterior); para IPv6 usar --ipv6-cidr-block\naws ec2 replace-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --protocol \"$PROTOCOL\" --port-range From=\"$PORT_FROM\",To=\"$PORT_TO\" --cidr-block \"$ADMIN_CIDR\" --rule-action allow --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\nEXTRA_1=\"__COMPLETAR_NUMERO_LIBRE_1__\"\nEXTRA_2=\"__COMPLETAR_NUMERO_LIBRE_2__\"\nEXTRA_3=\"__COMPLETAR_NUMERO_LIBRE_3__\"\nEXTRA_4=\"__COMPLETAR_NUMERO_LIBRE_4__\"\nEXTRA_5=\"__COMPLETAR_NUMERO_LIBRE_5__\"\nEXTRA_6=\"__COMPLETAR_NUMERO_LIBRE_6__\"\n# ADVERTENCIA: solo para la regla IPv4 con protocolo -1 (todos los protocolos, la regla 100 del NACL por defecto). Los NACL no tienen estado: si solo se dejara tcp, se cortarían UDP (respuestas de DNS, NTP) e ICMP de toda la subnet. Por eso primero se crean tcp y udp sin el 22 ni el 3389 (23-3388 y 3390-65535), e ICMP, con 6 números de regla libres (menores que el de cualquier deny); recién entonces se reemplaza la regla original por tcp 1-21. Si una de las creaciones falla, la regla original no se toca (la cadena se corta con &&)\naws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_1\" --protocol tcp --port-range From=23,To=3388 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_2\" --protocol tcp --port-range From=3390,To=65535 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_3\" --protocol udp --port-range From=1,To=21 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_4\" --protocol udp --port-range From=23,To=3388 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_5\" --protocol udp --port-range From=3390,To=65535 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_6\" --protocol 1 --icmp-type-code Type=-1,Code=-1 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\" && aws ec2 replace-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --protocol tcp --port-range From=1,To=21 --cidr-block 0.0.0.0/0 --rule-action allow --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\nEXTRA_1=\"__COMPLETAR_NUMERO_LIBRE_1__\"\nEXTRA_2=\"__COMPLETAR_NUMERO_LIBRE_2__\"\nEXTRA_3=\"__COMPLETAR_NUMERO_LIBRE_3__\"\nEXTRA_4=\"__COMPLETAR_NUMERO_LIBRE_4__\"\nEXTRA_5=\"__COMPLETAR_NUMERO_LIBRE_5__\"\nEXTRA_6=\"__COMPLETAR_NUMERO_LIBRE_6__\"\n# ADVERTENCIA: solo para la regla IPv6 con protocolo -1 (todos los protocolos, la regla 100 del NACL por defecto). Los NACL no tienen estado: si solo se dejara tcp, se cortarían UDP (respuestas de DNS, NTP) e ICMP de toda la subnet. Por eso primero se crean tcp y udp sin el 22 ni el 3389 (23-3388 y 3390-65535), e ICMP, con 6 números de regla libres (menores que el de cualquier deny); recién entonces se reemplaza la regla original por tcp 1-21. Si una de las creaciones falla, la regla original no se toca (la cadena se corta con &&)\naws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_1\" --protocol tcp --port-range From=23,To=3388 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_2\" --protocol tcp --port-range From=3390,To=65535 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_3\" --protocol udp --port-range From=1,To=21 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_4\" --protocol udp --port-range From=23,To=3388 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_5\" --protocol udp --port-range From=3390,To=65535 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\" && aws ec2 create-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$EXTRA_6\" --protocol 58 --icmp-type-code Type=-1,Code=-1 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\" && aws ec2 replace-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --protocol tcp --port-range From=1,To=21 --ipv6-cidr-block ::/0 --rule-action allow --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\nPROTOCOL=\"__COMPLETAR_PROTOCOLO_TCP_O_UDP__\"\nPORT_FROM=\"__COMPLETAR_PUERTO_DESDE__\"\nPORT_TO=\"__COMPLETAR_PUERTO_HASTA__\"\nADMIN_CIDR=\"__COMPLETAR_CIDR_ADMIN__\"\n# solo para una regla tcp o udp de administración (una regla con protocolo -1 no admite --port-range: usar el bloque de partir); para IPv6 usar --ipv6-cidr-block\naws ec2 replace-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --protocol \"$PROTOCOL\" --port-range From=\"$PORT_FROM\",To=\"$PORT_TO\" --cidr-block \"$ADMIN_CIDR\" --rule-action allow --region \"$REGION\"",
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNACL_ID=\"{resource_id}\"\nRULE_NUMBER=\"__COMPLETAR_NUMERO_REGLA__\"\naws ec2 delete-network-acl-entry --network-acl-id \"$NACL_ID\" --ingress --rule-number \"$RULE_NUMBER\" --region \"$REGION\""
         ],
         "verify_after": "aws ec2 describe-network-acls --network-acl-ids \"{resource_id}\" --region \"{region}\" --query 'NetworkAcls[0].Entries[?Egress==`false` && RuleAction==`allow`].[RuleNumber,Protocol,PortRange.From,PortRange.To,CidrBlock,Ipv6CidrBlock]'",
-        "notes": "El NACL por defecto de cada VPC trae la regla 100 que permite todo el tráfico de entrada desde 0.0.0.0/0, así que lo reportan Drata 227 y CIS 5.2 en toda cuenta: hay que reemplazar esa regla por reglas que excluyan el 22 y el 3389 (los bloques de partir hacen tcp 1-21, 23-3388 y 3390-65535; si la regla era de todos los protocolos, udp e icmp se pierden y hay que recrearlos con --protocol udp o --protocol 1 --icmp-type-code), o asociar las subnets a un NACL propio. Un rango efímero típico (1024-65535) contiene el 3389 y también se reporta: dividirlo en 1024-3388 y 3390-65535. Los NACL son stateless (no tienen estado) y se evalúan por número de regla: borrar o acotar una regla puede cortar el tráfico de toda la subnet (incluido el de retorno), así que probar primero en una subnet de staging. Las reglas de salida no se tocan."
+        "notes": "ADVERTENCIA: cambiar reglas de un NACL puede cortar el tráfico de toda la subnet (DNS, NTP, respuestas de conexiones salientes) aunque el comando salga bien. El NACL por defecto de cada VPC trae la regla 100 que permite todo el tráfico de entrada desde 0.0.0.0/0, así que lo reportan Drata 227 y CIS en toda cuenta. Los bloques de partir reemplazan esa regla de protocolo -1 por tcp y udp en 1-21, 23-3388 y 3390-65535 más icmp (icmpv6 en IPv6), de modo que el tráfico de retorno efímero sigue permitido; queda cerrado solo el 22 y el 3389 (el tráfico de retorno con puerto de destino 22 o 3389 es raro, pero comprobarlo si se usa). La alternativa es asociar las subnets a un NACL propio. Un rango efímero típico (1024-65535) contiene el 3389 y también se reporta: dividirlo en 1024-3388 y 3390-65535. Los NACL son stateless y se evalúan por número de regla: los números libres deben ser menores que los de las reglas deny que estén en el NACL. Las reglas de salida no se tocan. Aplicar primero en una subnet de staging y comprobar DNS y conexiones salientes."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828735",
@@ -487,7 +487,7 @@
         "drata": [
           {
             "test": 233,
-            "name": "VPC Default SGs Restrict All Traffic",
+            "name": "AWS VPC Default Security Groups Restrict All Traffic",
             "source": "https://help.drata.com/en/articles/9828741"
           }
         ],
@@ -507,22 +507,22 @@
         ]
       },
       "remediation": {
-        "kind": "cli",
-        "risk": "medium",
+        "kind": "cli_with_decision",
+        "risk": "high",
         "downtime": false,
         "steps": [
           "Revisar qué interfaces de red usan hoy el security group por defecto de la VPC {resource_id} (primer bloque, solo lectura): al vaciarlo pierden el tráfico que dependía de sus reglas.",
           "Mover esos recursos a un security group propio con las reglas mínimas, si los hay.",
-          "Revocar las reglas de entrada y de salida del grupo por defecto (segundo y tercer bloque): revocan solo las reglas que el grupo tiene en ese momento.",
+          "Revocar las reglas de entrada y de salida del grupo por defecto (segundo y tercer bloque): los bloques se detienen con un mensaje si alguna interfaz de red usa el grupo; si no hay ninguna, revocan solo las reglas que el grupo tiene en ese momento.",
           "Verificar que el grupo por defecto ya no tiene reglas."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVPC_ID=\"{resource_id}\"\nSG_ID=$(aws ec2 describe-security-groups --filters \"Name=vpc-id,Values=$VPC_ID\" \"Name=group-name,Values=default\" --region \"$REGION\" --query 'SecurityGroups[0].GroupId' --output text)\n# solo lectura: interfaces de red que usan el security group por defecto\naws ec2 describe-network-interfaces --filters \"Name=group-id,Values=$SG_ID\" --region \"$REGION\" --query 'NetworkInterfaces[].[NetworkInterfaceId,Description,Status]' --output table",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVPC_ID=\"{resource_id}\"\nSG_ID=$(aws ec2 describe-security-groups --filters \"Name=vpc-id,Values=$VPC_ID\" \"Name=group-name,Values=default\" --region \"$REGION\" --query 'SecurityGroups[0].GroupId' --output text)\nRULES=$(aws ec2 describe-security-groups --group-ids \"$SG_ID\" --region \"$REGION\" --query 'SecurityGroups[0].IpPermissions' --output json)\n[ -n \"$SG_ID\" ] && [ \"$SG_ID\" != \"None\" ] && [ -n \"$RULES\" ] && [ \"$RULES\" != \"[]\" ] && aws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions \"$RULES\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVPC_ID=\"{resource_id}\"\nSG_ID=$(aws ec2 describe-security-groups --filters \"Name=vpc-id,Values=$VPC_ID\" \"Name=group-name,Values=default\" --region \"$REGION\" --query 'SecurityGroups[0].GroupId' --output text)\nRULES=$(aws ec2 describe-security-groups --group-ids \"$SG_ID\" --region \"$REGION\" --query 'SecurityGroups[0].IpPermissionsEgress' --output json)\n[ -n \"$SG_ID\" ] && [ \"$SG_ID\" != \"None\" ] && [ -n \"$RULES\" ] && [ \"$RULES\" != \"[]\" ] && aws ec2 revoke-security-group-egress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions \"$RULES\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVPC_ID=\"{resource_id}\"\nSG_ID=$(aws ec2 describe-security-groups --filters \"Name=vpc-id,Values=$VPC_ID\" \"Name=group-name,Values=default\" --region \"$REGION\" --query 'SecurityGroups[0].GroupId' --output text)\nENIS=$(aws ec2 describe-network-interfaces --filters \"Name=group-id,Values=$SG_ID\" --region \"$REGION\" --query 'length(NetworkInterfaces)' --output text)\nRULES=$(aws ec2 describe-security-groups --group-ids \"$SG_ID\" --region \"$REGION\" --query 'SecurityGroups[0].IpPermissions' --output json)\n# se detiene si hay interfaces de red usando el grupo (o si no se pudo contarlas): vaciarlo les cortaría el tráfico\nif [ -z \"$SG_ID\" ] || [ \"$SG_ID\" = \"None\" ]; then echo \"DETENIDO: no se encontró el security group por defecto\"; elif [ \"$ENIS\" != \"0\" ]; then echo \"DETENIDO: hay interfaces de red que usan el security group por defecto (o no se pudieron contar); moverlas a otro grupo antes de vaciarlo:\"; aws ec2 describe-network-interfaces --filters \"Name=group-id,Values=$SG_ID\" --region \"$REGION\" --query 'NetworkInterfaces[].[NetworkInterfaceId,Description,Status]' --output table; elif [ -n \"$RULES\" ] && [ \"$RULES\" != \"[]\" ]; then aws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions \"$RULES\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVPC_ID=\"{resource_id}\"\nSG_ID=$(aws ec2 describe-security-groups --filters \"Name=vpc-id,Values=$VPC_ID\" \"Name=group-name,Values=default\" --region \"$REGION\" --query 'SecurityGroups[0].GroupId' --output text)\nENIS=$(aws ec2 describe-network-interfaces --filters \"Name=group-id,Values=$SG_ID\" --region \"$REGION\" --query 'length(NetworkInterfaces)' --output text)\nRULES=$(aws ec2 describe-security-groups --group-ids \"$SG_ID\" --region \"$REGION\" --query 'SecurityGroups[0].IpPermissionsEgress' --output json)\n# se detiene si hay interfaces de red usando el grupo (o si no se pudo contarlas): vaciarlo les cortaría el tráfico\nif [ -z \"$SG_ID\" ] || [ \"$SG_ID\" = \"None\" ]; then echo \"DETENIDO: no se encontró el security group por defecto\"; elif [ \"$ENIS\" != \"0\" ]; then echo \"DETENIDO: hay interfaces de red que usan el security group por defecto (o no se pudieron contar); moverlas a otro grupo antes de vaciarlo:\"; aws ec2 describe-network-interfaces --filters \"Name=group-id,Values=$SG_ID\" --region \"$REGION\" --query 'NetworkInterfaces[].[NetworkInterfaceId,Description,Status]' --output table; elif [ -n \"$RULES\" ] && [ \"$RULES\" != \"[]\" ]; then aws ec2 revoke-security-group-egress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions \"$RULES\"; fi"
         ],
         "verify_after": "aws ec2 describe-security-groups --filters \"Name=vpc-id,Values={resource_id}\" \"Name=group-name,Values=default\" --region \"{region}\" --query 'SecurityGroups[].[GroupId,length(IpPermissions),length(IpPermissionsEgress)]'",
-        "notes": "Una VPC nueva trae su security group por defecto con una regla de entrada desde sí mismo y una de salida a todo: los dos tests (Drata 233, Vanta 35) lo reportan en toda cuenta. El grupo por defecto no se puede borrar. Todo recurso que se lance sin indicar un security group lo usa: vaciarlo lo deja sin tráfico, por eso el primer bloque lista las interfaces que lo usan. Los comandos leen las reglas actuales del grupo y las revocan tal cual, sin tocar ningún otro grupo. Es reversible volviendo a crear las reglas."
+        "notes": "Una VPC nueva trae su security group por defecto con una regla de entrada desde sí mismo y una de salida a todo: los dos tests (Drata 233, Vanta 35) lo reportan en toda cuenta. El grupo por defecto no se puede borrar. Todo recurso que se lance sin indicar un security group lo usa (RDS, Lambda en VPC, tareas ECS, EC2 de consola): vaciarlo con recursos adjuntos los deja sin tráfico. Por eso el primer bloque lista las interfaces que lo usan y los bloques 2 y 3 cuentan esas interfaces (describe-network-interfaces con el filtro group-id) y, si hay alguna o no se pudo contarlas, se detienen con un mensaje sin revocar nada: mover primero esos recursos a un security group propio. Los comandos leen las reglas actuales del grupo y las revocan tal cual, sin tocar ningún otro grupo. Es reversible volviendo a crear las reglas."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828741",
