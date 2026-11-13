@@ -71,6 +71,14 @@ Los recursos de **contexto** (security groups, VPC, subnets, roles que rodean a 
 Contexto: sg-0123456789abcdef0 (de Mailer Lambda), vpc-0a1b2c3d4e5f60718
 ```
 
+`vault_index.py feature` **no devuelve** esa lista: la arma Claude con los `aws_ids` de cada componente cuyo `kind` es `sg`, `vpc` o `subnet` (van dentro de la Lambda, la base o la instancia que los usa; no son componentes) y con los roles que solo aparecen como profundidad 2. Cada uno se rotula con el componente del que sale. Lo que el usuario confirma entra a `scope.resources` (el tipo según la sección 5); el resto no se audita.
+
+**Un componente sin recurso AWS** (la nota que coincide con la feature, un `proposed` como "DMARC reject policy": `aws_ids` vacío) no tiene `resource` propio. Para su claim:
+- si lo cubre un chequeo del catálogo, usar su `check_id` y como `resource` el recurso AWS que lo implementaría (el dominio de la identidad SES para EML-005), con `region` conocida o `null`;
+- si no, `check_id: null` con `resource: null` y la frase "observación de Claude, fuera del catálogo".
+
+**Notas que se contradicen** (una dice que el dominio ya publica `p=none`, otra que el registro "no está publicado"): no elegir en silencio. Citar las dos en `vault_claim`, marcar la duda y dejar que la cuenta decida; sin credenciales el claim sale como `DOCUMENTED_ONLY`/`DOCUMENTED_GAP` con la contradicción a la vista. El arreglo del catálogo es genérico: si el registro ya existe, se edita (por nombre hay un solo TXT `_dmarc`), no se crea otro.
+
 ## 4bis. Feature no documentada, con credenciales: buscar en el inventario
 
 Claude **no** llama a AWS (ni `resourcegroupstaggingapi` ni nada parecido). El camino permitido es dejar que `collect.py` arme el inventario completo y buscar en `inventory.json`:

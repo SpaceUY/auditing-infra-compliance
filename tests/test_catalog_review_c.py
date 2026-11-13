@@ -12,6 +12,7 @@ from helpers import SKILL_DIR
 
 import aws_runner
 import catalog
+import collect
 import inventory
 import verify_remediation
 from test_verify import RULES, doc
@@ -331,9 +332,23 @@ class InventoryArnTests(unittest.TestCase):
         items, _ = inventory.build_inventory(call, specs, ["us-east-1"], account_id="999999999999")
         self.assertEqual(items[0]["arn"], "arn:aws:rds:us-east-1:111122223333:db:db1")
 
-    def test_collect_passes_the_account_to_the_inventory(self):
+    def test_a_global_type_takes_the_partition_of_the_account_not_of_us_east_1(self):
+        specs = {"s3_bucket": INVENTORY["s3_bucket"]}
+        data = {("s3api", "list-buckets"): {"Buckets": [{"Name": "b"}]}}
+        call = lambda s, o, a, r: aws_runner.CallResult(True, data[(s, o)], None, None, ("aws", s, o))  # noqa: E731
+        for partition in ("aws", "aws-cn", "aws-us-gov"):
+            items, _ = inventory.build_inventory(call, specs, ["us-east-1"], account_id="111122223333", partition=partition)
+            self.assertEqual(items[0]["arn"], f"arn:{partition}:s3:::b")
+
+    def test_the_partition_is_read_from_the_identity_arn(self):
+        for arn, partition in (("arn:aws:iam::111122223333:user/a", "aws"), ("arn:aws-cn:sts::111122223333:assumed-role/r/s", "aws-cn"),
+                               ("arn:aws-us-gov:iam::111122223333:root", "aws-us-gov"), ("", None), ("garbage", None)):
+            self.assertEqual(collect._identity_partition(arn), partition, arn)
+
+    def test_collect_passes_the_account_and_the_partition_to_the_inventory(self):
         text = (SKILL_DIR / "scripts" / "collect.py").read_text(encoding="utf-8")
-        self.assertIn("build_inventory(list_inventory, specs, inventory_regions, account_id=account_id)", text)
+        self.assertIn("build_inventory(list_inventory, specs, inventory_regions, account_id=account_id,", text)
+        self.assertIn("partition=_identity_partition(identity_arn))", text)
 
 
 def run_blocks(blocks, stub_body, files=None):
@@ -663,6 +678,54 @@ class SmallCatalogFixTests(unittest.TestCase):
     def test_enc_005_and_log_009_say_what_they_replace(self):
         for check_id in ("ENC-005", "DAT-006", "LOG-009", "LOG-012"):
             self.assertTrue(verify_remediation.WARNING_WORDS.search(CHECKS[check_id]["remediation"]["notes"]), check_id)
+
+
+@unittest.skipUnless(HAS_BASH, "bash is not available")
+class MergedBlocksStopOnReadErrorTests(unittest.TestCase):
+    """Final cleanup C: the merged DAT-004 / DET-001 blocks read first and write nothing when that read fails."""
+
+    DENIED = 'echo "An error occurred (AccessDenied)" >&2; return 254'
+
+    def stub(self, operation, answer):
+        return f'if [ "$2" = {operation} ]; then {answer}; fi'
+
+    def run_block(self, check_id, operation, answer):
+        outcomes, calls, _ = run_blocks(catalog_blocks(check_id), self.stub(operation, answer))
+        return outcomes[0], calls
+
+    def test_dat_004_stops_when_the_instance_cannot_be_read(self):
+        (code, text), calls = self.run_block("DAT-004", "describe-db-instances", self.DENIED)
+        self.assertIn("DETENIDO", text)
+        self.assertEqual(aws_calls(calls, "rds modify-"), [])
+
+    def test_dat_004_protects_the_cluster_of_a_member_instance(self):
+        _, calls = self.run_block("DAT-004", "describe-db-instances", "echo acme-cluster")
+        (call,) = aws_calls(calls, "rds modify-")
+        self.assertIn("modify-db-cluster --db-cluster-identifier acme-cluster", call)
+
+    def test_dat_004_protects_the_instance_when_it_has_no_cluster(self):
+        for answer in ("echo None", "echo ''", "true"):
+            _, calls = self.run_block("DAT-004", "describe-db-instances", answer)
+            (call,) = aws_calls(calls, "rds modify-")
+            self.assertIn("modify-db-instance --db-instance-identifier res-1", call, answer)
+
+    def test_det_001_stops_when_the_detectors_cannot_be_listed(self):
+        (code, text), calls = self.run_block("DET-001", "list-detectors", self.DENIED)
+        self.assertIn("DETENIDO", text)
+        self.assertEqual(aws_calls(calls, "guardduty create-"), [])
+        self.assertEqual(aws_calls(calls, "guardduty update-"), [])
+
+    def test_det_001_creates_a_detector_only_when_the_region_has_none(self):
+        for answer in ("echo None", "echo ''", "true"):
+            _, calls = self.run_block("DET-001", "list-detectors", answer)
+            self.assertEqual(len(aws_calls(calls, "guardduty create-detector")), 1, answer)
+            self.assertEqual(aws_calls(calls, "guardduty update-"), [], answer)
+
+    def test_det_001_reenables_the_detector_the_region_already_has(self):
+        _, calls = self.run_block("DET-001", "list-detectors", "echo 12abc34d567e8fa901bc2d34e56789f0")
+        self.assertEqual(aws_calls(calls, "guardduty create-"), [])
+        (call,) = aws_calls(calls, "guardduty update-detector")
+        self.assertIn("--detector-id 12abc34d567e8fa901bc2d34e56789f0", call)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,8 @@ capturas. Las notas de la prueba van en un lugar privado fuera del repo.
 - [ ] Una cuenta con estado conocido: lista de controles de Security Hub en `FAILED` y lista de tests de Drata
       (o Vanta) en verde y en rojo, exportadas antes de correr el skill.
 - [ ] Un perfil de AWS de solo lectura (`SecurityAudit` + `ViewOnlyAccess` y los permisos extra del README),
-      provisto por quien hace la prueba. Nada de claves en el chat.
+      provisto por quien hace la prueba. Nada de claves en el chat. Aunque se ofrezca un perfil admin, el skill solo
+      lo usa para leer: nunca para aplicar arreglos (el reporte trae comandos para que una persona los pegue).
 - [ ] Un vault con diferencias conocidas respecto de la cuenta (un recurso documentado que no existe, un
       recurso real sin documentar, una afirmación desactualizada).
 - [ ] Anotar la hora de inicio.
@@ -44,6 +45,10 @@ capturas. Las notas de la prueba van en un lugar privado fuera del repo.
 - [ ] `summary.verdict_text` (primera línea del HTML) coincide con lo esperado para la cuenta: `NO_OPTIMO` si hay un
       `FAIL` conocido, `NO_VERIFICABLE` si falta cualquier verificación (permisos, regiones, corrida parcial) y
       `OPTIMO` solo si la cuenta está limpia y se verificó todo. Nunca porcentaje ni nota.
+- [ ] Con `ec2:DescribeRegions` denegado y `regions: "auto"`, ningún chequeo de cuenta con llamada regional (por
+      ejemplo DET-004, DET-006, DET-007) sale `PASS`; todos quedan `NO_VERIFICADO` ("no se pudieron listar las regiones").
+- [ ] Un `scope.json` con modo o dominio inexistente, o sin recursos en modo `resource`, termina con exit `2` y un
+      mensaje claro, sin carpeta de resultados.
 - [ ] Cada fila `NO_VERIFICADO` trae su motivo (permiso faltante, "no se pudieron listar las regiones", "inventario
       incompleto", "bloqueado por SCP"); ninguna región con error aparece como `PASS`.
 

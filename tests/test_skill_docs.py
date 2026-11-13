@@ -344,5 +344,48 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
             self.assertIn(needle, guidelines, needle)
 
 
+class FinalCleanupDocsTests(unittest.TestCase):
+    """Final cleanup A+C: SKILL.md says what the scripts do (verdict, printed line, scope errors, regions) and keeps the read-only rule."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.skill = read(SKILL_MD)
+        cls.readme = read(ROOT / "README.md")
+        cls.vault_index = read(SCRIPTS_DIR / "vault_index.py")
+
+    def test_the_verdict_text_matches_how_assemble_computes_it(self):
+        for needle in ("`DRIFT`/`UNDOCUMENTED` con `actual_status: FAIL`", "crítica/alta", "al menos un `PASS`/`FAIL` evaluado",
+                       "corrida completa"):
+            self.assertIn(needle, self.skill, needle)
+        self.assertIn("al menos un `PASS` o `FAIL`", self.readme.replace("\n  ", " "))
+
+    def test_the_vault_line_matches_what_vault_index_prints(self):
+        self.assertIn("Vault tipado", self.skill)
+        self.assertIn("Vault libre (no tipado)", self.skill)
+        self.assertIn('"tipado"', self.vault_index)
+        self.assertNotIn("(`typed` o `free`)", self.skill)
+
+    def test_an_offered_admin_profile_is_only_for_the_read_only_collection(self):
+        self.assertIn("perfil admin", self.skill)
+        for text in (self.skill, self.readme, read(SKILL_DIR / "references" / "remediation-guidelines.md")):
+            self.assertRegex(text.replace("\n", " "), r"(?s)perfil admin.{0,400}(solo|nunca)")
+        self.assertIn("nunca para aplicar", self.skill)
+
+    def test_the_copy_block_is_only_pointed_to_when_there_is_a_verified_fix(self):
+        self.assertIn("si el reporte tiene un arreglo verificado", self.skill)
+        self.assertIn("no hay nada verificado para arreglar", self.skill)
+
+    def test_scope_errors_and_unknown_regions_are_documented(self):
+        self.assertIn("DET-004, DET-006, DET-007", self.skill)
+        self.assertIn("modo o dominio desconocido", self.skill)
+        self.assertIn("dominio que no existe en el catálogo", read(SKILL_DIR / "references" / "report-format.md"))
+        for needle in ("armás vos", "§4"):
+            self.assertIn(needle, self.skill)
+
+    def test_shell_caveats_for_zsh_are_documented(self):
+        self.assertIn("zsh", self.skill)
+        self.assertIn("`| head`", self.skill)
+
+
 if __name__ == "__main__":
     unittest.main()

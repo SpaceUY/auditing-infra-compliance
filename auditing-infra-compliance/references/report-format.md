@@ -28,7 +28,7 @@ Nunca `PASS` ni `FAIL` cuando algo no se pudo leer. `detail.reason` (y `missing`
 | Motivo | Cuándo |
 |---|---|
 | permiso faltante (`missing: ["servicio:Accion"]`) | `AccessDenied` en una llamada |
-| "no se pudieron listar las regiones" | falló `ec2:DescribeRegions`: los chequeos de todas las regiones quedan `NO_VERIFICADO` (con `missing: ["ec2:DescribeRegions"]` si fue `AccessDenied`) y no se hace ninguna llamada regional para ellos; los chequeos de cuenta y los de regiones listadas en `scope.regions` siguen. En `auto` solo se inventaría `us-east-1` y cada tipo regional lleva una fila con región `null` |
+| "no se pudieron listar las regiones" | falló `ec2:DescribeRegions`: los chequeos de todas las regiones quedan `NO_VERIFICADO` (con `missing: ["ec2:DescribeRegions"]` si fue `AccessDenied`) y no se hace ninguna llamada regional para ellos; con `regions: "auto"` lo mismo vale para todo chequeo de cuenta con una llamada regional (DET-003, DET-004, DET-006, DET-007, DAT-010): nunca `PASS` por mirar solo `us-east-1`. Los chequeos sin llamada regional y los de regiones listadas explícitamente en `scope.regions` siguen. En `auto` solo se inventaría `us-east-1` y cada tipo regional lleva una fila con región `null` |
 | "sin regiones en el alcance" | un chequeo regional sin ninguna región que recorrer (por ejemplo todas bloqueadas por SCP): nunca pase vacío |
 | "inventario incompleto" (`missing: ["inventory:<tipo>"]`) | falló el listado de un tipo en una región: una fila por (tipo, región) junto a las filas `PASS`/`FAIL` de las regiones que sí se listaron; nunca `N/A` después de un listado fallido |
 | "bloqueado por SCP" | una SCP niega la lectura; no falta ningún permiso del perfil (`missing: []`) |
@@ -56,6 +56,8 @@ Filas **CMP-006 "de contexto"**: tras los chequeos, `collect.py` evalúa CMP-006
 | `profile` | Perfil AWS (`AWS_PROFILE`) o `null` para el entorno ya configurado. Es un nombre de perfil, nunca una clave. |
 | `resources` | `[]` en `full`. En `feature` y `resource`: objetos `{type, id, region}`; `type` es una clave de `references/inventory.json` y `id` el id, nombre o ARN (tabla de mapeo en `references/vault-reading.md`). |
 | `domains` | `null` (todos) o lista para acotar: `compute`, `data`, `detection`, `email`, `encryption`, `iam`, `integration`, `inventory`, `logging`, `monitoring`, `network`. |
+
+También terminan con exit `2` y un mensaje, antes de cualquier llamada a AWS y sin escribir archivos: un `mode` ausente o que no es `full`/`feature`/`resource`, `domains` que no es `null` o una lista de nombres, un dominio que no existe en el catálogo, `resources` vacío o con elementos sin `type`/`id` de texto en modo `feature`/`resource`, y un alcance que no selecciona ningún chequeo.
 
 `scope.json` se guarda en la carpeta de la corrida (`$RUN/scope.json`) y **no se mueve ni se borra** antes de ensamblar: `assemble_findings.py` lo lee de ahí (`unverified_scope`). `collect.py` solo ejecuta las operaciones de lectura de `catalog.REVIEWED_OPERATIONS` (`references/remediation-guidelines.md` §1).
 

@@ -59,6 +59,54 @@ class ScopeRegionsValidationTests(ReviewCase):
         self.assertEqual(len(self.calls("ec2", "describe-instances")), 0)
 
 
+class EmptyOrUnknownSelectionTests(ReviewCase):
+    """A scope that selects nothing is an error (exit 2, before any AWS call), never a silent run with zero results."""
+
+    def assert_rejected(self, needle, **scope):
+        self.run_collect(scope=self.scope_file(**scope))
+        self.assertEqual(self.code, 2, scope)
+        self.assertIn(needle, self.stdout)
+        self.assertEqual(self.runner.calls, [], "nothing may reach AWS with a scope that selects no check")
+        self.assertFalse((self.out / "raw").exists())
+
+    def test_an_unknown_mode_is_an_error(self):
+        self.assert_rejected("mode", mode="everything")
+
+    def test_a_missing_mode_is_an_error(self):
+        scope = {k: v for k, v in load_fixture("scope-full.json").items() if k != "mode"}
+        path = self.tmp / "no-mode.json"
+        path.write_text(json.dumps(scope), encoding="utf-8")
+        self.run_collect(scope=path)
+        self.assertEqual(self.code, 2)
+        self.assertIn("mode", self.stdout)
+
+    def test_an_unknown_domain_is_an_error_that_names_it_and_lists_the_valid_ones(self):
+        self.assert_rejected("nope", mode="full", domains=["nope"])
+        self.assertIn("iam", self.stdout)
+
+    def test_domains_that_are_not_a_list_of_names_are_an_error(self):
+        for bad in ("iam", 5, [1], {"iam": 1}):
+            with self.subTest(domains=bad):
+                self.assert_rejected("domains", mode="full", domains=bad)
+
+    def test_resource_mode_without_resources_is_an_error(self):
+        self.assert_rejected("resources", mode="resource", resources=[])
+
+    def test_resources_that_are_not_a_list_of_objects_are_an_error(self):
+        for bad in ("i-0abc", [None], [{"id": "x"}], [{"type": "s3_bucket"}], [{"type": 1, "id": "x"}]):
+            with self.subTest(resources=bad):
+                self.assert_rejected("resources", mode="resource", resources=bad)
+
+    def test_resources_of_a_type_no_check_covers_are_an_error(self):
+        self.assert_rejected("ningún chequeo", mode="resource", resources=[{"type": "no_such_type", "id": "x", "region": "us-east-1"}])
+
+    def test_a_valid_selection_still_runs(self):
+        self.run_collect(scope=self.scope_file(mode="full", domains=["iam"]))
+        self.assertEqual(self.code, 0)
+        self.run_collect(scope=self.scope_file(name="scope-resource.json"))
+        self.assertEqual(self.code, 0)
+
+
 class NoVacuousPassWithoutRegionsTests(ReviewCase):
     @staticmethod
     def regional(check):
@@ -320,6 +368,35 @@ class AttachedInstanceEvidenceTests(ReviewCase):
         self.run_scope(self.sg_scope(), instances={"Reservations": []})
         self.assertEqual([(r["status"], r["vacuous"]) for r in self.rows("CMP-006")], [])
         self.assertTrue(any("i-0acme00000000001" in w for w in self.result["warnings"]))
+
+    def test_an_instance_scoped_by_name_is_not_labelled_as_context_only(self):
+        self.run_scope(self.sg_scope(more=[{"type": "ec2_instance", "id": "i-0acme00000000001", "region": "us-east-1"}]))
+        (row,) = [r for r in self.rows("CMP-006") if r["resource_id"] == "i-0acme00000000001"]
+        self.assertNotIn("context_for", row["detail"])
+
+    def test_the_inventory_name_of_a_scoped_instance_counts_as_scoped(self):
+        instances = {"Reservations": [{"Instances": [
+            {"InstanceId": "i-0acme00000000001", "State": {"Name": "running"}, "Tags": [{"Key": "Name", "Value": "web-1"}]}]}]}
+        self.run_scope(self.sg_scope(more=[{"type": "ec2_instance", "id": "web-1", "region": "us-east-1"}]), instances=instances)
+        (row,) = self.rows("CMP-006")
+        self.assertNotIn("context_for", row["detail"])
+
+    def test_an_interrupted_evidence_step_leaves_no_cmp_006_rows_next_to_the_pending_marker(self):
+        more = [{"type": "ec2_instance", "id": "i-0acme00000000002", "region": "us-east-1"}]
+        original = collect._evidence_rows
+
+        def interrupted(*args):
+            raise KeyboardInterrupt
+
+        collect._evidence_rows = interrupted
+        try:
+            self.run_scope(self.sg_scope(more=more))
+        finally:
+            collect._evidence_rows = original
+        self.assertEqual(self.code, 130)
+        self.assertEqual(self.result["pending_checks"], ["CMP-006"])
+        self.assertEqual(self.rows("CMP-006"), [])
+        self.assertTrue(self.rows(NET_CHECK))
 
     def test_no_failing_group_means_no_extra_check(self):
         responses = self.responses()

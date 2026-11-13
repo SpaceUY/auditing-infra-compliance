@@ -219,6 +219,46 @@ class UnknownRegionsPipelineTests(PipelineCase):
         self.assertNotEqual(findings["summary"]["verdict"], "OPTIMO")
 
 
+class _EverythingAnswersEmpty(AcmeAws):
+    """Describe-regions denied; every call nobody scripted succeeds with an empty answer (the "healthy" account)."""
+
+    def _key(self, argv):
+        key = FakeRunner._key(argv)
+        if argv[0] == "aws" and "--query" in argv:
+            key += (argv[argv.index("--query") + 1],)
+        if key not in self.responses:
+            self.responses[key] = ok({})
+        return key
+
+
+class EveryCheckWithoutTheRegionListTests(PipelineCase):
+    def test_no_account_check_with_a_regional_call_passes_from_us_east_1_alone(self):
+        responses = acme_responses()
+        responses[("ec2", "describe-regions", REGION)] = err(ACCESS_DENIED.format(op="DescribeRegions", perm="ec2:DescribeRegions"))
+        scope = self.tmp / "scope.json"
+        scope.write_text(json.dumps({**load_fixture("scope-full.json"), "regions": "auto"}), encoding="utf-8")
+        run_dir = self.tmp / "run"
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = collect.main(["--scope", str(scope), "--out", str(run_dir), "--quiet"], runner=_EverythingAnswersEmpty(responses),
+                                sleep=lambda s: None, which=lambda name: None)
+        self.assertEqual(code, 0)
+        checks = {c["id"]: c for c in catalog.load_checks(SKILL_DIR / "references" / "checks")}
+        results = json.loads((run_dir / "checks-result.json").read_text(encoding="utf-8"))["results"]
+
+        def regional(check_id):
+            return any(c.get("region") == "each" for c in checks[check_id]["verify"]["calls"])
+
+        account = {c for c in checks if regional(c) and checks[c]["scope"] == "account"}
+        self.assertTrue({"DET-003", "DET-004", "DET-006", "DET-007", "DAT-010"} <= account)
+        passed = sorted({r["check_id"] for r in results if r["check_id"] in account and r["status"] == "PASS"})
+        self.assertEqual(passed, [])
+        for check_id in sorted(account):
+            self.assertEqual({r["status"] for r in results if r["check_id"] == check_id}, {"NO_VERIFICADO"}, check_id)
+        # a resource check may keep the PASS of a resource it did list, but never without a row saying the other regions are unknown
+        for check_id in {r["check_id"] for r in results if regional(r["check_id"]) and r["status"] == "PASS"}:
+            self.assertIn("NO_VERIFICADO", {r["status"] for r in results if r["check_id"] == check_id}, check_id)
+
+
 class WithoutAwsTests(PipelineCase):
     def test_pipeline_without_aws(self):
         vault = self.tmp / "vault"

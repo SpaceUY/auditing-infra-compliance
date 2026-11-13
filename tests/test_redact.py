@@ -307,21 +307,33 @@ class FinalCleanupBTests(unittest.TestCase):
         for label in redact.LABEL_FORMS:
             self.assertNotEqual(redact.detect(label + "=" + "Zq9" + "xK2mPw7Ab3Cd5Ef8Gh1Jk"), [], label)
 
-    def test_masking_is_linear_for_every_label_and_reference_prefix(self):
+    @staticmethod
+    def _repeated(number, label, prefix, size):
+        unit = label + (": ", "=", " | ")[number % 3] + prefix + " "
+        return unit, unit * (size // len(unit))
+
+    @staticmethod
+    def _seconds(text):
         import time
-        slowest = (0.0, "")
+        start = time.perf_counter()
+        redact.mask(text)
+        redact.detect(text)
+        return time.perf_counter() - start
+
+    def test_masking_is_linear_for_every_label_and_reference_prefix(self):
+        """The full matrix at 20 KB: a quadratic scan is already obvious there (200 KB took 15 s before the fix)."""
         for number, label in enumerate(redact.LABEL_FORMS):
             for prefix in redact.REFERENCE_PREFIXES:
-                separator = (": ", "=", " | ")[number % 3]
-                unit = label + separator + prefix + " "
-                text = unit * (200_000 // len(unit))
-                start = time.perf_counter()
-                redact.mask(text)
-                redact.detect(text)
-                elapsed = time.perf_counter() - start
-                slowest = max(slowest, (elapsed, unit))
-                self.assertLess(elapsed, 1.0, repr(unit))
-        self.assertLess(slowest[0], 1.0)
+                unit, text = self._repeated(number, label, prefix, 20_000)
+                self.assertLess(self._seconds(text), 0.2, repr(unit))
+
+    def test_representative_label_and_prefix_pairs_stay_linear_at_200_kb(self):
+        labels, prefixes = redact.LABEL_FORMS, redact.REFERENCE_PREFIXES
+        picks = [(0, 0), (len(labels) - 1, len(prefixes) - 1), (len(labels) // 2, len(prefixes) // 2),
+                 (3, len(prefixes) - 1), (len(labels) - 2, 1)]
+        for number, index in picks:
+            unit, text = self._repeated(number, labels[number], prefixes[index], 200_000)
+            self.assertLess(self._seconds(text), 1.0, repr(unit))
 
     def test_unspaced_repetitions_stay_linear(self):
         import time

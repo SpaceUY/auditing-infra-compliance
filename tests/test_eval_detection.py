@@ -388,7 +388,7 @@ class DetectionCatalogTests(unittest.TestCase):
 
     def test_det_001_reenables_a_suspended_detector_only_after_looking_it_up(self):
         (command,) = catalog_check("DET-001")["remediation"]["commands"]
-        self.assertRegex(command, r"DETECTOR_ID=\$\(aws guardduty list-detectors [^\n]*\)\n[^\n]*create-detector[^\n]*else aws guardduty update-detector")
+        self.assertRegex(command, r"DETECTOR_ID=\$\(aws guardduty list-detectors [^\n]*\) \|\| DETECTOR_ID=\"LECTURA_FALLIDA\"\n[^\n]*create-detector[^\n]*else aws guardduty update-detector")
 
     def test_det_002_updates_the_detector_found_by_the_lookup(self):
         (command,) = catalog_check("DET-002")["remediation"]["commands"]

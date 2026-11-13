@@ -24,11 +24,15 @@ El diseño está en `docs/specs/2026-11-12-infra-compliance-audit-design.md` y e
 - Calcula un **veredicto** (`summary.verdict` y su frase `summary.verdict_text`, lo primero que muestra el HTML):
   `NO_OPTIMO` (algún `FAIL`, un `DRIFT` cuyo estado real falla o una brecha documentada crítica o alta),
   `NO_VERIFICABLE` (sin credenciales, corrida parcial, regiones bloqueadas, inventario incompleto o algo sin
-  verificar) u `OPTIMO` (solo con credenciales, corrida completa y nada de lo anterior). Nunca hay `OPTIMO` sin
+  verificar) u `OPTIMO` (solo con credenciales, corrida completa, nada sin verificar y al menos un `PASS` o `FAIL`
+  evaluado). Los `FAIL` se cuentan desde el estado `FAIL`, un `DRIFT`/`UNDOCUMENTED` con `actual_status: FAIL` o una
+  brecha crítica/alta. Nunca hay `OPTIMO` sin
   credenciales. No hay porcentaje ni nota.
 - Sin ninguna fuente (ni vault ni credenciales) no hay reporte: `assemble_findings.py` termina con exit `2`
-  ("sin fuentes"). Un `scope.regions` inválido hace terminar `collect.py` con exit `2`. Si no se pueden listar las
-  regiones (`ec2:DescribeRegions`), los chequeos de todas las regiones quedan `NO_VERIFICADO`, nunca `PASS`.
+  ("sin fuentes"). Un `scope.json` que no selecciona nada (modo o dominio desconocido, recursos sin chequeos) o con
+  `scope.regions` inválido hace terminar `collect.py` con exit `2` y un mensaje, sin escribir archivos. Si no se pueden
+  listar las regiones (`ec2:DescribeRegions`) en modo `auto`, los chequeos de cuenta con llamadas regionales quedan
+  `NO_VERIFICADO`, nunca `PASS` por mirar solo `us-east-1`.
 - Produce `report.html`, `findings.json`, `checks-result.json`, `inventory.json` y `raw/` en
   `./compliance-reports/<plataforma>-<alcance>-<fecha>/`, siempre fuera del vault.
 - Verifica los comandos de remediación sin ejecutarlos (sintaxis, placeholders pendientes, conflictos entre
@@ -91,7 +95,9 @@ Usar un rol o usuario dedicado, de solo lectura, con las políticas administrada
 }
 ```
 
-No usar una identidad con `AdministratorAccess`: el skill lo advierte, pero no hace falta para auditar. Nunca
+No usar una identidad con `AdministratorAccess`: el skill lo advierte, pero no hace falta para auditar (recomendado:
+`SecurityAudit` + `ViewOnlyAccess`). Si alguien ofrece un perfil admin, Claude solo lo puede usar para la recolección de
+solo lectura que permiten los scripts y nunca para aplicar un arreglo. Nunca
 pegar claves en el chat; indicar solo el nombre del perfil (`AWS_PROFILE` o `--profile`). Si falta un permiso,
 el chequeo correspondiente queda `NO_VERIFICADO` e indica cuál es.
 

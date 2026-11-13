@@ -566,11 +566,10 @@ class ReviewTwoRiskAndWarningTests(unittest.TestCase):
             self.assertNotIn("destructivo_sin_aviso", kinds(result, "F-0001"), notes)
 
     def test_every_catalog_warning_note_is_recognised(self):
-        # LOG-012 (put-retention-policy) has notes without any warning: a catalog fix to make (area A), it stays REVISAR until then
         unrecognised = {c["id"] for c in catalog.load_checks(SKILL_DIR / "references" / "checks")
                         if c["remediation"]["kind"] == "cli_with_decision" and verify_remediation._destructive_operations(c["remediation"]["commands"])
                         and not verify_remediation._has_warning(c["remediation"])}
-        self.assertLessEqual(unrecognised, {"LOG-012"})
+        self.assertEqual(unrecognised, set())
 
     def test_replacing_operations_are_flagged(self):
         flagged = ("s3api put-bucket-policy", "s3api put-bucket-acl", "s3api put-bucket-lifecycle-configuration", "s3api put-bucket-logging",

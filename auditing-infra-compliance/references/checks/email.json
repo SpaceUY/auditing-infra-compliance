@@ -378,7 +378,7 @@
         "downtime": false,
         "steps": [
           "Crear una casilla del equipo que reciba los reportes agregados de DMARC (rua).",
-          "Publicar en el DNS de {resource_id} (consola de Route 53 o el panel del registrador) un registro TXT en _dmarc.{resource_id} con el valor v=DMARC1; p=none; rua=mailto:__COMPLETAR_EMAIL_DMARC__ para empezar a observar.",
+          "Publicar en el DNS de {resource_id} (consola de Route 53 o el panel del registrador) un registro TXT en _dmarc.{resource_id} con el valor v=DMARC1; p=none; rua=mailto:__COMPLETAR_EMAIL_DMARC__ para empezar a observar. Si el dominio ya tiene un registro _dmarc, editarlo en lugar de crear otro (solo puede haber uno): si ya dice p=none, conservarlo y seguir con los reportes.",
           "Revisar los reportes durante unas semanas y corregir las fuentes legítimas que no pasan SPF o DKIM.",
           "Subir la política a p=quarantine y, cuando no haya falsos positivos, a p=reject. El chequeo solo pasa con quarantine o reject.",
           "Esperar a que el DNS propague y verificar con dig."

@@ -47,7 +47,7 @@ def _partition(region):
     return "aws-us-gov" if region.startswith("us-gov-") else "aws"
 
 
-def _built_arn(type_, item_id, region, account_id):
+def _built_arn(type_, item_id, region, account_id, partition=None):
     """The deterministic ARN of an item the listing gave no ARN for; "" when the type has no format or the account is unknown."""
     pattern = ARN_FORMATS.get(type_)
     if not pattern:
@@ -59,31 +59,33 @@ def _built_arn(type_, item_id, region, account_id):
         account = parts[-2] if len(parts) >= 2 and parts[-2].isdigit() else account_id
     if "{account}" in pattern and not account:
         return ""
-    return pattern.format(partition=_partition(region), region=region, account=account, id=item_id, name=name)
+    return pattern.format(partition=partition or _partition(region), region=region, account=account, id=item_id, name=name)
 
 
-def _to_item(type_, spec, raw, region, account_id=None):
+def _to_item(type_, spec, raw, region, account_id=None, partition=None):
     item_id = _first(raw, spec["id_path"])
     if not item_id:
         return None
     tags = _tags(paths.extract(raw, spec["tags_path"]))
     name = _first(raw, spec["name_path"]) or tags.get("Name") or item_id
-    arn = _first(raw, spec["arn_path"]) or _built_arn(type_, item_id, region, account_id)
+    arn = _first(raw, spec["arn_path"]) or _built_arn(type_, item_id, region, account_id, partition)
     return {"type": type_, "id": item_id, "arn": arn, "name": name, "region": region, "tags": tags}
 
 
-def _list_type(call, type_, spec, region, account_id=None):
+def _list_type(call, type_, spec, region, account_id=None, partition=None):
     res = call(spec["service"], spec["operation"], spec["args"], region)
     if not res.ok:
         return [], res.error_kind
-    items = (_to_item(type_, spec, raw, region, account_id) for raw in paths.extract(res.data, spec["items_path"]))
+    items = (_to_item(type_, spec, raw, region, account_id, partition) for raw in paths.extract(res.data, spec["items_path"]))
     return [i for i in items if i], None
 
 
-def build_inventory(call, specs, regions, account_id=None):
+def build_inventory(call, specs, regions, account_id=None, partition=None):
     """One job per region (ThreadPoolExecutor); global types run once in us-east-1.
 
-    `account_id` (from sts get-caller-identity) completes the ARN of the types listed without one (ARN_FORMATS).
+    `account_id` and `partition` (both from the sts get-caller-identity ARN) complete the ARN of the types listed without one
+    (ARN_FORMATS); without a partition it follows the region of the item (a global type is listed in us-east-1, so it would
+    always be "aws" in a China or GovCloud account).
     Returns (items sorted by type/region/id, [(type, region, error_kind)]).
     """
     jobs = {r: [t for t, s in specs.items() if s["region"] == "each"] for r in regions}
@@ -93,7 +95,7 @@ def build_inventory(call, specs, regions, account_id=None):
     def run(region):
         found, errors = [], []
         for type_ in jobs[region]:
-            items, error = _list_type(call, type_, specs[type_], region, account_id)
+            items, error = _list_type(call, type_, specs[type_], region, account_id, partition)
             found += items
             if error:
                 errors.append((type_, region, error))
