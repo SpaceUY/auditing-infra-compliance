@@ -51,6 +51,8 @@ The test notes go in a private place outside the repo.
       example DET-004, DET-006, DET-007) comes out `PASS`; all stay `NOT_VERIFIED` ("could not list the regions").
 - [ ] A `scope.json` with a non-existent mode or domain, or with no resources in `resource` mode, ends with exit `2` and a
       clear message, with no results folder.
+- [ ] A `scope.json` whose `account_id` differs from the account of the credentials ends with exit `2` and the message
+      "the credentials belong to account <actual>, not the account confirmed in scope.json (<expected>)", with no results folder.
 - [ ] Every `NOT_VERIFIED` row carries its reason (missing permission, "could not list the regions", "incomplete
       inventory", "blocked by SCP"); no region with an error appears as `PASS`.
 

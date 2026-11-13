@@ -164,12 +164,16 @@ of `proposed`, `todo` or `draft` means "does not exist": it is reported as `DOCU
 
 **Vault given, no profile:** the run is vault-only (no `collect.py`) unless you ask to also check AWS. When AWS is used
 (a profile or the ambient credentials), the skill runs `aws sts get-caller-identity`, shows the account id and ARN and waits
-for you to confirm that account before collecting. With no credentials, or when the confirmed components have no AWS
-resource, the collection step is skipped.
+for you to confirm that account before collecting. The profile used in that `sts` and the confirmed account id are written
+to `scope.json` (`profile`, `account_id`), and `collect.py` refuses to run if the credentials belong to another account
+(exit `2`, no files written). With no credentials, or when the confirmed components have no AWS resource, the collection
+step is skipped.
 
 **Without credentials:** the report states in the header that nothing was verified against AWS, shows the counts of what is
 documented and what is unverified instead of zeros that would read as "clean", and lists the scope components "not
-verified".
+verified" (components the vault does not cover appear in that list, not as `NOT_VERIFIED` findings). Nothing is verified in AWS,
+but each `DOCUMENTED_GAP` carries its catalog fix (a gap the vault admits, not verified against AWS), which only a person
+may apply, after confirming it.
 
 If `scope.json` is malformed (not an object, unknown mode or domain, empty or malformed `resources`) or carries an invalid
 `scope.regions`, `collect.py` ends with exit `2` and a message, without writing files. A well-formed scope whose resources
@@ -215,10 +219,11 @@ resources with no catalog check (SNS topics, subnets, launch templates, HTTP API
 so the skill warns you before adding them. With a free-form vault it warns that the feature map is
 inferred and less reliable.
 
-**`resource` mode.** The type comes from the prefix (`i-…`, `sg-…`, `db-…`) or the ARN; the resource and its immediate context are audited
-(for an EC2 instance: security groups, volumes, instance profile, subnet, VPC Flow Logs). Without
-credentials only what the vault says about that ID is reported, and the skill says so up front. A request with an ID and no
-vault or credentials does not go forward: it asks for a source.
+**`resource` mode.** The type comes from the prefix (`i-…`, `sg-…`, `db-…`) or the ARN. The resource itself is always audited;
+its context (security groups, volumes, instance role) comes only from the vault note about it or from ids you supply, because
+Claude cannot look attachments up in AWS. Without them only the resource itself is audited, and the skill says so (no check
+covers an EC2 instance's subnet route or public IP). Without credentials only what the vault says about that ID is reported,
+and the skill says so up front. A request with an ID and no vault or credentials does not go forward: it asks for a source.
 
 ## Requirements
 
@@ -323,7 +328,7 @@ Example `scope.json` (`feature` mode):
 
 ```json
 {"platform": "Acme Notes", "mode": "feature", "target": "email sending",
- "regions": "auto", "profile": null,
+ "regions": "auto", "profile": "acme-audit", "account_id": "111122223333",
  "resources": [
    {"type": "ses_identity", "id": "example.com", "region": "us-east-1"},
    {"type": "lambda_function", "id": "acme-notes-mailer", "region": "us-east-1"}
@@ -337,7 +342,8 @@ Example `scope.json` (`feature` mode):
 | `mode` | `full`, `feature` or `resource` |
 | `target` | `null` in `full`; the feature text or the resource id/ARN |
 | `regions` | `"auto"` (enabled regions with resources, plus `us-east-1`) or a **non-empty** list of regions, e.g. `["us-east-1", "eu-west-1"]`. A region that is not enabled is skipped with a warning |
-| `profile` | AWS profile name or `null` for the already configured environment. Never a key |
+| `profile` | Exactly the profile used in the preflight `sts`, or `null` only if it ran without `--profile` (the already configured environment). Never a key |
+| `account_id` | Optional: the 12-digit account id the user confirmed, or `null`. `collect.py` ends with exit `2` and no files if it is not `null` or 12 digits (`scope.account_id must be null or a 12-digit AWS account id`), or if the credentials belong to another account (`the credentials belong to account <actual>, not the account confirmed in scope.json (<expected>)`) |
 | `resources` | `[]` in `full`; in `feature` and `resource`, `{type, id, region}` objects with `type` from `references/inventory.json` |
 | `domains` | `null` (all) or a list to narrow: `compute`, `data`, `detection`, `email`, `encryption`, `iam`, `integration`, `inventory`, `logging`, `monitoring`, `network` |
 
@@ -367,7 +373,7 @@ add it to the `.gitignore` of the project where you run the skill, since the rep
 | `raw/<CHECK_ID>/` | `collect.py` | Raw output of each call (masked), with the `argv` executed |
 | `checks-result.json` | `collect.py` | One row per check and resource (`PASS`, `FAIL`, `N/A`, `NOT_VERIFIED`, `PENDING_CLAUDE`), warnings and, if the run was cut short, `partial` and `pending_checks` |
 | `vault-claims.json` | Claude | `EVAL`, `DRIFT`, `UNDOCUMENTED`, `DOCUMENTED_ONLY` and `DOCUMENTED_GAP` claims |
-| `findings.json` | `assemble_findings.py` | `meta`, `summary` (verdict), `findings`, `dependencies`, `coverage`, `warnings`, `notes` |
+| `findings.json` | `assemble_findings.py` | `meta`, `summary` (verdict), `findings`, `unverified_scope`, `dependencies`, `coverage`, `warnings`, `notes` |
 | `verification-claims.json` | Claude | Review of fixes against the vault (only if there is something to review) |
 | `verification.json` | `verify_remediation.py` | Stamp per fix, conflicts, gaps, `apply_order` |
 | `report.html` | `render_report.py` | The report: a single file, inline CSS and JS, no external resources |
@@ -381,9 +387,9 @@ assembled again. Everything that is written is masked (see [Security and privacy
 | Script | `0` | `2` | Others |
 |---|---|---|---|
 | `vault_index.py` | Index or feature resolved | Invalid vault, `-o` inside the vault, or the index could not be written (`error: could not write the index to …`; an existing index is kept) | |
-| `collect.py` | Complete run (also a well-formed scope that no check covers: no results and with a warning) | No valid credentials (leaves `checks-result.json` with `aws: null` and an empty `inventory.json`) or a missing, unreadable or malformed `scope.json`, including an invalid `profile` (`error: …` on stdout, no files) | `130`: interrupted (Ctrl-C, SIGTERM, timeout); leaves the partial result |
-| `assemble_findings.py` | `findings.json` written | Input file with an invalid shape, or "no sources: a vault or read-only AWS credentials are required" (does not write `findings.json`) | |
-| `render_report.py` | `report.html` written | `findings.json` is missing or invalid JSON | |
+| `collect.py` | Complete run (also a well-formed scope that no check covers: no results and with a warning) | No valid credentials (leaves `checks-result.json` with `aws: null` and an empty `inventory.json`) or a missing, unreadable or malformed `scope.json`, including an invalid `profile` or `scope.account_id`, or credentials of a different account than `scope.account_id` (`error: …` on stdout, no files) | `130`: interrupted (Ctrl-C, SIGTERM, timeout); leaves the partial result |
+| `assemble_findings.py` | `findings.json` written | Input file with an invalid shape, a `--vault-claims`/`--vault-index` file that does not exist, a run directory that does not exist or is inside the vault, or "no sources: a vault or read-only AWS credentials are required" (does not write `findings.json`) | |
+| `render_report.py` | `report.html` written | `findings.json` is missing or invalid JSON, an unreadable or invalid `--verification` file, or an output inside the vault | |
 | `verify_remediation.py` | `verification.json` written (even with a `CONFLICT`: it is a result, not an error) | The folder or `findings.json` is missing, or invalid JSON | |
 | `validate_catalog.py` | Valid catalog | | `1`: problems in the catalog |
 
@@ -437,9 +443,9 @@ It has light and dark modes and clean printing.
 | `PASS` | Verified in AWS: complies | No: only "Verify with" |
 | `DRIFT` | The vault claims something different from reality (both versions are shown) | Only if reality violates (`actual_status: FAIL`) |
 | `DOCUMENTED_ONLY` | Vault only: says it complies, not verified (severity `low`; the check's own stays in the evidence as "not verified") | No |
-| `DOCUMENTED_GAP` | Vault only: says it is missing or `proposed` ("documented as pending") | Yes, complete |
+| `DOCUMENTED_GAP` | Vault only: says it is missing or `proposed` ("documented as pending") | Yes, the catalog fix (not verified against AWS; a person applies it after confirming) |
 | `UNDOCUMENTED` | Exists in the account and the vault does not mention it (severity `low` by default) | Only if reality violates (`actual_status: FAIL`) |
-| `NOT_VERIFIED` | Could not be checked: a permission is missing (it says which), "could not list the regions", "incomplete inventory", "blocked by SCP", no credentials | No |
+| `NOT_VERIFIED` | Could not be checked: a permission is missing (it says which), "could not list the regions", "incomplete inventory", "blocked by SCP". Without credentials there are none: the vault's uncovered components go to the "not verified" list | No |
 | `N/A` | Does not apply; with `vacuous` it is a "vacuous pass" (there are no resources of that type). **Never `PASS`** | No |
 
 Without a fix, the card shows "Verify with" (the read-only command to check it) and the note "not verified:
@@ -513,7 +519,7 @@ What it checks (observation kind in `issues[].kind` and result):
 | An unresolved `{placeholder}` (`unresolved_placeholder`) | `CONFLICT` |
 | Hygiene: `<<` or `set -e` (`hygiene`) | `CONFLICT` |
 | Pending `__FILL_IN_*__` values (`requires_fill_in`) | `REVIEW` |
-| Destructive command (`delete-*`, `revoke-*`, `put-*-policy`, `--force`…) in a fix that is not `planned_change` or `cli_with_decision` with a real warning (`destructive_without_warning`) | `REVIEW` |
+| Destructive command (`delete-*`, `revoke-*`, `put-*-policy`, `put-event-selectors`, `--force` and similar) in a fix that is not `planned_change` or `cli_with_decision` with a real warning (`destructive_without_warning`) | `REVIEW` |
 | Touches a resource that currently passing tests depend on (`dependency_impact`) | `REVIEW`, naming the tests |
 | Declares `downtime: true` or `high` risk (`downtime`, `high_risk`): never stays `OK` | `REVIEW` |
 | Missing the evidence a rule needs (`missing_evidence`), for example an instance that uses the security group with no CMP-006 result | `REVIEW` |
@@ -604,7 +610,7 @@ enabled in all VPCs", "CloudTrail is enabled in all regions". The full list is i
 | Prefix rule | `aws_runner.py` only admits `describe-*`, `list-*` and `get-*`, plus `lookup-events`, `generate-credential-report` and the narrow exception `inspector2 batch-get-account-status` |
 | Name rule | Rejects operations with a sensitive name (credential, password, token, secret, private-key, embed-url, download-url, access-details, records, shard-iterator) except reviewed exceptions (the credential report, the password policy, `list-secrets`, `describe-secret`…) |
 | Denylist | Rejects reads that expose secrets or data even if they start with `get-` or `list-` (`secretsmanager get-secret-value`, `ssm get-parameter*`, `lambda get-function`, `s3api get-object`, `kms decrypt`, `logs get-log-events`, `dynamodb get-item`/`scan`/`query`, `ec2 get-password-data`, `s3 *`, `rds-data *`, among others) |
-| Argument check | Rejects `--with-decryption`, `--include-value(s)`, `--endpoint-url`, `--profile`, `--region`, `--query`, `--output`, `--debug`, `--cli-input-*` (the runner sets them itself) and every `http://` or `https://` argument |
+| Argument check | Rejects `--with-decryption`, `--include-value(s)`, `--endpoint-url`, `--profile`, `--region`, `--query`, `--output`, `--debug`, `--cli-input-*`, `--no-verify-ssl`, `--ca-bundle` (the runner sets them itself or they weaken it), abbreviations of those flags, `file://` and `fileb://` arguments, and every `http://` or `https://` argument |
 | No shell | `subprocess` with an argument list and `shell=False`: no pipes, `;`, `&&` or `$()` |
 | Response scrubbing | Fields that usually carry secrets are dropped or masked (Lambda environment variables, `UserData`, API Gateway stage variables, CloudFront header values…) |
 | Fixes are not executed | They are written to `findings.json` and the HTML; `verify_remediation.py` only runs `bash -n` and the CLI's local help |
@@ -657,6 +663,9 @@ know which tests are enabled, `UNUSED` or `DISABLED` in the Drata or Vanta accou
   - Values with spaces after one-word labels (`private_key`, `psk`, `clave`) are masked only up to the first space, and a
     bare `pass` or `clave` label needs `:` or `=`.
   - A sensitive file is detected by its name and is not opened: it is never known whether it contains a real secret.
+  - A label with words in parentheses before the separator (`Password (prod): value`) is not detected.
+  - The claim fields Claude writes (`check_id`, resource type and region) are not masked: they come from the catalog and the
+    scope, not from the vault, so the vault's secrets never reach them; the free-text claim fields are masked like the rest.
   - Each note is read up to a cap of 2,000,000 characters; a longer one ends up in `truncated_notes` and the report
     warns about it.
 - **CIS AWS numbering.** The catalog's `cis_aws` numbers may come from different versions of the benchmark (for

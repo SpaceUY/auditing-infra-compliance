@@ -39,7 +39,7 @@ Never `PASS` or `FAIL` when something could not be read. `detail.reason` (and `m
 
 ```json
 {"platform": "Acme Notes", "mode": "feature", "target": "email sending",
- "regions": "auto", "profile": null,
+ "regions": "auto", "profile": "acme-audit", "account_id": "111122223333",
  "resources": [
    {"type": "ses_identity", "id": "acme-notes.example", "region": "us-east-1"},
    {"type": "lambda_function", "id": "acme-notes-mailer", "region": "us-east-1"}
@@ -53,7 +53,8 @@ Never `PASS` or `FAIL` when something could not be read. `detail.reason` (and `m
 | `mode` | `full` \| `feature` \| `resource`. |
 | `target` | `null` in `full`; the feature text or the resource id/ARN. |
 | `regions` | `"auto"` (enabled ones with resources + `us-east-1`) or a **non-empty** list of region names, e.g. `["us-east-1", "eu-west-1"]`. A region that is not enabled is skipped with a warning. Any other shape (empty list, loose string, names that are not regions) or no enabled region makes `collect.py` end with exit `2` and a message, without writing files. |
-| `profile` | AWS profile (`AWS_PROFILE`) or `null` for the already configured environment. It is a profile name, never a key. |
+| `profile` | Exactly the profile used in the preflight `sts` (SKILL.md step 2), or `null` only if the `sts` ran without `--profile` (the already configured environment). It is a profile name, never a key. Never collect with a different identity than the one the user confirmed. |
+| `account_id` | Optional. The 12-digit Account id the user confirmed in the preflight, or `null`/omitted when no account was confirmed. `collect.py` compares it with the account of the credentials: if it is not `null` or a 12-digit string it ends with `error: scope.account_id must be null or a 12-digit AWS account id; received <json>. Fix scope.json and retry.`; if the credentials belong to another account it ends with `error: the credentials belong to account <actual>, not the account confirmed in scope.json (<expected>). Fix the profile or scope.json and retry.`. Both are exit `2`, before any inventory and without writing files. |
 | `resources` | `[]` in `full`. In `feature` and `resource`: `{type, id, region}` objects; `type` is a key of `references/inventory.json` and `id` the id, name or ARN (mapping table in `references/vault-reading.md`). |
 | `domains` | `null` (all) or a list to narrow: `compute`, `data`, `detection`, `email`, `encryption`, `iam`, `integration`, `inventory`, `logging`, `monitoring`, `network`. |
 
@@ -88,7 +89,7 @@ A list of objects. All fields except `kind` may be `null` or omitted.
 | `vault_note` | Path of the note (or evidence file) the claim comes from. Text or `null`. |
 | `vault_claim` | What the vault says, in English: a brief paraphrase, or a short quotation when the vault is in another language. Text or `null`: any other type ends `assemble_findings.py` with `error:` and exit `2`. |
 | `actual` | What was observed in the account (or "not verified: no credentials"). Text or `null` (same `error:` / exit `2` otherwise, as for `vault_note`). |
-| `severity` | `critical` \| `high` \| `medium` \| `low` or `null`. Priority: `detail.severity_override` > the claim's `severity` > catalog severity (`low` for `UNDOCUMENTED` and claims with no check). |
+| `severity` | `critical` \| `high` \| `medium` \| `low` or `null`. Priority, for an `EVAL` claim: `detail.severity_override` > the claim's `severity` > catalog severity. For the other kinds `detail` is ignored: `UNDOCUMENTED` and claims with no check default to `low`, `DOCUMENTED_ONLY` is always `low`, and `breaks_tests` floors a `DRIFT` at `high`. |
 | `actual_status` | `DRIFT` or `UNDOCUMENTED` only: `"FAIL"` if reality violates the check; then the finding keeps the complete fix and counts as a failure (see `summary`). Without this field (or with another value) it carries no commands or steps. On any other kind (`DOCUMENTED_ONLY`, `DOCUMENTED_GAP`) it is ignored and the finding gets the warning "<KIND> claim for <check_id>: actual_status FAIL ignored (only DRIFT and UNDOCUMENTED claims use it)"; a claim promoted to `DRIFT` by `breaks_tests` does use it. |
 | `breaks_tests` | `[{"tool": "drata", "test": 30}]` or `[{"tool": "vanta", "test": "<name>"}]` if a vault recommendation would break those tests. It turns the claim into a `DRIFT` of at least `high` severity. |
 | `status`, `detail` | `EVAL` only: `status` is a valid status (`PASS`, `FAIL`, `N/A`, `NOT_VERIFIED`), `detail.reason` the justification. |
@@ -99,7 +100,7 @@ A list of objects. All fields except `kind` may be `null` or omitted.
 
 ## 4. `findings.json` (assembler output)
 
-Top-level keys: `meta`, `summary`, `findings`, `dependencies`, `coverage`, `warnings`, `notes`.
+Top-level keys: `meta`, `summary`, `findings`, `unverified_scope`, `dependencies`, `coverage`, `warnings`, `notes`.
 
 - Findings that come out on their own from the vault index: each `secrets_detected` and each `sensitive_files` entry (`.env*` and `*.env`, `*.pem`, `*.key`, key stores (`*.pfx`, `*.p12`, `*.jks`, `*.keystore`), `*.tfvars`, `terraform.tfstate*`, SSH private keys (`id_rsa`, `id_ed25519`, `id_ecdsa`) and names containing `credentials` or `secret` (`secret` only for files that are not `.md` notes, so a note such as `AWS Secrets Manager.md` is still read); detected by name only) generates a `FAIL` `critical` with `check_id: null` and `console_only` remediation (rotate and remove the file).
 - `meta`: platform, mode, target, `generated_at`, `lang` (`--lang` only accepts `en`; the report is English only), `tool` (`--tool drata|vanta|both`; `null` if not given: the HTML preselects `drata` or `vanta` in the tool filter, `both` and `null` preselect nothing, and both remain available), `catalog_checks`, `vault` (`path`, `kind`), `aws` (`account_id`, `identity_arn`, `regions`; `null` without credentials).
@@ -128,9 +129,9 @@ Top-level keys: `meta`, `summary`, `findings`, `dependencies`, `coverage`, `warn
 | `PASS` | Verified live, complies |
 | `DRIFT` | The vault claims something different from reality |
 | `DOCUMENTED_ONLY` | Vault only: says it complies, not verified |
-| `DOCUMENTED_GAP` | Vault only: says it is missing or `proposed` |
+| `DOCUMENTED_GAP` | Vault only: says it is missing or `proposed`; carries its catalog fix, which is **not verified against AWS** (a person applies it only after confirming) |
 | `UNDOCUMENTED` | Exists in the account and the vault does not mention it |
-| `NOT_VERIFIED` | No credentials or `AccessDenied` (with the missing permission) |
+| `NOT_VERIFIED` | Could not be read: `AccessDenied` (with the missing permission), a failed listing, an SCP. Without credentials there are no `NOT_VERIFIED` findings: components the vault does not cover appear in `unverified_scope` and the HTML "not verified" list |
 | `N/A` | Does not apply; with `vacuous: true` = vacuous pass (there are no resources of that type). **Never `PASS`.** |
 
 ### Severities
