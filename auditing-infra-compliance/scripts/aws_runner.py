@@ -162,25 +162,25 @@ class CallResult:
 
 def assert_read_only(service: str, operation: str, args: list[str]) -> None:
     if not _NAME_RE.fullmatch(service or "") or not _NAME_RE.fullmatch(operation or ""):
-        raise ReadOnlyViolation(f"nombre de servicio/operación inválido: {service!r} {operation!r}")
+        raise ReadOnlyViolation(f"invalid service/operation name: {service!r} {operation!r}")
     if (service, "*") in DENYLIST or (service, operation) in DENYLIST:
-        raise ReadOnlyViolation(f"{service} {operation} está en la denylist (puede exponer secretos o datos)")
+        raise ReadOnlyViolation(f"{service} {operation} is on the denylist (it may expose secrets or data)")
     if SENSITIVE_NAME.search(operation) and (service, operation) not in SENSITIVE_NAME_EXCEPTIONS:
-        raise ReadOnlyViolation(f"{service} {operation} puede devolver secretos o datos (nombre sensible)")
+        raise ReadOnlyViolation(f"{service} {operation} may return secrets or data (sensitive name)")
     allowed = (service, operation) in ALLOWED_PAIRS or operation in ALLOWED_EXACT or operation.startswith(ALLOWED_PREFIXES)
     if not allowed:
-        raise ReadOnlyViolation(f"{service} {operation} no es una operación de solo lectura")
+        raise ReadOnlyViolation(f"{service} {operation} is not a read-only operation")
     for arg in args:
         _check_arg(arg)
 
 
 def _check_arg(arg: object) -> None:
     if not isinstance(arg, str):
-        raise ReadOnlyViolation(f"argumento no es texto: {arg!r}")
+        raise ReadOnlyViolation(f"argument is not text: {arg!r}")
     if "file://" in arg or "fileb://" in arg:
-        raise ReadOnlyViolation(f"argumento prohibido (lectura de archivo local): {arg}")
+        raise ReadOnlyViolation(f"forbidden argument (reads a local file): {arg}")
     if _URL_ARG.match(arg):  # the CLI replaces such an argument with the body fetched by GET
-        raise ReadOnlyViolation(f"argumento prohibido (el CLI descargaría la URL): {arg}")
+        raise ReadOnlyViolation(f"forbidden argument (the CLI would download the URL): {arg}")
     flag = arg.split("=", 1)[0].strip()
     if flag.startswith("--with-dec") or flag.startswith("--include-val") or flag in FORBIDDEN_ARGS:
         raise ReadOnlyViolation(f"argumento prohibido: {arg}")
@@ -252,14 +252,14 @@ def run_aws(
         except subprocess.TimeoutExpired:
             return _failure("ERROR", f"timeout tras {TIMEOUT_SECONDS}s", argv)
         except OSError as exc:
-            return _failure("ERROR", f"no se pudo ejecutar aws: {exc}", argv)
+            return _failure("ERROR", f"could not run aws: {exc}", argv)
         if proc.returncode == 0:
             return _parse_success(proc.stdout, argv, SCRUB.get((service, operation), frozenset()),
                                   MASK.get((service, operation), frozenset()), _passes_max_items(args))
         kind = classify_error(proc.stderr or "")
         if kind == "THROTTLED" and attempt < len(BACKOFF_SECONDS):
             if cancelled is not None and cancelled():  # a cancelled run must not keep retrying
-                return _failure("ERROR", "ejecución cancelada", argv)
+                return _failure("ERROR", "execution cancelled", argv)
             sleep(BACKOFF_SECONDS[attempt])
             continue
         return _failure(kind, (proc.stderr or "").strip(), argv)
@@ -298,9 +298,9 @@ def _parse_success(stdout: str, argv: list[str], scrub_keys: frozenset[str] = fr
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
-        return _failure("ERROR", f"salida no es JSON válido: {exc}", argv)
+        return _failure("ERROR", f"output is not valid JSON: {exc}", argv)
     if not limited and _truncated(data):
-        return _failure("ERROR", "respuesta truncada: la operación devolvió una página parcial (token de siguiente página)", argv)
+        return _failure("ERROR", "truncated response: the operation returned a partial page (next-page token)", argv)
     if scrub_keys:
         data = _scrub(data, scrub_keys)
     if mask_keys:
@@ -314,13 +314,13 @@ def run_dns(name: str, rrtype: str, runner=subprocess.run, which=shutil.which) -
     elif which("nslookup"):
         argv = ["nslookup", "-type=" + rrtype, name]
     else:
-        return _failure("ERROR", "dig/nslookup no disponibles", [])
+        return _failure("ERROR", "dig/nslookup not available", [])
     try:
         proc = runner(argv, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, shell=False)
     except subprocess.TimeoutExpired:
         return _failure("ERROR", f"timeout tras {TIMEOUT_SECONDS}s", argv)
     except OSError as exc:
-        return _failure("ERROR", f"no se pudo ejecutar {argv[0]}: {exc}", argv)
+        return _failure("ERROR", f"could not run {argv[0]}: {exc}", argv)
     if proc.returncode != 0:
         return _failure("ERROR", (proc.stderr or "").strip(), argv)
     lines = [line.strip() for line in (proc.stdout or "").splitlines() if line.strip()]

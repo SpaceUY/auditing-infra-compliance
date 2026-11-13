@@ -17,7 +17,7 @@ def _parse(path: str) -> list[tuple[str, int]]:
             continue
         match = _SEGMENT.match(raw)
         if not match:
-            raise ValueError(f"ruta inválida: {path!r} (segmento {raw!r})")
+            raise ValueError(f"invalid path: {path!r} (segment {raw!r})")
         key, brackets = match.groups()
         segments.append((key, brackets.count("[")))
     return segments

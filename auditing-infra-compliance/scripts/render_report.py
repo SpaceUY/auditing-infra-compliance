@@ -24,7 +24,7 @@ import assemble_findings
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TEMPLATE_PATH = SKILL_DIR / "assets" / "report-template.html"
 MARKER = "/*__FINDINGS__*/"
-STALE_WARNING = "verificación desactualizada: volver a correr verify_remediation"
+STALE_WARNING = "stale verification: re-run verify_remediation"
 _ESCAPES = {"<": "\\u003c", ">": "\\u003e", "&": "\\u0026", "\u2028": "\\u2028", "\u2029": "\\u2029"}
 
 
@@ -51,11 +51,11 @@ def _vault_folder(findings: dict) -> dict:
 def render(findings: dict, template: str, verification: dict | None = None) -> str:
     """Pure: findings (+ optional verification) + template -> HTML."""
     if template.count(MARKER) != 1:
-        raise ValueError(f"la plantilla debe contener exactamente un marcador {MARKER}")
+        raise ValueError(f"the template must contain exactly one {MARKER} marker")
     if not isinstance(findings, dict) or not isinstance(findings.get("findings"), list):
-        raise ValueError("findings.json no tiene la forma esperada (falta la lista 'findings')")
+        raise ValueError("findings.json does not have the expected shape (the 'findings' list is missing)")
     if verification is not None and not isinstance(verification, dict):
-        raise ValueError("verification.json no tiene la forma esperada (se esperaba un objeto)")
+        raise ValueError("verification.json does not have the expected shape (an object was expected)")
     findings = _vault_folder({k: v for k, v in findings.items() if k not in ("verification", "verification_stale")})
     if verification is not None and verification_is_stale(findings, verification):
         findings["verification_stale"] = True
@@ -65,10 +65,10 @@ def render(findings: dict, template: str, verification: dict | None = None) -> s
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Genera el reporte HTML a partir de findings.json")
-    parser.add_argument("findings", help="ruta de findings.json")
-    parser.add_argument("--verification", help="ruta de verification.json (etapa de verificación de arreglos)")
-    parser.add_argument("-o", "--output", help="ruta del HTML (por defecto report.html junto a findings.json)")
+    parser = argparse.ArgumentParser(description="Generates the HTML report from findings.json")
+    parser.add_argument("findings", help="path to findings.json")
+    parser.add_argument("--verification", help="path to verification.json (fix verification stage)")
+    parser.add_argument("-o", "--output", help="path of the HTML (by default report.html next to findings.json)")
     return parser
 
 
@@ -78,20 +78,20 @@ def main(argv=None) -> int:
     source = Path(args.findings)
     output = Path(args.output) if args.output else source.with_name("report.html")
     if not source.is_file():
-        print(f"error: no existe {source}: correr assemble_findings.py antes de generar el reporte", file=sys.stderr)
+        print(f"error: {source} does not exist: run assemble_findings.py before generating the report", file=sys.stderr)
         return 2
     try:
         findings = json.loads(source.read_text(encoding="utf-8"))
         verification = json.loads(Path(args.verification).read_text(encoding="utf-8")) if args.verification else None
         html = render(findings, TEMPLATE_PATH.read_text(encoding="utf-8"), verification)
         if isinstance(findings, dict) and isinstance(verification, dict) and verification_is_stale(findings, verification):
-            print(f"advertencia: {STALE_WARNING}", file=sys.stderr)
+            print(f"warning: {STALE_WARNING}", file=sys.stderr)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(html, encoding="utf-8")
     except (ValueError, OSError) as exc:  # JSONDecodeError and UnicodeDecodeError are ValueErrors
         print(f"error: {' '.join(str(exc).split())}", file=sys.stderr)
         return 2
-    print(f"reporte escrito en {output}")
+    print(f"report written to {output}")
     return 0
 
 

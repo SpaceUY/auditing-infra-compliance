@@ -83,7 +83,7 @@ def drata_role(responses: dict, params: dict) -> list[dict]:
             return [_not_applicable(item["id"], item["region"])]
         if any(_is_security_audit(p) for p in attached):
             return []
-        return [_offender(item["id"], item["region"], missing_policy="SecurityAudit", reason="falta la política administrada SecurityAudit",
+        return [_offender(item["id"], item["region"], missing_policy="SecurityAudit", reason="the SecurityAudit managed policy is missing",
                           attached_policies=[p.get("PolicyName") for p in attached])]
     return _role_results(responses, params, judge)
 
@@ -125,7 +125,7 @@ def drata_backup_perms(responses: dict, params: dict) -> list[dict]:
         if not missing:
             return []
         return [_offender(item["id"], item["region"], missing_actions=missing, aws_managed_not_evaluated=not_read,
-                          reason="faltan permisos de AWS Backup en una política inline o administrada por el cliente")]
+                          reason="AWS Backup permissions are missing in an inline or customer-managed policy")]
     return _role_results(responses, params, judge)
 
 
@@ -147,14 +147,14 @@ def vanta_role(responses: dict, params: dict) -> list[dict]:
             return [_not_applicable(item["id"], item["region"])]
         missing = [] if any(_is_security_audit(p) for p in attached) else ["SecurityAudit"]
         if any(customer_managed.match(p.get("PolicyArn") or "") for p in attached):
-            extra = "administrada por el cliente"
+            extra = "customer-managed"
         else:
-            extra = "inline" if name in inline else "ausente"
+            extra = "inline" if name in inline else "absent"
             missing.append(name)
         if not missing:
             return []
         return [_offender(item["id"], item["region"], missing_policies=missing, additional_permissions=extra,
-                          reason="al rol le faltan políticas que Vanta detecta")]
+                          reason="the role is missing policies that Vanta detects")]
     return _role_results(responses, params, judge)
 
 
@@ -164,7 +164,7 @@ def _key_error(key_id: str, region: str, code: str, call: str) -> dict:
     """Entry for a failed per-key call (item_errors): a vanished key is out of scope, the rest could not be verified."""
     if code == "NotFoundException":
         return _not_applicable(key_id, region)
-    reason = "la key policy no permite al auditor consultar la clave" if code == "ACCESS_DENIED" else "no se pudo consultar la clave"
+    reason = "the key policy does not allow the auditor to query the key" if code == "ACCESS_DENIED" else "could not query the key"
     return _unverified(key_id, region, error_code=code, call=call, reason=reason)
 
 
@@ -205,11 +205,11 @@ def kms_auditor_access(responses: dict, params: dict) -> list[dict]:
             continue
         answer = policies.get((region, key_id)) or {}
         if "__error__" in answer or "Policy" not in answer:
-            found.append(_key_error(key_id, region, answer.get("__error__", "SIN_RESPUESTA"), "get-key-policy"))
+            found.append(_key_error(key_id, region, answer.get("__error__", "NO_RESPONSE"), "get-key-policy"))
             continue
         statements = _statements(_document(answer["Policy"]))
         missing = {name: gone for name, arn in roles.items() if (gone := _missing_actions(statements, arn, params["auditors"][name]))}
         if missing:
             found.append(_offender(key_id, region, arn=meta.get("Arn"), missing_actions=missing,
-                                   reason="la key policy no permite a los roles auditores las acciones de lectura"))
+                                   reason="the key policy does not allow the auditor roles the read actions"))
     return found

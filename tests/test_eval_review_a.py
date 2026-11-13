@@ -63,7 +63,7 @@ class CredentialReportGapTests(unittest.TestCase):
                 self.assertEqual(len(entries), 1)
                 self.assertTrue(entries[0]["unverified"])
                 self.assertEqual(entries[0]["region"], REGION)
-                self.assertIn("reporte de credenciales", entries[0]["detail"]["reason"])
+                self.assertIn("credential report", entries[0]["detail"]["reason"])
                 self.assertEqual([o for o in found if o["resource_id"] == "alice.dev"], [])
 
     def test_without_an_inventory_nothing_changes(self):

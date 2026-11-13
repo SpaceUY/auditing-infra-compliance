@@ -2,9 +2,9 @@
 
 ← [[Acme Notes]]
 
-Bucket acme-notes-uploads con los adjuntos de los usuarios. Contiene datos personales.
+Bucket acme-notes-uploads with the users' attachments. Contains personal data.
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Cifrado | SSE-S3 |
-| Versionado | Habilitado |
+| Encryption | SSE-S3 |
+| Versioning | Enabled |

@@ -75,10 +75,10 @@ def tag_present(responses: dict, params: dict) -> list[dict]:
     applicable, offenders = _tagged_items(responses, params)
     for item, tags in applicable:
         if key not in tags:
-            offenders.append(_offender(item["id"], item["region"], tag=key, reason=f"falta el tag {key}"))
+            offenders.append(_offender(item["id"], item["region"], tag=key, reason=f"missing tag {key}"))
         elif pattern and not PATTERNS[pattern](tags[key]):
             offenders.append(_offender(item["id"], item["region"], tag=key, value=tags[key],
-                                       reason=f"el valor del tag {key} no tiene formato {pattern}"))
+                                       reason=f"the value of tag {key} does not match the format {pattern}"))
     return offenders
 
 
@@ -94,10 +94,10 @@ def user_data_flag(responses: dict, params: dict) -> list[dict]:
         flagged = flagged or value == "true"
         if value not in ("true", "false"):
             unclassified.append(_offender(item["id"], item["region"], tag=key, value=tags.get(key), severity_override="low",
-                                          reason=f"sin clasificar: falta {key} con valor true o false"))
+                                          reason=f"unclassified: {key} is missing with a value of true or false"))
     if applicable and not flagged:
         offenders.append(_offender("account", DEFAULT_REGION, tag=key, data_stores=len(applicable),
-                                   reason=f"ningún almacén de datos tiene {key}=true"))
+                                   reason=f"no data store has {key}=true"))
     return offenders + unclassified
 
 
@@ -109,7 +109,7 @@ def nonprod_on_prod(responses: dict, params: dict) -> list[dict]:
         environment, flag = tags.get(ENVIRONMENT_KEY, ""), tags.get(NON_PROD_KEY, "")
         if environment.strip().lower() in PROD_VALUES and flag.strip().lower() == "true":
             offenders.append(_offender(item["id"], item["region"], environment=environment, vanta_non_prod=flag,
-                                       reason="VantaNonProd=true en un recurso con Environment de producción"))
+                                       reason="VantaNonProd=true on a resource with a production Environment"))
     return offenders
 
 
@@ -121,5 +121,5 @@ def tags_present(responses: dict, params: dict) -> list[dict]:
     for item, tags in applicable:
         missing = [k for k in keys if not tags.get(k, "").strip()]
         if missing:
-            offenders.append(_offender(item["id"], item["region"], missing=missing, reason="faltan tags organizacionales"))
+            offenders.append(_offender(item["id"], item["region"], missing=missing, reason="missing organizational tags"))
     return offenders

@@ -132,7 +132,7 @@ class LaunchTemplateImdsTests(unittest.TestCase):
         responses = self.responses(names={"acme-notes-web"})
         responses["versions"] = [(REGION, {"__error__": NOT_FOUND})]
         (offender,) = evaluate("lt_imdsv2", responses)
-        self.assertEqual(offender["detail"]["reason"], "launch template inexistente o inaccesible")
+        self.assertEqual(offender["detail"]["reason"], "launch template does not exist or is not accessible")
 
     def test_no_groups_no_offenders(self):
         responses = {"asgs": [(REGION, fx("autoscaling-describe-auto-scaling-groups-empty"))], "versions": [],
@@ -160,7 +160,7 @@ class LoadBalancerAzTests(unittest.TestCase):
 
     def test_region_without_any_balancer_fails(self):
         (offender, _) = evaluate("lb_multi_az", self.responses(alb="none", clb="none"))
-        self.assertEqual(offender["detail"]["reason"], "la región no tiene un balanceador en 2 o más zonas de disponibilidad")
+        self.assertEqual(offender["detail"]["reason"], "the region has no load balancer spanning 2 or more availability zones")
 
     def test_one_multi_az_balancer_is_enough_even_next_to_a_single_az_one(self):
         self.assertEqual(evaluate("lb_multi_az", self.responses(alb="multi-az", clb="single-az")), [])
@@ -192,7 +192,7 @@ class AsgPresentTests(unittest.TestCase):
     def test_asg_present_fail_reports_offenders(self):
         offenders = evaluate("asg_present", self.responses("empty"))
         self.assertEqual([(o["resource_id"], o["region"]) for o in offenders], [(I1, REGION), (I2, REGION)])
-        self.assertEqual(offenders[0]["detail"]["reason"], "la región tiene instancias EC2 y ningún grupo de Auto Scaling")
+        self.assertEqual(offenders[0]["detail"]["reason"], "the region has EC2 instances and no Auto Scaling group")
 
     def test_only_regions_with_instances_need_a_group(self):
         responses = self.responses("lt", instance(I1), instance(I3, OTHER))
@@ -237,8 +237,8 @@ class SsmManagedTests(unittest.TestCase):
         responses = self.responses("online", {I1: "patched"}, instance(I1), instance(I2), instance(I3))
         offenders = evaluate("ssm_managed", responses)
         self.assertEqual(ids(offenders), [I2, I3])
-        self.assertEqual(offenders[0]["detail"]["problems"], ["sin asociación de parches (Patch Manager)"])
-        self.assertEqual(offenders[1]["detail"]["problems"], ["no registrada en Systems Manager"])
+        self.assertEqual(offenders[0]["detail"]["problems"], ["no patch association (Patch Manager)"])
+        self.assertEqual(offenders[1]["detail"]["problems"], ["not registered in Systems Manager"])
 
     def test_ssm_unreachable_flag_ignores_patch_only_problems(self):
         responses = self.responses("online", {I1: "patched"}, instance(I1), instance(I2), instance(I3))
@@ -250,7 +250,7 @@ class SsmManagedTests(unittest.TestCase):
     def test_agent_that_lost_connection_is_reported(self):
         responses = self.responses("lost", {I1: "patched", I2: "patched"}, instance(I2))
         (offender,) = evaluate("ssm_managed", responses)
-        self.assertEqual(offender["detail"]["problems"], ["el agente SSM no está en línea (ConnectionLost)"])
+        self.assertEqual(offender["detail"]["problems"], ["the SSM agent is not online (ConnectionLost)"])
 
     def test_every_problem_is_listed(self):
         responses = self.responses("lost", {}, instance(I2))
@@ -337,7 +337,7 @@ class ComputeCatalogTests(unittest.TestCase):
         rem = catalog_check("CMP-002")["remediation"]
         refresh = rem["commands"][-1]
         self.assertRegex(refresh, r'= "required" \]\s*&&\s*aws autoscaling update-auto-scaling-group [^\n]*&&\s*aws autoscaling start-instance-refresh')
-        self.assertRegex(rem["notes"], r"(?i)reemplaza")
+        self.assertRegex(rem["notes"], r"(?i)replaces")
 
     def test_cmp_003_instance_profile_is_associated_only_after_it_was_created(self):
         commands = catalog_check("CMP-003")["remediation"]["commands"]
@@ -461,7 +461,7 @@ class ComputeCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_nothing_is_unverified(self):
         self.assertEqual(self.code, 0)
-        unverified = [(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NO_VERIFICADO"]
+        unverified = [(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NOT_VERIFIED"]
         self.assertEqual(unverified, [])
 
     def test_instance_metadata_and_profile_outcomes(self):

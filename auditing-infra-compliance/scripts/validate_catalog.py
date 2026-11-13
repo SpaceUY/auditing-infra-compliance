@@ -25,10 +25,10 @@ SKILL_DIR = Path(__file__).resolve().parent.parent
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Valida el catálogo de chequeos, o lo lista con --list")
-    parser.add_argument("--list", action="store_true", help="listar chequeos: id | título | tipos de recurso | severidad")
-    parser.add_argument("--type", help="con --list: solo chequeos de este tipo de inventario")
-    parser.add_argument("--grep", help="con --list: solo chequeos cuyo id, título o tipos contienen el texto")
+    parser = argparse.ArgumentParser(description="Validates the check catalog, or lists it with --list")
+    parser.add_argument("--list", action="store_true", help="list checks: id | title | resource types | severity")
+    parser.add_argument("--type", help="with --list: only checks of this inventory type")
+    parser.add_argument("--grep", help="with --list: only checks whose id, title or types contain the text")
     return parser
 
 
@@ -57,7 +57,7 @@ def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if (args.type or args.grep) and not args.list:
-        parser.error("--type y --grep solo se usan con --list")
+        parser.error("--type and --grep are only used with --list")
     refs = SKILL_DIR / "references"
     checks = catalog.load_checks(refs / "checks")
     if args.list:
@@ -74,7 +74,7 @@ def main(argv=None) -> int:
         print(error)
     if errors:
         return 1
-    print(f"OK: {len(checks)} checks, {len(rules)} reglas de conflicto")
+    print(f"OK: {len(checks)} checks, {len(rules)} conflict rules")
     return 0
 
 

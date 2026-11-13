@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Pre-auditoría de cumplimiento</title>
+<title>Compliance pre-audit</title>
 <style>
 :root {
   --bg: #f4f6f9; --surface: #ffffff; --surface-2: #eef1f6; --text: #1b2230; --muted: #566075;
@@ -66,18 +66,18 @@ a.chip:hover { text-decoration: underline; }
 .st-DRIFT { background: var(--high-bg); color: var(--high-fg); border-color: var(--high-fg); }
 .st-UNDOCUMENTED, .st-DOCUMENTED_GAP { background: var(--med-bg); color: var(--med-fg); border-color: var(--med-fg); }
 .st-DOCUMENTED_ONLY { background: var(--low-bg); color: var(--low-fg); border-color: var(--low-fg); }
-.st-NO_VERIFICADO { background: var(--nov-bg); color: var(--nov-fg); border-color: var(--nov-fg); }
+.st-NOT_VERIFIED { background: var(--nov-bg); color: var(--nov-fg); border-color: var(--nov-fg); }
 .st-NA, .st-NOT_TOUCHED { background: var(--na-bg); color: var(--na-fg); border-color: var(--na-fg); }
 .verdict { border: 2px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 0 0 12px; background: var(--surface); }
 .verdict .label { font-size: 1.25rem; font-weight: 700; margin: 0 0 4px; }
 .verdict p { margin: 4px 0; }
 .verdict .basis { font-weight: 600; }
-.verdict-OPTIMO { background: var(--pass-bg); color: var(--pass-fg); border-color: var(--pass-fg); }
-.verdict-NO_OPTIMO { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
-.verdict-NO_VERIFICABLE { background: var(--nov-bg); color: var(--nov-fg); border-color: var(--nov-fg); }
+.verdict-OPTIMAL { background: var(--pass-bg); color: var(--pass-fg); border-color: var(--pass-fg); }
+.verdict-NOT_OPTIMAL { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
+.verdict-NOT_VERIFIABLE { background: var(--nov-bg); color: var(--nov-fg); border-color: var(--nov-fg); }
 .ver-OK { background: var(--pass-bg); color: var(--pass-fg); border-color: var(--pass-fg); }
-.ver-REVISAR { background: var(--med-bg); color: var(--med-fg); border-color: var(--med-fg); }
-.ver-CONFLICTO { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
+.ver-REVIEW { background: var(--med-bg); color: var(--med-fg); border-color: var(--med-fg); }
+.ver-CONFLICT { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
 button, select, input[type="search"] { font: inherit; color: var(--text); }
 button.btn {
   background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px;
@@ -146,7 +146,7 @@ footer.fixed {
 <body>
 <header class="top">
   <h1 id="title"></h1>
-  <noscript><div class="alert">Este reporte necesita JavaScript para mostrarse. Abrirlo en un navegador con JavaScript activo; los datos están en el propio archivo (findings.json trae lo mismo).</div></noscript>
+  <noscript><div class="alert">This report needs JavaScript to be displayed. Open it in a browser with JavaScript enabled; the data is in the file itself (findings.json holds the same).</div></noscript>
   <div class="verdict" id="verdict" role="status" hidden></div>
   <div class="panel"><dl class="meta" id="meta"></dl></div>
 </header>
@@ -181,72 +181,72 @@ footer.fixed {
 
 /*i18n:start*/
 const I18N = {
-  titlePrefix: 'Pre-auditoría de infraestructura',
-  meta: { platform: 'Plataforma', mode: 'Modo', target: 'Objetivo', sources: 'Fuentes', account: 'Cuenta AWS',
-          identity: 'Identidad', regions: 'Regiones', date: 'Fecha', none: 'no indicado' },
-  sources: { aws: 'AWS (solo lectura)', noAws: 'sin credenciales AWS', vault: 'vault', vaultTyped: 'tipado', vaultFree: 'libre', noVault: 'sin vault' },
-  verdict: { OPTIMO: 'Óptimo', NO_OPTIMO: 'No óptimo', NO_VERIFICABLE: 'No verificable', basis: 'Veredicto de la infraestructura para SOC 2 / ISO 27001 (Drata / Vanta)',
-             basisLabel: 'Base del veredicto', bases: { aws: 'AWS (credenciales de solo lectura)', vault: 'el vault (lo documentado, no verificado contra AWS)', 'aws+vault': 'AWS y el vault' },
-             noAws: 'Nada se verificó contra AWS: no hubo credenciales de solo lectura. Lo que figura abajo es lo que dice el vault, sin comprobar.',
-             unverified: 'Sin verificar', reasons: 'Motivos' },
-  summary: { title: 'Resumen', noAwsNote: 'Sin credenciales AWS: ningún conteo de abajo es un resultado verificado.', notChecked: 'sin verificar (sin credenciales AWS)',
-             unverifiedTitle: 'Sin verificar', unverifiedCounts: { no_verificado: 'No verificado', documented_only: 'Solo documentado en el vault', documented_gap: 'Brecha documentada en el vault', scope_without_claims: 'Componentes del alcance sin afirmaciones ni resultados' },
-             scopeList: 'Componentes del alcance sin verificar', scopeUnverified: 'sin verificar', byStatus: 'Hallazgos por estado', bySeverity: 'Fallas por severidad', drata: 'Tests de Drata que fallan',
-             vanta: 'Tests de Vanta que fallan', notVerified: 'No verificado', notVerifiedHint: 'No se pudo comprobar: falta permiso o la evaluación quedó pendiente.',
-             missing: 'Permisos que faltan', none: 'ninguno', clickHint: 'Tocar un conteo filtra los hallazgos.' },
-  filters: { title: 'Filtros', severity: 'Severidad', status: 'Estado', domain: 'Dominio', tool: 'Herramienta', norm: 'Norma', search: 'Buscar',
-             searchPlaceholder: 'ID, recurso, texto…', all: 'Todos', allF: 'Todas', clear: 'Limpiar filtros', expand: 'Expandir todo', collapse: 'Contraer todo',
-             showing: 'Mostrando', of: 'de', normSoc2: 'SOC 2', normIso: 'ISO 27001' },
-  bulk: { title: 'Copiar arreglos de bajo riesgo', hint: 'Por severidad: junta los comandos de los hallazgos FAIL de tipo CLI con riesgo bajo que la verificación marcó OK, separados por comentarios con el ID. Se omiten los que tienen valores por completar y los que la verificación marcó como CONFLICTO o REVISAR. Revisar antes de pegar en CloudShell.',
-          button: 'Copiar arreglos de bajo riesgo', empty: 'sin comandos', header: 'Hallazgos', none: 'No hay arreglos de bajo riesgo para copiar.',
-          noVerification: 'Desactivado: falta la verificación de los arreglos. Correr verify_remediation.py y volver a generar el reporte con --verification.',
-          stale: 'Desactivado: la verificación quedó desactualizada (los hallazgos cambiaron). Volver a correr verify_remediation.py y a generar el reporte.' },
-  findings: { title: 'Hallazgos', empty: 'Ningún hallazgo coincide con los filtros.', none: 'Sin hallazgos en esta corrida.', noResource: 'Sin recurso asociado', account: 'Cuenta AWS',
-              region: 'región', mappings: 'Mapeos', inferred: 'inferido', inferredHint: 'Mapeo inferido por el catálogo, sin fuente oficial.',
-              catalogSeverity: 'severidad del chequeo', notVerified: 'no verificada',
-              evidence: 'Evidencia', vault: 'Lo que afirma el vault', vaultNote: 'Nota', breaks: 'Esta recomendación del vault rompería',
-              dependsOnMe: 'Tests que dependen de este recurso', missing: 'Permisos que faltan', byClaude: 'evaluado por Claude',
-              vacuous: 'pasa por vacío: no hay recursos de este tipo en el alcance', checkId: 'Chequeo', fromVault: 'transcrito del vault, no verificado' },
-  rem: { title: 'Remediación', steps: 'Pasos', commands: 'Comandos para CloudShell', verify: 'Verificar después', verifyWith: 'Verificar con', notes: 'Notas',
-         copy: 'Copiar', copyAll: 'Copiar todo', copied: 'Copiado', copyCmdAria: 'Copiar comando', copyAllAria: 'Copiar todos los comandos', copyVerifyAria: 'Copiar comando de verificación', of: 'de', ofN: 'de', copyFail: 'No se pudo copiar: seleccionar y copiar a mano',
-         placeholders: 'Completar los valores resaltados (__COMPLETAR_…__) antes de pegar.',
-         planned: 'Cambio planificado: los comandos de abajo cambian la infraestructura. Revisar cada bloque antes de correrlo, correrlos en el orden mostrado y dentro de una ventana de cambio acordada. Nada de esto se ejecuta automáticamente.',
-         consoleOnly: 'Solo se puede hacer desde la consola de AWS.',
-         kind: { cli: 'Comando CLI', cli_with_decision: 'CLI con decisión previa', planned_change: 'Cambio planificado', console_only: 'Solo consola' },
-         risk: { low: 'Riesgo bajo', medium: 'Riesgo medio', high: 'Riesgo alto' }, downtime: 'Con downtime', noDowntime: 'Sin downtime' },
-  deps: { title: 'No tocar sin revisar', hint: 'Recursos de los que dependen tests que hoy pasan. Cambiarlos o apagarlos los pondría en rojo.',
-          resource: 'Recurso', type: 'Tipo', tests: 'Tests y controles que dependen', empty: 'Sin dependencias registradas.' },
-  cov: { title: 'Cobertura de normas', hint: 'Estado de cada control tocado por los chequeos. No es un indicador global de cumplimiento.',
-         iso: 'ISO 27001:2022', tsc: 'SOC 2 (TSC 2017)', id: 'ID', name: 'Nombre', status: 'Estado',
-         groups: { technical: 'Controles técnicos', organizational: 'Organizacionales: fuera del alcance de este reporte', inherited: 'Heredados de AWS',
-                   touched: 'Organizacionales mencionados por hallazgos (el reporte no los evalúa: el estado viene del hallazgo)' },
-         st: { PASS: 'Pasa', FAIL: 'Falla', NO_VERIFICADO: 'No verificado', NOT_TOUCHED: 'No tocado' } },
-  notes: { title: 'Advertencias y notas', warnings: 'Advertencias de la corrida', notes: 'Notas', none: 'Sin advertencias ni notas.' },
-  ver: { title: 'Verificación de los arreglos', badgeTitle: 'Verificación del arreglo',
-         hint: 'Revisión de los comandos de CloudShell sin ejecutar nada en AWS: sintaxis, valores sin resolver, operaciones destructivas, conflictos entre arreglos y lo que falta.',
-         counts: 'Arreglos verificados', pending: 'Valores por completar (__COMPLETAR_…__) pendientes', pendingHint: 'Completarlos antes de pegar los comandos en CloudShell.',
-         cliOn: 'Validez de operaciones y flags: comprobada con la ayuda local de la AWS CLI.',
-         cliOff: 'Validez de operaciones y flags: no comprobada (correr la verificación con --check-cli y la AWS CLI instalada).',
-         cliNone: 'Validez de operaciones y flags: no había comandos aws que comprobar.',
-         stale: 'verificación desactualizada: volver a correr verify_remediation',
-         warnings: 'Advertencias de la verificación', conflicts: 'Conflictos entre arreglos', noConflicts: 'Sin conflictos entre arreglos.', gaps: 'Lo que falta', noGaps: 'Nada faltante detectado.',
-         order: 'Orden sugerido de aplicación', orderHint: 'Identidad, logging y detección, claves KMS, cifrado, red, datos, monitoreo, tags e integración; dentro de cada grupo por severidad y los cambios planificados al final. Las reglas de conflicto tienen prioridad.',
-         reasons: 'Verificación del arreglo', byClaude: 'revisión de Claude', rule: 'Regla', findings: 'Hallazgos', none: 'sin observaciones',
-         status: { OK: 'OK', REVISAR: 'REVISAR', CONFLICTO: 'CONFLICTO' },
-         gapKind: { sin_arreglo: 'Falla sin arreglo', no_verificado: 'No verificado', recurso_sin_chequeo: 'Recurso sin chequeo', sin_verify_after: 'Arreglo sin verificación posterior' },
-         issueKind: { syntax: 'Sintaxis', cli_invalida: 'CLI inválida', placeholder_sin_resolver: 'Placeholder sin resolver', requiere_completar: 'Valor por completar',
-                      higiene: 'Higiene', destructivo_sin_aviso: 'Destructivo sin aviso', conflicto_regla: 'Conflicto', impacto_dependencias: 'Impacto en dependencias', downtime: 'Downtime', claude: 'Claude', riesgo_alto: 'Riesgo alto', evidencia_faltante: 'Evidencia faltante' } },
-  footer: 'Pre-auditoría técnica automatizada. No es una opinión de auditoría ni cubre controles organizacionales (políticas, RRHH, equipos, proveedores, ISMS).',
-  status: { FAIL: 'Falla', PASS: 'Pasa', DRIFT: 'Drift', DOCUMENTED_ONLY: 'Solo documentado', DOCUMENTED_GAP: 'Brecha documentada',
-            UNDOCUMENTED: 'Sin documentar', NO_VERIFICADO: 'No verificado', 'N/A': 'N/A' },
-  severity: { critical: 'Crítica', high: 'Alta', medium: 'Media', low: 'Baja' }
+  titlePrefix: 'Infrastructure compliance pre-audit',
+  meta: { platform: 'Platform', mode: 'Mode', target: 'Target', sources: 'Sources', account: 'AWS account',
+          identity: 'Identity', regions: 'Regions', date: 'Date', none: 'not specified' },
+  sources: { aws: 'AWS (read-only)', noAws: 'no AWS credentials', vault: 'vault', vaultTyped: 'typed', vaultFree: 'free-form', noVault: 'no vault' },
+  verdict: { OPTIMAL: 'Optimal', NOT_OPTIMAL: 'Not optimal', NOT_VERIFIABLE: 'Not verifiable', basis: 'Infrastructure verdict for SOC 2 / ISO 27001 (Drata / Vanta)',
+             basisLabel: 'Verdict basis', bases: { aws: 'AWS (read-only credentials)', vault: 'the vault (what is documented, not verified against AWS)', 'aws+vault': 'AWS and the vault' },
+             noAws: 'Nothing was verified against AWS: there were no read-only credentials. What is listed below is what the vault says, unchecked.',
+             unverified: 'Not verified', reasons: 'Reasons' },
+  summary: { title: 'Summary', noAwsNote: 'No AWS credentials: no count below is a verified result.', notChecked: 'not verified (no AWS credentials)',
+             unverifiedTitle: 'Not verified', unverifiedCounts: { not_verified: 'Not verified', documented_only: 'Only documented in the vault', documented_gap: 'Gap documented in the vault', scope_without_claims: 'Scope components with no claims or results' },
+             scopeList: 'Scope components not verified', scopeUnverified: 'not verified', byStatus: 'Findings by status', bySeverity: 'Failures by severity', drata: 'Failing Drata tests',
+             vanta: 'Failing Vanta tests', notVerified: 'Not verified', notVerifiedHint: 'Could not be checked: a permission is missing or the evaluation is still pending.',
+             missing: 'Missing permissions', none: 'none', clickHint: 'Click a count to filter the findings.' },
+  filters: { title: 'Filters', severity: 'Severity', status: 'Status', domain: 'Domain', tool: 'Tool', norm: 'Standard', search: 'Search',
+             searchPlaceholder: 'ID, resource, text…', all: 'All', allF: 'All', clear: 'Clear filters', expand: 'Expand all', collapse: 'Collapse all',
+             showing: 'Showing', of: 'of', normSoc2: 'SOC 2', normIso: 'ISO 27001' },
+  bulk: { title: 'Copy low-risk fixes', hint: 'By severity: gathers the commands of the low-risk CLI FAIL findings that the verification stamped OK, separated by comments with the ID. Findings with values to fill in and those the verification stamped CONFLICT or REVIEW are left out. Review before pasting into CloudShell.',
+          button: 'Copy low-risk fixes', empty: 'no commands', header: 'Findings', none: 'There are no low-risk fixes to copy.',
+          noVerification: 'Disabled: the fix verification is missing. Run verify_remediation.py and regenerate the report with --verification.',
+          stale: 'Disabled: the verification is stale (the findings changed). Re-run verify_remediation.py and regenerate the report.' },
+  findings: { title: 'Findings', empty: 'No finding matches the filters.', none: 'No findings in this run.', noResource: 'No associated resource', account: 'AWS account',
+              region: 'region', mappings: 'Mappings', inferred: 'inferred', inferredHint: 'Mapping inferred by the catalog, no official source.',
+              catalogSeverity: 'check severity', notVerified: 'not verified',
+              evidence: 'Evidence', vault: 'What the vault claims', vaultNote: 'Note', breaks: 'This vault recommendation would break',
+              dependsOnMe: 'Tests that depend on this resource', missing: 'Missing permissions', byClaude: 'evaluated by Claude',
+              vacuous: 'passes vacuously: there are no resources of this type in scope', checkId: 'Check', fromVault: 'transcribed from the vault, not verified' },
+  rem: { title: 'Remediation', steps: 'Steps', commands: 'CloudShell commands', verify: 'Verify afterwards', verifyWith: 'Verify with', notes: 'Notes',
+         copy: 'Copy', copyAll: 'Copy all', copied: 'Copied', copyCmdAria: 'Copy command', copyAllAria: 'Copy all commands', copyVerifyAria: 'Copy verification command', of: 'for', ofN: 'of', copyFail: 'Could not copy: select and copy by hand',
+         placeholders: 'Fill in the highlighted values (__FILL_IN_…__) before pasting.',
+         planned: 'Planned change: the commands below change the infrastructure. Review each block before running it, run them in the order shown and within an agreed change window. None of this is executed automatically.',
+         consoleOnly: 'Can only be done from the AWS console.',
+         kind: { cli: 'CLI command', cli_with_decision: 'CLI with a prior decision', planned_change: 'Planned change', console_only: 'Console only' },
+         risk: { low: 'Low risk', medium: 'Medium risk', high: 'High risk' }, downtime: 'With downtime', noDowntime: 'No downtime' },
+  deps: { title: 'Do not touch without review', hint: 'Resources that currently passing tests depend on. Changing or turning them off would turn those tests red.',
+          resource: 'Resource', type: 'Type', tests: 'Tests and controls that depend on it', empty: 'No dependencies recorded.' },
+  cov: { title: 'Standards coverage', hint: 'Status of each control touched by the checks. It is not a global compliance indicator.',
+         iso: 'ISO 27001:2022', tsc: 'SOC 2 (TSC 2017)', id: 'ID', name: 'Name', status: 'Status',
+         groups: { technical: 'Technical controls', organizational: 'Organizational: outside the scope of this report', inherited: 'Inherited from AWS',
+                   touched: 'Organizational controls mentioned by findings (the report does not evaluate them: the status comes from the finding)' },
+         st: { PASS: 'Passes', FAIL: 'Fails', NOT_VERIFIED: 'Not verified', NOT_TOUCHED: 'Not touched' } },
+  notes: { title: 'Warnings and notes', warnings: 'Run warnings', notes: 'Notes', none: 'No warnings or notes.' },
+  ver: { title: 'Fix verification', badgeTitle: 'Fix verification',
+         hint: 'Review of the CloudShell commands without running anything in AWS: syntax, unresolved values, destructive operations, conflicts between fixes and what is missing.',
+         counts: 'Fixes verified', pending: 'Pending values to fill in (__FILL_IN_…__)', pendingHint: 'Fill them in before pasting the commands into CloudShell.',
+         cliOn: 'Validity of operations and flags: checked against the local AWS CLI help.',
+         cliOff: 'Validity of operations and flags: not checked (run the verification with --check-cli and the AWS CLI installed).',
+         cliNone: 'Validity of operations and flags: there were no aws commands to check.',
+         stale: 'stale verification: re-run verify_remediation',
+         warnings: 'Verification warnings', conflicts: 'Conflicts between fixes', noConflicts: 'No conflicts between fixes.', gaps: 'What is missing', noGaps: 'Nothing missing detected.',
+         order: 'Suggested order of application', orderHint: 'Identity, logging and detection, KMS keys, encryption, network, data, monitoring, tags and integration; within each group by severity, with planned changes last. Conflict rules take priority.',
+         reasons: 'Fix verification', byClaude: 'review by Claude', rule: 'Rule', findings: 'Findings', none: 'no observations',
+         status: { OK: 'OK', REVIEW: 'REVIEW', CONFLICT: 'CONFLICT' },
+         gapKind: { no_fix: 'Failure with no fix', not_verified: 'Not verified', resource_without_check: 'Resource without a check', no_verify_after: 'Fix without a follow-up verification' },
+         issueKind: { syntax: 'Syntax', invalid_cli: 'Invalid CLI', unresolved_placeholder: 'Unresolved placeholder', requires_fill_in: 'Value to fill in',
+                      hygiene: 'Hygiene', destructive_without_warning: 'Destructive without a warning', rule_conflict: 'Conflict', dependency_impact: 'Dependency impact', downtime: 'Downtime', claude: 'Claude', high_risk: 'High risk', missing_evidence: 'Missing evidence' } },
+  footer: 'Automated technical pre-audit. It is not an audit opinion and does not cover organizational controls (policies, HR, teams, vendors, ISMS).',
+  status: { FAIL: 'Fails', PASS: 'Passes', DRIFT: 'Drift', DOCUMENTED_ONLY: 'Only documented', DOCUMENTED_GAP: 'Documented gap',
+            UNDOCUMENTED: 'Undocumented', NOT_VERIFIED: 'Not verified', 'N/A': 'N/A' },
+  severity: { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' }
 };
 /*i18n:end*/
 
-const STATUSES = ['FAIL', 'DRIFT', 'UNDOCUMENTED', 'DOCUMENTED_GAP', 'NO_VERIFICADO', 'DOCUMENTED_ONLY', 'PASS', 'N/A'];
+const STATUSES = ['FAIL', 'DRIFT', 'UNDOCUMENTED', 'DOCUMENTED_GAP', 'NOT_VERIFIED', 'DOCUMENTED_ONLY', 'PASS', 'N/A'];
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 const STORE_KEY = 'iac-report-filters-v1';
-const PLACEHOLDER = /(__COMPLETAR_[A-Z0-9_]+__)/;
+const PLACEHOLDER = /(__FILL_IN_[A-Z0-9_]+__)/;
 
 let DATA;
 try {
@@ -257,8 +257,8 @@ try {
 const META = DATA.meta || {};
 const FINDINGS = Array.isArray(DATA.findings) ? DATA.findings : [];
 const VERIF = DATA.verification && typeof DATA.verification === 'object' ? DATA.verification : null;
-const VERIF_STATES = ['OK', 'REVISAR', 'CONFLICTO'];
-const VERDICTS = ['OPTIMO', 'NO_OPTIMO', 'NO_VERIFICABLE'];
+const VERIF_STATES = ['OK', 'REVIEW', 'CONFLICT'];
+const VERDICTS = ['OPTIMAL', 'NOT_OPTIMAL', 'NOT_VERIFIABLE'];
 const openIds = new Set();
 const filters = { severity: '', status: '', domain: '', tool: '', norm: '', q: '' };
 
@@ -280,7 +280,7 @@ function statusKey(s) { return s === 'N/A' ? 'NA' : s; }
 function oneLine(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); }
 function arr(v) { return Array.isArray(v) ? v : []; }
 
-// Splits text on __COMPLETAR_*__ and appends text nodes plus <mark> nodes (never innerHTML).
+// Splits text on __FILL_IN_*__ and appends text nodes plus <mark> nodes (never innerHTML).
 function appendMarked(parent, text) {
   String(text == null ? '' : text).split(PLACEHOLDER).forEach(function (part) {
     if (!part) return;
@@ -420,8 +420,8 @@ function unverifiedBlock(body, nov) {
   body.appendChild(el('h3', { text: I18N.summary.unverifiedTitle }));
   const row = el('div', { cls: 'row' });
   Object.keys(I18N.summary.unverifiedCounts).forEach(function (k) {
-    const n = counts ? Number(counts[k]) || 0 : (k === 'no_verificado' ? nov.length : 0);
-    row.appendChild(badge(I18N.summary.unverifiedCounts[k] + ': ' + n, n ? 'st-NO_VERIFICADO' : 'st-NA'));
+    const n = counts ? Number(counts[k]) || 0 : (k === 'not_verified' ? nov.length : 0);
+    row.appendChild(badge(I18N.summary.unverifiedCounts[k] + ': ' + n, n ? 'st-NOT_VERIFIED' : 'st-NA'));
   });
   body.appendChild(row);
   if (scope.length) {
@@ -453,7 +453,7 @@ function renderSummary() {
   body.appendChild(el('p', { cls: 'muted', text: I18N.summary.clickHint }));
   body.appendChild(testList(I18N.summary.drata, failingTests('drata'), 'drata'));
   body.appendChild(testList(I18N.summary.vanta, failingTests('vanta'), 'vanta'));
-  const nov = FINDINGS.filter(function (f) { return f.status === 'NO_VERIFICADO'; });
+  const nov = FINDINGS.filter(function (f) { return f.status === 'NOT_VERIFIED'; });
   unverifiedBlock(body, nov);
   if (!nov.length) return;
   body.appendChild(el('h3', { text: I18N.summary.notVerified + ' (' + nov.length + ')' }));
@@ -564,13 +564,13 @@ function resourceLabel(f) {
   return (r.type ? r.type + ' ' : '') + name + (r.region ? ' · ' + r.region : '');
 }
 // The bulk copy is only for fixes the verification stage stamped OK, so it needs a verification that matches the findings:
-// without one (never run, or stale) the buttons are disabled with the reason. Findings with unresolved __COMPLETAR_
-// placeholders are left out too, and so is anything that is not stamped OK (CONFLICTO, REVISAR, no entry).
+// without one (never run, or stale) the buttons are disabled with the reason. Findings with unresolved __FILL_IN_
+// placeholders are left out too, and so is anything that is not stamped OK (CONFLICT, REVIEW, no entry).
 function bulkRaw(sev) {
   return FINDINGS.filter(function (f) {
     const rem = f.remediation;
     return f.status === 'FAIL' && f.severity === sev && rem && rem.kind === 'cli' && rem.risk === 'low' && arr(rem.commands).length &&
-      !arr(rem.commands).some(function (c) { return c.indexOf('__COMPLETAR_') !== -1; });
+      !arr(rem.commands).some(function (c) { return c.indexOf('__FILL_IN_') !== -1; });
   });
 }
 function bulkCandidates(sev) {
@@ -668,7 +668,7 @@ function renderRemediation(f) {
   if (cmds.length) {
     const wrap = el('div');
     const all = cmds.join('\n\n');
-    if (/__COMPLETAR_/.test(all)) wrap.appendChild(el('p', { cls: 'muted', text: I18N.rem.placeholders }));
+    if (/__FILL_IN_/.test(all)) wrap.appendChild(el('p', { cls: 'muted', text: I18N.rem.placeholders }));
     // Copy-all only where the blocks are a sequence (cli); the other kinds hold alternatives or review-first steps.
     if (cmds.length > 1 && rem.kind === 'cli') wrap.appendChild(el('div', { cls: 'cmd-bar no-print' }, [copyButton(I18N.rem.copyAll, function () { return all; }, '', I18N.rem.copyAllAria + ' ' + I18N.rem.of + ' ' + f.id)]));
     cmds.forEach(function (c, i) {
@@ -713,7 +713,7 @@ function cardBody(f) {
   if (flags.childNodes.length) body.appendChild(flags);
   const mp = renderMappings(f);
   if (mp.childNodes.length) body.appendChild(section(I18N.findings.mappings, mp));
-  if (f.status === 'NO_VERIFICADO' && arr(f.missing).length) {
+  if (f.status === 'NOT_VERIFIED' && arr(f.missing).length) {
     const ul = el('ul', { cls: 'plain' });
     arr(f.missing).forEach(function (p) { ul.appendChild(el('li', null, [el('code', { text: p })])); });
     body.appendChild(section(I18N.findings.missing, ul));
@@ -792,7 +792,7 @@ function verifCounts(body) {
   const row = el('div', { cls: 'row' });
   VERIF_STATES.forEach(function (s) { row.appendChild(badge(I18N.ver.status[s] + ': ' + (Number(summary[s]) || 0), 'ver-' + s)); });
   body.appendChild(row);
-  const pending = Number(VERIF.completar_pendientes) || 0;
+  const pending = Number(VERIF.fill_in_pending) || 0;
   body.appendChild(el('p', null, [el('strong', { text: I18N.ver.pending + ': ' + pending + '. ' }), document.createTextNode(pending ? I18N.ver.pendingHint : '')]));
   const none = !VERIF.cli_checked && VERIF.cli_requested && Number(VERIF.cli_operations_checked) === 0;
   body.appendChild(el('p', { cls: 'muted', text: VERIF.cli_checked ? I18N.ver.cliOn : none ? I18N.ver.cliNone : I18N.ver.cliOff }));

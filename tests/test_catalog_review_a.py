@@ -67,13 +67,13 @@ class ReviewedAllowlistTests(unittest.TestCase):
         def mutate(check):
             check["verify"]["calls"][0].update(service="ec2", operation="describe-key-pairs")
         errors = with_mutation("IAM-004", mutate)
-        self.assertTrue(any("IAM-004" in e and "revisad" in e for e in errors), errors)
+        self.assertTrue(any("IAM-004" in e and "unreviewed" in e for e in errors), errors)
 
     def test_a_credential_returning_operation_is_rejected_by_the_runner_rules_first(self):
         def mutate(check):
             check["verify"]["calls"][0].update(service="kinesis", operation="get-records")
         errors = with_mutation("IAM-004", mutate)
-        self.assertTrue(any("IAM-004" in e and "solo lectura" in e for e in errors), errors)
+        self.assertTrue(any("IAM-004" in e and "not read-only" in e for e in errors), errors)
 
 
 class ContractTests(unittest.TestCase):
@@ -103,7 +103,7 @@ class ContractTests(unittest.TestCase):
         def mutate(check):
             call = copy.deepcopy(check["verify"]["calls"][0])
             check["verify"]["calls"].append(call)
-        self.assert_error("IAM-004", mutate, "duplicad")
+        self.assert_error("IAM-004", mutate, "duplicate")
 
     def test_for_each_must_come_from_an_earlier_call_or_the_inventory(self):
         def later(check):
@@ -163,8 +163,8 @@ class Iam004NotesTests(unittest.TestCase):
         check = one("IAM-004")
         self.assertTrue(check["all_regions"])
         notes = check["remediation"]["notes"]
-        self.assertNotIn("solo us-east-1", notes)
-        self.assertIn("todas las regiones", notes)
+        self.assertNotRegex(notes, r"(?i)only us-east-1")
+        self.assertRegex(notes, r"(?i)all (enabled )?regions")
 
 
 class CliTests(unittest.TestCase):

@@ -331,7 +331,7 @@ class RdsNotPublicTests(unittest.TestCase):
         self.assertEqual((flagged["publicly_accessible"], flagged["public_subnets"]), (True, []))
         self.assertEqual((subnet["publicly_accessible"], subnet["public_subnets"]), (False, [SUB_PUB]))
         self.assertEqual((both["publicly_accessible"], both["public_subnets"]), (True, [SUB_PUB]))
-        self.assertEqual(subnet["reasons"], ["la subnet subnet-0a1b2c3d4e5f60718 tiene una ruta hacia un internet gateway"])
+        self.assertEqual(subnet["reasons"], ["subnet subnet-0a1b2c3d4e5f60718 has a route to an internet gateway"])
         self.assertEqual(flagged["reasons"], ["PubliclyAccessible=true"])
         self.assertEqual(main["public_subnets"], ["subnet-0d4e5f60718293a4b"])
 
@@ -398,7 +398,7 @@ class WafAssociatedTests(unittest.TestCase):
         self.assertEqual(flags(found), [("acme-notes-open", "offender"), ("acme-notes-internal", "not_applicable"), ("acme-notes-nlb", "not_applicable")])
         offender = found[0]
         self.assertEqual((offender["resource_id"], offender["region"]), ("acme-notes-open", REGION))
-        self.assertEqual(offender["detail"], {"kind": "alb", "arn": ALB_BARE, "reason": "el ALB público no tiene un web ACL de WAF asociado"})
+        self.assertEqual(offender["detail"], {"kind": "alb", "arn": ALB_BARE, "reason": "the public ALB has no WAF web ACL associated"})
 
     def test_region_without_web_acls_fails_every_public_alb(self):
         found = evaluate("waf_associated", self.responses(acls="wafv2-list-web-acls-none"))
@@ -409,7 +409,7 @@ class WafAssociatedTests(unittest.TestCase):
         apis = [o for o in found if o["resource_id"] in ("a1b2c3d4e5", "b2c3d4e5f6", "c3d4e5f6a7")]
         self.assertEqual(flags(apis), [("a1b2c3d4e5", "offender"), ("b2c3d4e5f6", "offender"), ("c3d4e5f6a7", "not_applicable")])
         self.assertEqual(apis[0]["detail"], {"kind": "api_gateway", "api": "acme-notes-api", "stages": ["dev"],
-                                             "reason": "el API público tiene stages sin un web ACL de WAF asociado"})
+                                             "reason": "the public API has stages without an associated WAF web ACL"})
         self.assertEqual(apis[1]["detail"]["stages"], ["prod"])
 
     def test_a_rest_api_with_every_stage_associated_passes(self):
@@ -571,7 +571,7 @@ class NetworkCatalogTests(unittest.TestCase):
             (command,) = rem["commands"]
             self.assertIn("revoke-security-group-ingress", command, check_id)
             self.assertIn("--ip-permissions {detail_json:ip_permissions}", command, check_id)
-            self.assertNotIn("__COMPLETAR_IP_PERMISSIONS__", command, check_id)
+            self.assertNotIn("__FILL_IN_IP_PERMISSIONS__", command, check_id)
             self.assertNotIn("--protocol", command, check_id)
             self.assertNotIn("--cidr", command, check_id)
             self.assertIn("detail.ip_permissions", rem["notes"], check_id)
@@ -579,15 +579,15 @@ class NetworkCatalogTests(unittest.TestCase):
     def test_security_group_checks_follow_drata_and_evaluate_every_group_of_a_region_with_active_enis(self):
         for check_id in ("NET-001", "NET-002", "NET-003", "NET-004"):
             text = catalog_check(check_id)["verify"]["pass_when_text"]
-            self.assertRegex(text, r"(?i)esté o no adjunto", check_id)
-            self.assertRegex(text, r"(?i)región", check_id)
+            self.assertRegex(text, r"(?i)whether or not the group is attached", check_id)
+            self.assertRegex(text, r"(?i)region", check_id)
 
     def test_net_003_notes_say_that_an_alb_redirect_still_fails_drata_291(self):
         rem = catalog_check("NET-003")["remediation"]
-        self.assertRegex(rem["notes"], r"(?i)redirig")
+        self.assertRegex(rem["notes"], r"(?i)redirect")
         self.assertIn("291", rem["notes"])
-        self.assertRegex(rem["notes"], r"(?i)excluir el recurso en Drata")
-        self.assertRegex(" ".join(rem["steps"]), r"(?i)solo 443|solo el 443|443")
+        self.assertRegex(rem["notes"], r"(?i)exclude the resource in Drata")
+        self.assertRegex(" ".join(rem["steps"]), r"(?i)only 443|443")
 
     def test_default_sg_remediation_revokes_only_the_rules_of_the_default_group_it_just_read(self):
         text = "\n".join(catalog_check("NET-006")["remediation"]["commands"])
@@ -621,7 +621,7 @@ class NetworkCatalogTests(unittest.TestCase):
         self.assertIn("--protocol 1 ", splits[0])
         self.assertIn("--protocol 58 ", splits[1])
         self.assertEqual(sum("--ipv6-cidr-block ::/0" in c for c in splits), 1)
-        self.assertRegex(commands[1], r"(?i)ADVERTENCIA")
+        self.assertRegex(commands[1], r"(?i)WARNING")
 
     def test_net_006_blocks_stop_when_network_interfaces_use_the_default_group(self):
         rem = catalog_check("NET-006")["remediation"]
@@ -631,14 +631,14 @@ class NetworkCatalogTests(unittest.TestCase):
             self.assertRegex(command, r"describe-network-interfaces --filters \"Name=group-id,Values=\$SG_ID\"")
             self.assertIn("length(NetworkInterfaces)", command)
             self.assertIn('[ "$ENIS" != "0" ]', command)
-            self.assertIn("DETENIDO", command)
+            self.assertIn("STOPPED", command)
             # the revoke only runs in the branch reached when no interface uses the group
             self.assertGreater(command.index("revoke-security-group-"), command.index('"$ENIS" != "0"'))
 
     def test_net_005_notes_warn_about_the_default_nacl_and_statelessness(self):
         notes = catalog_check("NET-005")["remediation"]["notes"]
-        self.assertRegex(notes, r"(?i)por defecto")
-        self.assertRegex(notes, r"(?i)stateless|sin estado")
+        self.assertRegex(notes, r"(?i)default")
+        self.assertRegex(notes, r"(?i)stateless")
 
     def test_net_008_associates_the_acl_with_the_resource(self):
         text = "\n".join(catalog_check("NET-008")["remediation"]["commands"])
@@ -705,7 +705,7 @@ class NetworkCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_nothing_is_unverified(self):
         self.assertEqual(self.code, 0)
-        self.assertEqual([(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NO_VERIFICADO"], [])
+        self.assertEqual([(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NOT_VERIFIED"], [])
 
     def test_security_group_outcomes(self):
         ssh = self.rows("NET-001")

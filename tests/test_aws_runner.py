@@ -209,7 +209,7 @@ class ReviewTwoRunTests(unittest.TestCase):
         result = aws_runner.run_aws("ec2", "describe-instances", [], region="us-east-1", profile=None, runner=runner,
                                     sleep=sleeps.append, cancelled=lambda: True)
         self.assertEqual((result.ok, result.error_kind, len(runner.calls), sleeps), (False, "ERROR", 1, []))
-        self.assertIn("cancelada", result.error_message)
+        self.assertIn("cancelled", result.error_message)
 
     def test_credential_report_expired_is_retried(self):
         expired = {"stdout": "", "returncode": 254, "stderr": "An error occurred (ReportExpired) when calling the GetCredentialReport operation: expired"}
@@ -404,7 +404,7 @@ class RunAwsTest(unittest.TestCase):
                 result = self.truncated(payload)
                 self.assertFalse(result.ok)
                 self.assertEqual(result.error_kind, "ERROR")
-                self.assertIn("respuesta truncada", result.error_message)
+                self.assertIn("truncated response", result.error_message)
 
     def test_complete_responses_are_not_flagged(self):
         for payload in ({"WebACLs": [], "NextMarker": None}, {"WebACLs": [], "NextMarker": ""}, {"Users": [], "IsTruncated": False},
@@ -511,7 +511,7 @@ class RunDnsTest(unittest.TestCase):
         result = aws_runner.run_dns("acme-notes.example", "TXT", runner=runner, which=lambda t: None)
         self.assertFalse(result.ok)
         self.assertEqual(result.error_kind, "ERROR")
-        self.assertEqual(result.error_message, "dig/nslookup no disponibles")
+        self.assertEqual(result.error_message, "dig/nslookup not available")
         self.assertEqual(runner.calls, [])
 
     def test_dns_command_failure_is_error(self):

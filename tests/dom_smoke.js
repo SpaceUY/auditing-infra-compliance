@@ -62,8 +62,8 @@ async function click(button) {
   }
   const cards = registry.cards.descendants().filter((n) => n.tag === 'article').map((card) => {
     const buttons = card.descendants().filter((n) => n.tag === 'button' && n.attrs['aria-label']);
-    return { id: card.attrs.id, copyAll: buttons.some((b) => b.textContent === 'Copiar todo'),
-             copyButtons: buttons.filter((b) => b.textContent === 'Copiar').length };
+    return { id: card.attrs.id, copyAll: buttons.some((b) => b.textContent === 'Copy all'),
+             copyButtons: buttons.filter((b) => b.textContent === 'Copy').length };
   });
   const stale = document.getElementById('stale-warning');
   const verdict = registry.verdict;

@@ -19,8 +19,8 @@ KEY = "AKIA" + "TESTKEYABCDEMNOP"
 SECRET_VALUE = "wJalr" + "XUtnFEMI/K7MDENG/bPxRfiCY" + "TESTVALUE"
 SG = "sg-0a1b2c3d4e5f60718"
 SG2 = "sg-0f1e2d3c4b5a69788"
-META = {"platform": "Acme Notes", "mode": "full", "target": None, "lang": "es"}
-STATUS_ORDER = ("FAIL", "DRIFT", "UNDOCUMENTED", "DOCUMENTED_GAP", "NO_VERIFICADO", "DOCUMENTED_ONLY", "PASS", "N/A")
+META = {"platform": "Acme Notes", "mode": "full", "target": None, "lang": "en"}
+STATUS_ORDER = ("FAIL", "DRIFT", "UNDOCUMENTED", "DOCUMENTED_GAP", "NOT_VERIFIED", "DOCUMENTED_ONLY", "PASS", "N/A")
 
 
 class AssembleCase(unittest.TestCase):
@@ -73,7 +73,7 @@ class OrderingTests(AssembleCase):
         self.assertEqual(summary["drata_tests_failing"], [102, 104, 214])
         self.assertIn("MFA is enabled on the root account", summary["vanta_tests_failing"])
         self.assertEqual(summary["not_verified"], 1)
-        self.assertIn("inventario incompleto: rds_instance ACCESS_DENIED en us-east-1", out["warnings"])
+        self.assertIn("incomplete inventory: rds_instance ACCESS_DENIED in us-east-1", out["warnings"])
 
 
 class SeverityTests(AssembleCase):
@@ -121,8 +121,8 @@ class RemediationTests(AssembleCase):
         self.assertIn('RESOURCE_ARN="arn:aws:s3:::acme-notes-uploads"', uploads["commands"][0])
         self.assertIn("arn:aws:s3:::acme-notes-uploads", uploads["verify_after"])
         assets = self.one(out, "INV-001", "acme-notes-assets")["remediation"]
-        self.assertIn('RESOURCE_ARN="__COMPLETAR_RESOURCE_ARN__"', assets["commands"][0])
-        self.assertIn("__COMPLETAR_OWNER_EMAIL__", assets["commands"][0])
+        self.assertIn('RESOURCE_ARN="__FILL_IN_RESOURCE_ARN__"', assets["commands"][0])
+        self.assertIn("__FILL_IN_OWNER_EMAIL__", assets["commands"][0])
         for finding in out["findings"]:
             rem = finding["remediation"] or {}
             text = json.dumps([rem.get("steps"), rem.get("commands"), rem.get("verify_after")])
@@ -136,7 +136,7 @@ class RemediationTests(AssembleCase):
                     r["detail"] = {}
         self.edit_results(drop)
         command = self.one(self.assemble(), "NET-001", SG, "FAIL")["remediation"]["commands"][0]
-        self.assertIn("--ip-permissions __COMPLETAR_IP_PERMISSIONS__", command)
+        self.assertIn("--ip-permissions __FILL_IN_IP_PERMISSIONS__", command)
 
     def test_detail_json_is_shell_quoted(self):
         def quoted(data):
@@ -185,10 +185,10 @@ class InjectionTests(AssembleCase):
                 finding = self.one(out, "DAT-007", hostile, "FAIL")
                 rem = finding["remediation"]
                 text = json.dumps([rem["steps"], rem["commands"], rem["verify_after"], rem["notes"]])
-                self.assertIn("__COMPLETAR_RESOURCE_ID__", rem["commands"][1])
-                self.assertIn("__COMPLETAR_RESOURCE_ID__", rem["verify_after"])
+                self.assertIn("__FILL_IN_RESOURCE_ID__", rem["commands"][1])
+                self.assertIn("__FILL_IN_RESOURCE_ID__", rem["verify_after"])
                 self.assertNotIn(json.dumps(hostile)[1:-1], text)
-                self.assertIn(f"{finding['id']}: identificador con caracteres no seguros, completar a mano",
+                self.assertIn(f"{finding['id']}: identifier with unsafe characters, fill in by hand",
                               out["warnings"])
 
     def test_probe_is_not_live_command_substitution(self):
@@ -207,29 +207,29 @@ class InjectionTests(AssembleCase):
                 out = self.assemble(claims=[])
                 rem = self.one(out, "DAT-007", safe, "FAIL")["remediation"]
                 self.assertIn(f'--bucket "{safe}"', rem["verify_after"])
-                self.assertNotIn("__COMPLETAR_RESOURCE_ID__", json.dumps(rem))
-                self.assertFalse([w for w in out["warnings"] if "no seguros" in w])
+                self.assertNotIn("__FILL_IN_RESOURCE_ID__", json.dumps(rem))
+                self.assertFalse([w for w in out["warnings"] if "unsafe characters" in w])
 
     def test_unsafe_value_not_used_by_the_check_raises_no_warning(self):
         self.edit_results(lambda data: data.update(results=[r for r in data["results"] if r["check_id"] == "IAM-001"]))
         (self.run_dir / "inventory.json").write_text(json.dumps([
             {"type": "s3_bucket", "id": "b", "arn": "", "name": "<b>x y</b>", "region": "us-east-1", "tags": {}}]),
             encoding="utf-8")
-        self.assertFalse([w for w in self.assemble(claims=[])["warnings"] if "no seguros" in w])
+        self.assertFalse([w for w in self.assemble(claims=[])["warnings"] if "unsafe characters" in w])
 
     def test_unsafe_region_and_account_id(self):
         self.add_row("acme-notes-assets", region='us-east-1"; id #')
         out = self.assemble(claims=[])
         finding = self.one(out, "DAT-007", "acme-notes-assets", "FAIL")
-        self.assertIn('REGION="__COMPLETAR_REGION__"', finding["remediation"]["commands"][0])
-        self.assertIn(f"{finding['id']}: identificador con caracteres no seguros, completar a mano", out["warnings"])
+        self.assertIn('REGION="__FILL_IN_REGION__"', finding["remediation"]["commands"][0])
+        self.assertIn(f"{finding['id']}: identifier with unsafe characters, fill in by hand", out["warnings"])
 
         self.setUp()
         self.edit_results(lambda data: data["aws"].update(account_id="1111; rm -rf ~"))
         out = self.assemble(claims=[])
         command = self.one(out, "DAT-007", "acme-notes-uploads", "FAIL")["remediation"]["commands"][0]
-        self.assertIn('ACCOUNT_ID="__COMPLETAR_ACCOUNT_ID__"', command)
-        self.assertTrue([w for w in out["warnings"] if "no seguros" in w])
+        self.assertIn('ACCOUNT_ID="__FILL_IN_ACCOUNT_ID__"', command)
+        self.assertTrue([w for w in out["warnings"] if "unsafe characters" in w])
 
     def test_safe_values_rules(self):
         env = assemble_findings.Env({}, {}, [], "111122223333", frozenset(), {})
@@ -238,15 +238,15 @@ class InjectionTests(AssembleCase):
         self.assertEqual(bad, {"resource_id", "resource_arn"})
         self.assertEqual((values["region"], values["resource_name"], values["account_id"]),
                          ("eu-west-1", "ok-name", "111122223333"))
-        self.assertEqual(values["resource_arn"], "__COMPLETAR_RESOURCE_ARN__")
+        self.assertEqual(values["resource_arn"], "__FILL_IN_RESOURCE_ARN__")
         resource["name"] = "two words"
         self.assertEqual(assemble_findings._safe_values(env, None, resource, None)[0]["resource_name"],
-                         "__COMPLETAR_RESOURCE_NAME__")
+                         "__FILL_IN_RESOURCE_NAME__")
 
     def test_notes_are_filled_with_the_same_rules(self):
         out = self.assemble(claims=[])
         notes = self.one(out, "INV-001", "acme-notes-uploads")["remediation"]["notes"]
-        self.assertIn("arn:aws:s3:::acme-notes-uploads es el ARN del recurso acme-notes-uploads", notes)
+        self.assertIn("arn:aws:s3:::acme-notes-uploads", notes)
         self.assertNotIn("{resource_arn}", notes)
         net = self.one(out, "NET-001", SG, "FAIL")["remediation"]["notes"]
         self.assertIn('"IpProtocol":"tcp"', net)
@@ -254,7 +254,7 @@ class InjectionTests(AssembleCase):
         self.add_row("x$(id)", check="INV-001")
         hostile = self.one(self.assemble(claims=[]), "INV-001", "x$(id)")["remediation"]["notes"]
         self.assertNotIn("$(id)", hostile)
-        self.assertIn("__COMPLETAR_RESOURCE_ID__", hostile)
+        self.assertIn("__FILL_IN_RESOURCE_ID__", hostile)
 
 
 class Round1Tests(AssembleCase):
@@ -278,8 +278,8 @@ class Round1Tests(AssembleCase):
             return {"kind": "DOCUMENTED_GAP", "check_id": check, "resource": {"type": rtype, "id": rid, "region": None}}
         out = self.assemble([claim("NET-001", "security_group", "sg-0123456789abcdef0")])
         finding = self.one(out, "NET-001", "sg-0123456789abcdef0")
-        self.assertIn('REGION="__COMPLETAR_REGION__"', finding["remediation"]["commands"][0])
-        self.assertFalse([w for w in out["warnings"] if "no seguros" in w])  # a missing value is not unsafe
+        self.assertIn('REGION="__FILL_IN_REGION__"', finding["remediation"]["commands"][0])
+        self.assertFalse([w for w in out["warnings"] if "unsafe characters" in w])  # a missing value is not unsafe
         # global types, account rows and account-level claims keep us-east-1
         bucket = self.one(self.assemble([claim("DAT-007", "s3_bucket", "acme-notes-claimed")]), "DAT-007",
                           "acme-notes-claimed")
@@ -333,8 +333,8 @@ class CoverageTests(AssembleCase):
         self.assertEqual(iso["A.8.16"]["status"], "FAIL")  # FAIL from IAM-001, PASS from DET-001 and NET-004
         self.assertEqual(iso["A.8.21"]["status"], "FAIL")  # NET-001 FAIL on one group, PASS on another
         self.assertEqual(iso["A.8.22"]["status"], "PASS")  # only NET-004 PASS
-        self.assertEqual(iso["A.8.13"]["status"], "NO_VERIFICADO")  # DAT-001 not verified
-        self.assertEqual(iso["A.8.15"]["status"], "NO_VERIFICADO")  # an N/A row and a DOCUMENTED_GAP claim: the vault says so, nothing checked it
+        self.assertEqual(iso["A.8.13"]["status"], "NOT_VERIFIED")  # DAT-001 not verified
+        self.assertEqual(iso["A.8.15"]["status"], "NOT_VERIFIED")  # an N/A row and a DOCUMENTED_GAP claim: the vault says so, nothing checked it
         self.assertEqual(iso["A.7.1"]["status"], "NOT_TOUCHED")
         self.assertEqual(iso["A.7.1"]["category"], "inherited")
         self.assertEqual(iso["A.8.2"]["category"], "technical")
@@ -345,7 +345,7 @@ class CoverageTests(AssembleCase):
     def test_tsc_coverage(self):
         tsc = self.coverage(self.assemble(), "tsc")
         self.assertEqual(tsc["CC6.1"]["status"], "FAIL")
-        self.assertEqual(tsc["A1.2"]["status"], "NO_VERIFICADO")
+        self.assertEqual(tsc["A1.2"]["status"], "NOT_VERIFIED")
         self.assertEqual(tsc["CC1.1"]["status"], "NOT_TOUCHED")
         self.assertEqual(tsc["CC1.1"]["category"], "organizational")
         self.assertEqual(len(tsc), 61)
@@ -354,7 +354,7 @@ class CoverageTests(AssembleCase):
         resolved = self.coverage(self.assemble())
         self.assertEqual(resolved["A.8.3"]["status"], "PASS")
         unresolved = self.coverage(self.assemble(claims=[]))
-        self.assertEqual(unresolved["A.8.3"]["status"], "NO_VERIFICADO")
+        self.assertEqual(unresolved["A.8.3"]["status"], "NOT_VERIFIED")
 
 
 class MaskingTests(AssembleCase):
@@ -362,12 +362,12 @@ class MaskingTests(AssembleCase):
         def leaky(data):
             for r in data["results"]:
                 if r["check_id"] == "IAM-001":
-                    r["detail"] = {"note": f"clave {KEY}", "contacto": "jane@acme-notes.example",
-                                   "dueño": "owner@acme-notes.example"}
-            data["warnings"].append(f"se vio {KEY} y jane@acme-notes.example")
+                    r["detail"] = {"note": f"key {KEY}", "contact": "jane@acme-notes.example",
+                                   "owner": "owner@acme-notes.example"}
+            data["warnings"].append(f"saw {KEY} and jane@acme-notes.example")
         self.edit_results(leaky)
         claims = copy.deepcopy(self.claims)
-        claims[0]["vault_claim"] = "usar aws_secret" + f"_access_key={SECRET_VALUE} y {KEY}"
+        claims[0]["vault_claim"] = "use aws_secret" + f"_access_key={SECRET_VALUE} and {KEY}"
         claims[0]["actual"] = f"ver jane@acme-notes.example {KEY}"
         text = json.dumps(self.assemble(claims), ensure_ascii=False)
         self.assertNotIn(KEY, text)
@@ -383,7 +383,7 @@ class MaskingTests(AssembleCase):
         helpers.make_secret_note(vault)
         index = vault_index.build_index(vault)
         out = self.assemble(claims=[], index=index)
-        secret = next(f for f in out["findings"] if f["title"] == "Credenciales en texto plano en el vault")
+        secret = next(f for f in out["findings"] if f["title"] == "Plaintext credentials in the vault")
         self.assertEqual((secret["check_id"], secret["severity"], secret["status"]), (None, "critical", "FAIL"))
         self.assertEqual(set(secret["evidence"]), {"path", "pattern"})
         self.assertEqual(secret["evidence"]["path"], "secret-note.md")
@@ -398,20 +398,20 @@ class MaskingTests(AssembleCase):
 
     def test_sensitive_file_by_name_creates_critical_fail_finding(self):
         index = {"kind": "free", "root": "/v", "notes": [], "secrets_detected": [], "broken_links": [],
-                 "sensitive_files": [{"path": ".env", "reason": "archivo .env"}]}
+                 "sensitive_files": [{"path": ".env", "reason": ".env file"}]}
         out = self.assemble(claims=[], index=index)
         found = [f for f in out["findings"] if f["resource"]["id"] == ".env"]
         self.assertEqual(len(found), 1)
         finding = found[0]
         self.assertEqual((finding["check_id"], finding["status"], finding["severity"]), (None, "FAIL", "critical"))
-        self.assertEqual(finding["evidence"], {"path": ".env", "detection": "nombre de archivo"})
+        self.assertEqual(finding["evidence"], {"path": ".env", "detection": "file name"})
         self.assertEqual((finding["remediation"]["kind"], finding["remediation"]["commands"]), ("console_only", []))
         self.assertEqual(out["findings"][0]["id"], "F-0001")
         self.assertGreaterEqual(out["summary"]["by_severity_fail"]["critical"], 1)
         self.assertTrue(any(".env" in w for w in out["warnings"]))
 
     def test_sensitive_names_that_may_be_templates_or_public_certs_carry_a_review_hint(self):
-        hint = "revisar: puede ser una plantilla o un certificado público"
+        hint = "review: it may be a template or a public certificate"
         paths = [".env.example", "ops/server.pem", "docs/AWS-Credentials.md", ".env", "id.key", "notes/credentials.txt"]
         index = {"kind": "free", "root": "/v", "notes": [], "secrets_detected": [], "broken_links": [],
                  "sensitive_files": [{"path": p, "reason": "x"} for p in paths]}
@@ -437,33 +437,33 @@ class MaskingTests(AssembleCase):
     def test_broken_links_become_warnings(self):
         index = {"kind": "typed", "root": "/v", "notes": [], "secrets_detected": [],
                  "broken_links": [{"from": "systems/A.md", "target": "Nope"}]}
-        self.assertIn("link roto en systems/A.md: [[Nope]]", self.assemble(claims=[], index=index)["warnings"])
+        self.assertIn("broken link in systems/A.md: [[Nope]]", self.assemble(claims=[], index=index)["warnings"])
 
 
 class PartialRunTests(AssembleCase):
     def test_partial_run_becomes_a_warning_with_the_pending_checks(self):
         self.edit_results(lambda data: data.update(partial=True, pending_checks=["LOG-002", "IAM-001"]))
         warnings = self.assemble()["warnings"]
-        partial = [w for w in warnings if "parcial" in w.lower()]
+        partial = [w for w in warnings if "partial" in w.lower()]
         self.assertEqual(len(partial), 1, warnings)
         self.assertIn("IAM-001, LOG-002", partial[0])  # sorted
-        self.assertRegex(partial[0], r"(?i)volver a correr|re-?ejecutar|correr de nuevo")
+        self.assertRegex(partial[0], r"(?i)re-?run|run (it )?again")
 
     def test_partial_run_without_pending_list_still_warns(self):
         self.edit_results(lambda data: data.update(partial=True))
-        self.assertTrue(any("parcial" in w.lower() for w in self.assemble()["warnings"]))
+        self.assertTrue(any("partial" in w.lower() for w in self.assemble()["warnings"]))
 
     def test_complete_run_has_no_partial_warning(self):
         warnings = self.assemble()["warnings"]
-        self.assertFalse([w for w in warnings if "parcial" in w.lower() or "SCP" in w])
+        self.assertFalse([w for w in warnings if "partial" in w.lower() or "SCP" in w])
 
     def test_blocked_regions_become_a_warning(self):
         self.edit_results(lambda data: data["aws"].update(blocked_regions=["sa-east-1", "af-south-1"]))
         warnings = self.assemble()["warnings"]
-        blocked = [w for w in warnings if "bloqueado por SCP" in w]
+        blocked = [w for w in warnings if "blocked by SCP" in w]
         self.assertEqual(len(blocked), 1, warnings)
         self.assertIn("af-south-1, sa-east-1", blocked[0])
-        self.assertIn("no se verificaron", blocked[0])
+        self.assertIn("were not verified", blocked[0])
 
     def test_empty_blocked_regions_is_silent(self):
         self.edit_results(lambda data: data["aws"].update(blocked_regions=[]))
@@ -471,7 +471,7 @@ class PartialRunTests(AssembleCase):
 
     def test_malformed_partial_fields_do_not_break_assembly(self):
         self.edit_results(lambda data: (data.update(partial=True, pending_checks="LOG-002"), data["aws"].update(blocked_regions=None)))
-        self.assertTrue(any("parcial" in w.lower() for w in self.assemble()["warnings"]))
+        self.assertTrue(any("partial" in w.lower() for w in self.assemble()["warnings"]))
 
 
 class EvalTests(AssembleCase):
@@ -480,7 +480,7 @@ class EvalTests(AssembleCase):
         found = self.find(out, "IAM-013")
         self.assertEqual(len(found), 1)
         self.assertEqual((found[0]["status"], found[0]["evaluated_by"]), ("PASS", "claude"))
-        self.assertEqual(found[0]["evidence"], {"reason": "Las políticas administrativas están acotadas a un rol de emergencia"})
+        self.assertEqual(found[0]["evidence"], {"reason": "Administrative policies are scoped to an emergency role"})
         self.assertFalse(any("IAM-013" in w for w in out["warnings"]))
 
     def test_eval_claim_can_fail_with_override_and_resource(self):
@@ -493,14 +493,14 @@ class EvalTests(AssembleCase):
     def test_pending_claude_unresolved_becomes_not_verified(self):
         out = self.assemble(claims=[])
         finding = self.one(out, "IAM-013")
-        self.assertEqual((finding["status"], finding["evaluated_by"]), ("NO_VERIFICADO", "script"))
+        self.assertEqual((finding["status"], finding["evaluated_by"]), ("NOT_VERIFIED", "script"))
         self.assertTrue(any("IAM-013" in w for w in out["warnings"]))
         self.assertNotIn("PENDING_CLAUDE", {f["status"] for f in out["findings"]})
 
     def test_invalid_eval_status_is_not_verified(self):
         claims = [{"kind": "EVAL", "check_id": "IAM-013", "status": "MAYBE", "detail": {}}]
         out = self.assemble(claims)
-        self.assertEqual(self.one(out, "IAM-013")["status"], "NO_VERIFICADO")
+        self.assertEqual(self.one(out, "IAM-013")["status"], "NOT_VERIFIED")
         self.assertTrue(any("MAYBE" in w for w in out["warnings"]))
 
     def test_orphan_eval_claim_warns(self):
@@ -510,16 +510,16 @@ class EvalTests(AssembleCase):
 
 class NoAwsTests(AssembleCase):
     def test_no_aws_only_documented_findings(self):
-        self.edit_results(lambda data: data.update(aws=None, results=[], warnings=["sin credenciales AWS válidas"]))
+        self.edit_results(lambda data: data.update(aws=None, results=[], warnings=["no valid AWS credentials"]))
         out = self.assemble()
         self.assertIsNone(out["meta"]["aws"])
         self.assertTrue({f["status"] for f in out["findings"]} <= {"DRIFT", "UNDOCUMENTED", "DOCUMENTED_ONLY",
                                                                   "DOCUMENTED_GAP"})
-        self.assertIn("sin credenciales AWS válidas", out["warnings"])
+        self.assertIn("no valid AWS credentials", out["warnings"])
         self.assertTrue(any("IAM-013" in w for w in out["warnings"]))  # EVAL claim with nothing to resolve
         self.assertEqual(out["dependencies"], [])
         remediation = self.one(out, "LOG-001")["remediation"]
-        self.assertIn('ACCOUNT_ID="__COMPLETAR_ACCOUNT_ID__"', remediation["commands"][0])
+        self.assertIn('ACCOUNT_ID="__FILL_IN_ACCOUNT_ID__"', remediation["commands"][0])
 
     def test_missing_checks_result_file(self):
         (self.run_dir / "checks-result.json").unlink()
@@ -541,11 +541,11 @@ class RemediationByStatusTests(AssembleCase):
     def assert_verify_only(self, finding):
         rem = finding["remediation"]
         self.assertEqual({k: rem[k] for k in self.NO_FIX}, self.NO_FIX)
-        self.assertEqual(rem["note_status"], assemble_findings.NOTE_STATUS_BY_STATUS.get(finding["status"], "no verificado: no aplicar sin confirmar"))
+        self.assertEqual(rem["note_status"], assemble_findings.NOTE_STATUS_BY_STATUS.get(finding["status"], "not verified: do not apply without confirming"))
         self.assertTrue(rem["verify_after"].strip())
 
     def test_documented_only_destructive_fix_is_not_carried(self):
-        out = self.assemble([self.claim("DOCUMENTED_ONLY", "ENC-003", vault_claim="La base está cifrada con CMK")])
+        out = self.assemble([self.claim("DOCUMENTED_ONLY", "ENC-003", vault_claim="The database is encrypted with a CMK")])
         finding = self.one(out, "ENC-003", "acme-notes-db")
         self.assertEqual(finding["status"], "DOCUMENTED_ONLY")
         self.assert_verify_only(finding)
@@ -579,7 +579,7 @@ class RemediationByStatusTests(AssembleCase):
     def test_pass_na_and_not_verified_rows_carry_only_verify_after(self):
         out = self.assemble()
         for check_id, resource, status in (("DET-001", "account", "PASS"), ("LOG-002", "account", "N/A"),
-                                           ("DAT-001", "account", "NO_VERIFICADO")):
+                                           ("DAT-001", "account", "NOT_VERIFIED")):
             finding = self.one(out, check_id, resource, status)
             self.assert_verify_only(finding)
         fail = self.one(out, "NET-001", SG, "FAIL")
@@ -588,7 +588,7 @@ class RemediationByStatusTests(AssembleCase):
     def test_eval_claims_follow_their_status(self):
         out = self.assemble()  # fixture EVAL IAM-013 is PASS
         self.assert_verify_only(self.one(out, "IAM-013"))
-        claims = [{"kind": "EVAL", "check_id": "IAM-013", "status": "FAIL", "detail": {"reason": "iam:* sin acotar"}}]
+        claims = [{"kind": "EVAL", "check_id": "IAM-013", "status": "FAIL", "detail": {"reason": "unscoped iam:*"}}]
         self.assertTrue(self.one(self.assemble(claims), "IAM-013")["remediation"]["commands"])
 
     def test_documented_only_is_low_with_the_catalog_severity_kept_in_evidence(self):
@@ -597,7 +597,7 @@ class RemediationByStatusTests(AssembleCase):
         check = next(c for c in catalog.load_checks(SKILL_DIR / "references" / "checks") if c["id"] == "ENC-003")
         self.assertEqual(finding["severity"], "low")
         self.assertEqual(finding["evidence"]["catalog_severity"], check["severity"])
-        self.assertEqual(finding["evidence"]["note"], "no verificada")
+        self.assertEqual(finding["evidence"]["note"], "not verified")
         nocheck = {"kind": "DOCUMENTED_ONLY", "check_id": None, "resource": None}
         found = [f for f in self.assemble([nocheck])["findings"] if f["status"] == "DOCUMENTED_ONLY" and f["check_id"] is None]
         self.assertEqual((found[0]["severity"], found[0]["evidence"]["catalog_severity"]), ("low", None))
@@ -606,7 +606,7 @@ class RemediationByStatusTests(AssembleCase):
         claim = self.claim("DOCUMENTED_ONLY", "NET-008")  # its verify_after has no {resource_id}: only the stripped commands carry the id
         claim["resource"]["id"] = "bad id; rm"
         out = self.assemble([claim])
-        self.assertFalse([w for w in out["warnings"] if "no seguros" in w or "inseguro" in w])
+        self.assertFalse([w for w in out["warnings"] if "unsafe characters" in w or "unsafe" in w])
 
 
 class NoPercentageTests(AssembleCase):
@@ -626,10 +626,10 @@ class NoPercentageTests(AssembleCase):
 
 
 class ReviewTwoVerdictTests(AssembleCase):
-    """Review 2 (D Important 3 and the verdict decision): one verdict per run, never OPTIMO without credentials."""
+    """Review 2 (D Important 3 and the verdict decision): one verdict per run, never OPTIMAL without credentials."""
 
     def no_aws(self):
-        self.edit_results(lambda data: data.update(aws=None, results=[], warnings=["sin credenciales AWS válidas"]))
+        self.edit_results(lambda data: data.update(aws=None, results=[], warnings=["no valid AWS credentials"]))
 
     def only(self, *keep, status_for=None):
         """Complete run with credentials where only these (check, resource) rows exist."""
@@ -644,24 +644,24 @@ class ReviewTwoVerdictTests(AssembleCase):
 
     def test_fail_makes_it_not_optimal(self):
         verdict, summary = self.verdict()
-        self.assertEqual(verdict, "NO_OPTIMO")
-        self.assertTrue(summary["verdict_text"].startswith("No óptimo"))
+        self.assertEqual(verdict, "NOT_OPTIMAL")
+        self.assertTrue(summary["verdict_text"].startswith("Not optimal"))
         self.assertNotIn("\n", summary["verdict_text"])
 
     def test_clean_complete_run_with_credentials_is_optimal(self):
         self.only(("DET-001", "account"), ("DAT-007", "acme-notes-assets"))
         verdict, summary = self.verdict([])
-        self.assertEqual(verdict, "OPTIMO")
-        self.assertTrue(summary["verdict_text"].startswith("Óptimo"))
+        self.assertEqual(verdict, "OPTIMAL")
+        self.assertTrue(summary["verdict_text"].startswith("Optimal"))
         self.assertEqual(summary["unverified"]["total"], 0)
 
     def test_no_credentials_never_claims_aws_verification(self):
         self.no_aws()
         only_vault = [{"kind": "DOCUMENTED_ONLY", "check_id": "ENC-003", "resource": {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}}]
         verdict, summary = self.verdict(only_vault)  # a vault statement is the only source: the vault is the basis
-        self.assertEqual((verdict, summary["verdict_basis"]), ("OPTIMO", "vault"))
-        self.assertIn("no verificado contra AWS", summary["verdict_text"])
-        self.assertNotIn("según AWS", summary["verdict_text"])
+        self.assertEqual((verdict, summary["verdict_basis"]), ("OPTIMAL", "vault"))
+        self.assertIn("not verified against AWS", summary["verdict_text"])
+        self.assertNotIn("based on AWS", summary["verdict_text"])
         self.assertFalse(summary["aws_verified"])
 
     def test_no_credentials_with_a_vault_secret_is_not_optimal_and_says_nothing_was_verified(self):
@@ -670,38 +670,38 @@ class ReviewTwoVerdictTests(AssembleCase):
         vault.mkdir()
         helpers.make_secret_note(vault)
         verdict, summary = self.verdict([], vault_index.build_index(vault))
-        self.assertEqual(verdict, "NO_OPTIMO")
-        self.assertIn("no verificado contra AWS", summary["verdict_text"])
+        self.assertEqual(verdict, "NOT_OPTIMAL")
+        self.assertIn("not verified against AWS", summary["verdict_text"])
 
     def test_partial_run_blocked_regions_and_incomplete_inventory_are_not_verifiable(self):
         self.only(("DET-001", "account"))
         for patch in ({"partial": True, "pending_checks": ["NET-001"]},
                       {"aws": {"account_id": "111122223333", "identity_arn": "x", "regions": ["us-east-1"], "blocked_regions": ["eu-west-1"]}},
-                      {"warnings": ["inventario incompleto: rds_instance ACCESS_DENIED en us-east-1"]}):
+                      {"warnings": ["incomplete inventory: rds_instance ACCESS_DENIED in us-east-1"]}):
             self.only(("DET-001", "account"))
             self.edit_results(lambda data, patch=patch: data.update(patch))
-            self.assertEqual(self.verdict([])[0], "NO_VERIFICABLE", patch)
+            self.assertEqual(self.verdict([])[0], "NOT_VERIFIABLE", patch)
 
     def test_not_verified_and_documented_only_items_block_optimal(self):
         self.only(("DET-001", "account"), ("DAT-001", "account"))
         verdict, summary = self.verdict([])
-        self.assertEqual((verdict, summary["unverified"]["no_verificado"]), ("NO_VERIFICABLE", 1))
+        self.assertEqual((verdict, summary["unverified"]["not_verified"]), ("NOT_VERIFIABLE", 1))
         self.only(("DET-001", "account"))
         claim = {"kind": "DOCUMENTED_ONLY", "check_id": "ENC-003", "resource": {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}}
         verdict, summary = self.verdict([claim])
-        self.assertEqual((verdict, summary["unverified"]["documented_only"]), ("NO_VERIFICABLE", 1))
+        self.assertEqual((verdict, summary["unverified"]["documented_only"]), ("NOT_VERIFIABLE", 1))
 
     def test_documented_gap_and_failing_drift_make_it_not_optimal(self):
         self.only(("DET-001", "account"))
         resource = {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}
         gap = {"kind": "DOCUMENTED_GAP", "check_id": "ENC-003", "resource": resource}  # catalog severity high/critical
-        self.assertEqual(self.verdict([gap])[0], "NO_OPTIMO")
+        self.assertEqual(self.verdict([gap])[0], "NOT_OPTIMAL")
         low = {"kind": "DOCUMENTED_GAP", "check_id": "ENC-003", "resource": resource, "severity": "low"}
-        self.assertEqual(self.verdict([low])[0], "NO_VERIFICABLE")
+        self.assertEqual(self.verdict([low])[0], "NOT_VERIFIABLE")
         drift = {"kind": "DRIFT", "check_id": "ENC-003", "resource": resource, "actual_status": "FAIL", "severity": "low"}
-        self.assertEqual(self.verdict([drift])[0], "NO_OPTIMO")
+        self.assertEqual(self.verdict([drift])[0], "NOT_OPTIMAL")
         calm = {"kind": "DRIFT", "check_id": "ENC-003", "resource": resource, "actual_status": "PASS"}
-        self.assertEqual(self.verdict([calm])[0], "OPTIMO")
+        self.assertEqual(self.verdict([calm])[0], "OPTIMAL")
 
     def test_scoped_components_without_claims_are_listed_as_unverified(self):
         self.only(("DET-001", "account"))
@@ -715,7 +715,7 @@ class ReviewTwoVerdictTests(AssembleCase):
         listed = {u["id"] for u in out["unverified_scope"]}
         self.assertEqual(listed, {"acme-notes-mailer", "acme-notes-uploads"})
         self.assertEqual(out["summary"]["unverified"]["scope_without_claims"], 2)
-        self.assertEqual(out["summary"]["verdict"], "NO_VERIFICABLE")
+        self.assertEqual(out["summary"]["verdict"], "NOT_VERIFIABLE")
 
     def test_without_scope_file_nothing_is_listed(self):
         self.assertEqual(self.assemble()["unverified_scope"], [])
@@ -738,7 +738,7 @@ class ReviewTwoSourcesTests(AssembleCase):
         self.edit_results(lambda data: data.update(aws=None, results=[]))
         code, out, err = self.run_cli()
         self.assertEqual(code, 2)
-        self.assertIn("sin fuentes: hace falta un vault o credenciales AWS de solo lectura", err)
+        self.assertIn("no sources: a vault or read-only AWS credentials are required", err)
         self.assertEqual(out, "")
         self.assertFalse((self.run_dir / "findings.json").exists())
 
@@ -746,7 +746,7 @@ class ReviewTwoSourcesTests(AssembleCase):
         (self.run_dir / "checks-result.json").unlink()
         code, _, err = self.run_cli()
         self.assertEqual(code, 2)
-        self.assertIn("sin fuentes", err)
+        self.assertIn("no sources", err)
 
     def test_a_vault_alone_or_credentials_alone_are_enough(self):
         self.assertEqual(self.run_cli()[0], 0)  # credentials, no vault
@@ -775,23 +775,23 @@ class ReviewTwoSmallFixesTests(AssembleCase):
                       "name": "acme-notes-uploads", "region": "us-east-1", "tags": {}}]
         (self.run_dir / "inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
         finding = self.one(self.assemble(), "INV-001", "acme-notes-uploads")
-        self.assertIn('RESOURCE_ARN="__COMPLETAR_RESOURCE_ARN__"', finding["remediation"]["commands"][0])
+        self.assertIn('RESOURCE_ARN="__FILL_IN_RESOURCE_ARN__"', finding["remediation"]["commands"][0])
 
     def test_unicode_digits_are_not_safe_in_region_or_account(self):
         claim = {"kind": "DOCUMENTED_GAP", "check_id": "ENC-003",
                  "resource": {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-\u0663"}}
         finding = self.one(self.assemble([claim]), "ENC-003", "acme-notes-db")
         self.assertNotIn("\u0663", json.dumps(finding["remediation"], ensure_ascii=False))
-        self.assertIn('REGION="__COMPLETAR_REGION__"', finding["remediation"]["commands"][0])
+        self.assertIn('REGION="__FILL_IN_REGION__"', finding["remediation"]["commands"][0])
 
     def test_pass_and_na_get_their_own_status_note(self):
         out = self.assemble()
         passed = self.one(out, "DET-001", "account", "PASS")["remediation"]["note_status"]
         na = self.one(out, "LOG-002", "account", "N/A")["remediation"]["note_status"]
-        unverified = self.one(out, "DAT-001", "account", "NO_VERIFICADO")["remediation"]["note_status"]
-        self.assertEqual(unverified, "no verificado: no aplicar sin confirmar")
-        self.assertNotIn("no verificado", passed)
-        self.assertNotIn("no verificado", na)
+        unverified = self.one(out, "DAT-001", "account", "NOT_VERIFIED")["remediation"]["note_status"]
+        self.assertEqual(unverified, "not verified: do not apply without confirming")
+        self.assertNotIn("not verified", passed)
+        self.assertNotIn("not verified", na)
         self.assertNotEqual(passed, na)
 
     def test_vault_statements_are_not_marked_as_claude_evaluations(self):
@@ -809,14 +809,14 @@ class ReviewTwoSmallFixesTests(AssembleCase):
         (vault / "a.md").write_text("# A\n", encoding="utf-8")
         index = vault_index.build_index(vault)
         self.assertEqual(index["kind"], "free")
-        self.assertTrue(any("vault no tipado" in w for w in self.assemble([], index)["warnings"]))
+        self.assertTrue(any("untyped vault" in w for w in self.assemble([], index)["warnings"]))
         index["kind"] = "typed"
-        self.assertFalse(any("vault no tipado" in w for w in self.assemble([], index)["warnings"]))
+        self.assertFalse(any("untyped vault" in w for w in self.assemble([], index)["warnings"]))
 
     def test_truncated_notes_warn(self):
         index = {"kind": "typed", "root": "/v", "notes": [], "broken_links": [], "secrets_detected": [], "sensitive_files": [],
                  "truncated_notes": ["big.md"]}
-        self.assertTrue(any("big.md" in w and "truncada" in w for w in self.assemble([], index)["warnings"]))
+        self.assertTrue(any("big.md" in w and "truncated" in w for w in self.assemble([], index)["warnings"]))
 
     def test_documented_findings_touch_their_controls_as_not_verified(self):
         claim = {"kind": "DOCUMENTED_ONLY", "check_id": "ENC-003", "resource": {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}}
@@ -826,14 +826,14 @@ class ReviewTwoSmallFixesTests(AssembleCase):
         self.assertTrue(ids)
         coverage = {c["id"]: c["status"] for c in out["coverage"]["iso"]}
         for control in ids:
-            self.assertIn(coverage[control], ("NO_VERIFICADO", "FAIL"), control)
+            self.assertIn(coverage[control], ("NOT_VERIFIED", "FAIL"), control)
 
     def test_malformed_rows_and_claim_fields_do_not_crash(self):
         def corrupt(data):
-            data["results"] += [{"check_id": "NET-001", "status": "FAIL"}, "texto", {"status": "FAIL", "resource_id": "x"}]
+            data["results"] += [{"check_id": "NET-001", "status": "FAIL"}, "text", {"status": "FAIL", "resource_id": "x"}]
         self.edit_results(corrupt)
         out = self.assemble()
-        self.assertTrue(any("fila inválida" in w for w in out["warnings"]))
+        self.assertTrue(any("invalid row" in w for w in out["warnings"]))
         path = self.tmp / "claims.json"
         path.write_text(json.dumps([{"kind": "DRIFT", "resource": {"id": 5}}]), encoding="utf-8")
         with self.assertRaises(ValueError):
@@ -846,7 +846,7 @@ class ReviewTwoSmallFixesTests(AssembleCase):
         changed["findings"][0]["status"] = "PASS"
         self.assertNotEqual(assemble_findings.findings_digest(changed), before)
         again = json.loads(json.dumps(out))
-        again["findings"][0]["remediation"]["commands"] = ["echo cambiado"]
+        again["findings"][0]["remediation"]["commands"] = ["echo changed"]
         self.assertNotEqual(assemble_findings.findings_digest(again), before)
         self.assertEqual(assemble_findings.findings_digest(json.loads(json.dumps(out))), before)
 
@@ -854,14 +854,14 @@ class ReviewTwoSmallFixesTests(AssembleCase):
         index = {"kind": "typed", "root": "/v", "notes": [], "broken_links": [], "secrets_detected": [],
                  "sensitive_files": [{"path": "policies/Credentials rotation policy.md", "reason": "x"},
                                      {"path": "Rotation of credentials.md", "reason": "x"}]}
-        findings = [f for f in self.assemble([], index)["findings"] if f["evidence"].get("detection") == "nombre de archivo"]
+        findings = [f for f in self.assemble([], index)["findings"] if f["evidence"].get("detection") == "file name"]
         self.assertEqual(len(findings), 2)
         for finding in findings:
             self.assertIn(assemble_findings.TEMPLATE_HINT, finding["remediation"]["steps"])
 
 
 class FinalCleanupBTests(AssembleCase):
-    """Final cleanup B: UNDOCUMENTED that fails is a failure (N2), OPTIMO needs an evaluated PASS/FAIL (N4), malformed scope.json (N6),
+    """Final cleanup B: UNDOCUMENTED that fails is a failure (N2), OPTIMAL needs an evaluated PASS/FAIL (N4), malformed scope.json (N6),
     reason wording, vault silent about the target, no risk on verify-only fixes, clear errors for missing inputs (D2 minors 4, 6, 8, 11)."""
 
     RESOURCE = {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}
@@ -880,63 +880,63 @@ class FinalCleanupBTests(AssembleCase):
         self.only(("DET-001", "account"))
         claim = {"kind": "UNDOCUMENTED", "check_id": "ENC-003", "resource": self.RESOURCE, "actual_status": "FAIL"}
         verdict, summary = self.verdict([claim])
-        self.assertEqual(verdict, "NO_OPTIMO")
-        self.assertTrue(summary["verdict_text"].startswith("No óptimo"))
+        self.assertEqual(verdict, "NOT_OPTIMAL")
+        self.assertTrue(summary["verdict_text"].startswith("Not optimal"))
 
     def test_any_claim_status_with_a_failing_actual_state_is_not_optimal(self):
         self.only(("DET-001", "account"))
         for kind in ("DRIFT", "UNDOCUMENTED", "DOCUMENTED_ONLY", "DOCUMENTED_GAP"):
             claim = {"kind": kind, "check_id": "ENC-003", "resource": self.RESOURCE, "actual_status": "FAIL", "severity": "low"}
-            self.assertEqual(self.verdict([claim])[0], "NO_OPTIMO", kind)
+            self.assertEqual(self.verdict([claim])[0], "NOT_OPTIMAL", kind)
 
     def test_drift_or_undocumented_without_a_failing_actual_state_is_called_out_in_the_text(self):
         self.only(("DET-001", "account"))
         claims = [{"kind": "UNDOCUMENTED", "check_id": "ENC-003", "resource": self.RESOURCE},
                   {"kind": "DRIFT", "check_id": "ENC-003", "resource": self.RESOURCE, "actual_status": "PASS"}]
         verdict, summary = self.verdict(claims)
-        self.assertEqual(verdict, "OPTIMO")
-        self.assertIn("2 diferencia(s)", summary["verdict_text"])
+        self.assertEqual(verdict, "OPTIMAL")
+        self.assertIn("2 difference(s)", summary["verdict_text"])
         self.assertNotIn("\n", summary["verdict_text"])
 
     def test_a_drift_from_breaks_tests_without_actual_status_is_never_optimal(self):
         self.only(("DET-001", "account"))
         drift = {"kind": "DRIFT", "check_id": "ENC-003", "resource": self.RESOURCE, "breaks_tests": [{"tool": "drata", "test": 30}]}
         verdict, summary = self.verdict([drift])
-        self.assertEqual(verdict, "NO_VERIFICABLE")
-        self.assertIn("rompería", summary["verdict_text"])
+        self.assertEqual(verdict, "NOT_VERIFIABLE")
+        self.assertIn("would break", summary["verdict_text"])
         self.assertNotIn("\n", summary["verdict_text"])
-        self.assertEqual(self.verdict([{**drift, "actual_status": "FAIL"}])[0], "NO_OPTIMO")
+        self.assertEqual(self.verdict([{**drift, "actual_status": "FAIL"}])[0], "NOT_OPTIMAL")
 
     def test_optimal_needs_at_least_one_evaluated_pass_or_fail(self):
         self.edit_results(lambda data: data.update(results=[], warnings=[]))
         verdict, summary = self.verdict([])
-        self.assertEqual(verdict, "NO_VERIFICABLE")
-        self.assertIn("ningún chequeo", summary["verdict_text"])
+        self.assertEqual(verdict, "NOT_VERIFIABLE")
+        self.assertIn("no check was evaluated", summary["verdict_text"])
         shutil.rmtree(self.run_dir)
         shutil.copytree(SAMPLE, self.run_dir)
         self.only(("LOG-002", "account"))  # N/A row
-        self.assertEqual(self.verdict([])[0], "NO_VERIFICABLE")
+        self.assertEqual(self.verdict([])[0], "NOT_VERIFIABLE")
         shutil.rmtree(self.run_dir)
         shutil.copytree(SAMPLE, self.run_dir)
         self.only(("DET-001", "account"))
-        self.assertEqual(self.verdict([])[0], "OPTIMO")
+        self.assertEqual(self.verdict([])[0], "OPTIMAL")
 
     def test_documented_gap_reason_does_not_say_it_was_verified_to_fail(self):
         self.only(("DET-001", "account"))
         gap = {"kind": "DOCUMENTED_GAP", "check_id": "ENC-003", "resource": self.RESOURCE, "severity": "high"}
         summary = self.verdict([gap])[1]
-        self.assertEqual(summary["verdict"], "NO_OPTIMO")
+        self.assertEqual(summary["verdict"], "NOT_OPTIMAL")
         self.assertEqual(len(summary["verdict_reasons"]), 1)
-        self.assertIn("documentada", summary["verdict_reasons"][0])
-        self.assertNotIn("incumplen", summary["verdict_reasons"][0])
-        self.assertIn("1 hallazgo(s) abierto(s)", summary["verdict_text"])
+        self.assertIn("documented", summary["verdict_reasons"][0])
+        self.assertNotIn("fail", summary["verdict_reasons"][0])
+        self.assertIn("1 open finding(s)", summary["verdict_text"])
 
     def test_verified_failures_and_documented_gaps_get_separate_reasons(self):
         gap = {"kind": "DOCUMENTED_GAP", "check_id": "ENC-003", "resource": self.RESOURCE, "severity": "high"}
         reasons = self.verdict([gap])[1]["verdict_reasons"]
         self.assertEqual(len(reasons), 2)
-        self.assertIn("falla", reasons[0])
-        self.assertIn("documentada", reasons[1])
+        self.assertIn("failing", reasons[0])
+        self.assertIn("documented", reasons[1])
 
     def test_malformed_scope_json_is_a_clear_error(self):
         for content in ("[]", '"x"', "3", "null", '{"resources": "x"}', '{"resources": {"id": "x"}}', "{oops"):
@@ -959,7 +959,7 @@ class FinalCleanupBTests(AssembleCase):
         self.assertFalse((self.run_dir / "findings.json").exists())
 
     def resource_meta(self, target):
-        return {"platform": "Acme Notes", "mode": "resource", "target": target, "lang": "es"}
+        return {"platform": "Acme Notes", "mode": "resource", "target": target, "lang": "en"}
 
     def test_resource_mode_says_when_the_vault_does_not_mention_the_target(self):
         vault = self.tmp / "vault"
@@ -968,11 +968,11 @@ class FinalCleanupBTests(AssembleCase):
         index = vault_index.build_index(vault)
         out = assemble_findings.assemble(self.run_dir, index, [], self.resource_meta("i-0a1b2c3d4e5f60718"), SKILL_DIR)
         self.assertTrue([n for n in out["notes"] if "i-0a1b2c3d4e5f60718" in n and "vault" in n], out["notes"])
-        (vault / "Server.md").write_text("# Server\n\nInstancia i-0a1b2c3d4e5f60718 de producción\n", encoding="utf-8")
+        (vault / "Server.md").write_text("# Server\n\nProduction instance i-0a1b2c3d4e5f60718\n", encoding="utf-8")
         out = assemble_findings.assemble(self.run_dir, vault_index.build_index(vault), [], self.resource_meta("i-0a1b2c3d4e5f60718"), SKILL_DIR)
-        self.assertFalse([n for n in out["notes"] if "no menciona" in n])
+        self.assertFalse([n for n in out["notes"] if "does not mention" in n])
         out = assemble_findings.assemble(self.run_dir, vault_index.build_index(vault), [], dict(META), SKILL_DIR)
-        self.assertFalse([n for n in out["notes"] if "no menciona" in n])
+        self.assertFalse([n for n in out["notes"] if "does not mention" in n])
 
     def test_verify_only_findings_carry_no_kind_risk_or_downtime(self):
         claim = {"kind": "DOCUMENTED_ONLY", "check_id": "ENC-003", "resource": self.RESOURCE}
@@ -992,9 +992,9 @@ class FinalCleanupBTests(AssembleCase):
                 code = assemble_findings.main(["--run-dir", str(self.run_dir), "--platform", "x", "--mode", "full",
                                                flag, str(self.tmp / "nope.json")])
             self.assertEqual(code, 2, flag)
-            self.assertIn("no existe", err.getvalue(), flag)
+            self.assertIn("does not exist", err.getvalue(), flag)
             self.assertIn("nope.json", err.getvalue(), flag)
-            self.assertNotIn("se esperaba", err.getvalue(), flag)
+            self.assertNotIn("was expected", err.getvalue(), flag)
 
 
 class CliTests(AssembleCase):
@@ -1014,7 +1014,7 @@ class CliTests(AssembleCase):
         self.assertEqual(code, 0)
         out = json.loads((self.run_dir / "findings.json").read_text(encoding="utf-8"))
         self.assertEqual(out["meta"]["platform"], "Acme Notes")
-        self.assertEqual(out["meta"]["lang"], "es")
+        self.assertEqual(out["meta"]["lang"], "en")
         self.assertIsNotNone(out["meta"]["vault"])
         self.assertRegex(out["meta"]["generated_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")
         self.assertLess(len(stdout.getvalue().splitlines()), 5)
@@ -1075,7 +1075,7 @@ class VerdictBasisTests(AssembleCase):
     RESOURCE = {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}
 
     def no_aws(self):
-        self.edit_results(lambda data: data.update(aws=None, results=[], warnings=["sin credenciales AWS válidas"]))
+        self.edit_results(lambda data: data.update(aws=None, results=[], warnings=["no valid AWS credentials"]))
 
     def only(self, *keep):
         def prune(data):
@@ -1086,7 +1086,7 @@ class VerdictBasisTests(AssembleCase):
     def index(self):
         vault = self.tmp / "vault"
         vault.mkdir(exist_ok=True)
-        (vault / "Nota.md").write_text("# Nota\nTexto.\n", encoding="utf-8")
+        (vault / "Note.md").write_text("# Note\nText.\n", encoding="utf-8")
         return vault_index.build_index(vault)
 
     def summary(self, claims=None, index=None):
@@ -1122,43 +1122,43 @@ class VerdictBasisTests(AssembleCase):
     def test_aws_basis_outcomes_and_text(self):
         self.only(("DET-001", "account"))
         optimal = self.summary([])
-        self.assertEqual((optimal["verdict"], optimal["verdict_basis"]), ("OPTIMO", "aws"))
-        self.assertTrue(optimal["verdict_text"].startswith("Óptimo según AWS"))
+        self.assertEqual((optimal["verdict"], optimal["verdict_basis"]), ("OPTIMAL", "aws"))
+        self.assertTrue(optimal["verdict_text"].startswith("Optimal based on AWS"))
         self.assertNotIn("vault", optimal["verdict_text"])
         self.edit_results(lambda data: data.update(partial=True, pending_checks=["NET-001"]))
         partial = self.summary([])
-        self.assertEqual(partial["verdict"], "NO_VERIFICABLE")
-        self.assertTrue(partial["verdict_text"].startswith("No verificable según AWS"))
+        self.assertEqual(partial["verdict"], "NOT_VERIFIABLE")
+        self.assertTrue(partial["verdict_text"].startswith("Not verifiable based on AWS"))
         failing = self.assemble()  # sample rows include FAILs
-        self.assertEqual(failing["summary"]["verdict"], "NO_OPTIMO")
-        self.assertTrue(failing["summary"]["verdict_text"].startswith("No óptimo según AWS"))
+        self.assertEqual(failing["summary"]["verdict"], "NOT_OPTIMAL")
+        self.assertTrue(failing["summary"]["verdict_text"].startswith("Not optimal based on AWS"))
 
     def test_aws_basis_keeps_documented_only_as_unverified(self):
         self.only(("DET-001", "account"))
         summary = self.summary([self.documented()])  # basis aws+vault
-        self.assertEqual((summary["verdict"], summary["verdict_basis"]), ("NO_VERIFICABLE", "aws+vault"))
+        self.assertEqual((summary["verdict"], summary["verdict_basis"]), ("NOT_VERIFIABLE", "aws+vault"))
 
     # ---- basis aws+vault
 
     def test_aws_and_vault_basis_outcomes_and_text(self):
         self.only(("DET-001", "account"))
         optimal = self.summary([], self.index())
-        self.assertEqual((optimal["verdict"], optimal["verdict_basis"]), ("OPTIMO", "aws+vault"))
-        self.assertTrue(optimal["verdict_text"].startswith("Óptimo según AWS y el vault"))
+        self.assertEqual((optimal["verdict"], optimal["verdict_basis"]), ("OPTIMAL", "aws+vault"))
+        self.assertTrue(optimal["verdict_text"].startswith("Optimal based on AWS and the vault"))
         gap = self.summary([self.documented("DOCUMENTED_GAP", severity="high")], self.index())
-        self.assertEqual(gap["verdict"], "NO_OPTIMO")
-        self.assertTrue(gap["verdict_text"].startswith("No óptimo según AWS y el vault"))
+        self.assertEqual(gap["verdict"], "NOT_OPTIMAL")
+        self.assertTrue(gap["verdict_text"].startswith("Not optimal based on AWS and the vault"))
         low = self.summary([self.documented("DOCUMENTED_GAP", severity="low")], self.index())
-        self.assertEqual(low["verdict"], "NO_VERIFICABLE")
-        self.assertTrue(low["verdict_text"].startswith("No verificable según AWS y el vault"))
+        self.assertEqual(low["verdict"], "NOT_VERIFIABLE")
+        self.assertTrue(low["verdict_text"].startswith("Not verifiable based on AWS and the vault"))
 
     # ---- basis vault
 
     def test_vault_basis_documented_control_without_gaps_is_optimal_and_says_it_is_not_aws(self):
         self.no_aws()
         summary = self.summary([self.documented()])
-        self.assertEqual((summary["verdict"], summary["verdict_basis"]), ("OPTIMO", "vault"))
-        self.assertTrue(summary["verdict_text"].startswith("Óptimo según lo documentado en el vault (no verificado contra AWS)"))
+        self.assertEqual((summary["verdict"], summary["verdict_basis"]), ("OPTIMAL", "vault"))
+        self.assertTrue(summary["verdict_text"].startswith("Optimal based on what the vault documents (not verified against AWS)"))
         self.assertNotIn("\n", summary["verdict_text"])
         self.assertEqual(summary["verdict_reasons"], [])
 
@@ -1171,40 +1171,40 @@ class VerdictBasisTests(AssembleCase):
         self.no_aws()
         for severity in ("critical", "high"):
             summary = self.summary([self.documented(), self.documented("DOCUMENTED_GAP", severity=severity)])
-            self.assertEqual(summary["verdict"], "NO_OPTIMO", severity)
-            self.assertTrue(summary["verdict_text"].startswith("No óptimo según lo documentado en el vault (no verificado contra AWS)"))
+            self.assertEqual(summary["verdict"], "NOT_OPTIMAL", severity)
+            self.assertTrue(summary["verdict_text"].startswith("Not optimal based on what the vault documents (not verified against AWS)"))
 
     def test_vault_basis_secret_or_sensitive_file_is_not_optimal(self):
         self.no_aws()
         index = {"kind": "free", "root": str(self.tmp / "vault"), "secrets_detected": [{"path": "a.md", "pattern": "aws_secret"}],
                  "sensitive_files": []}
-        self.assertEqual(self.summary([self.documented()], index)["verdict"], "NO_OPTIMO")
+        self.assertEqual(self.summary([self.documented()], index)["verdict"], "NOT_OPTIMAL")
         index = {"kind": "free", "root": str(self.tmp / "vault"), "secrets_detected": [], "sensitive_files": [{"path": ".env.prod"}]}
-        self.assertEqual(self.summary([self.documented()], index)["verdict"], "NO_OPTIMO")
+        self.assertEqual(self.summary([self.documented()], index)["verdict"], "NOT_OPTIMAL")
 
     def test_vault_basis_claim_with_a_failing_actual_status_is_not_optimal(self):
         self.no_aws()
         summary = self.summary([self.documented(), self.documented("DRIFT", actual_status="FAIL", severity="low")])
-        self.assertEqual(summary["verdict"], "NO_OPTIMO")
+        self.assertEqual(summary["verdict"], "NOT_OPTIMAL")
 
     def test_vault_basis_any_gap_blocks_optimal_even_if_low(self):
         self.no_aws()
         summary = self.summary([self.documented(), self.documented("DOCUMENTED_GAP", severity="low")])
-        self.assertEqual(summary["verdict"], "NO_VERIFICABLE")
-        self.assertTrue(any("brecha" in r for r in summary["verdict_reasons"]))
+        self.assertEqual(summary["verdict"], "NOT_VERIFIABLE")
+        self.assertTrue(any("gap" in r for r in summary["verdict_reasons"]))
 
     def test_vault_basis_with_nothing_documented_is_not_verifiable(self):
         self.no_aws()
         summary = self.summary([], self.index())
-        self.assertEqual((summary["verdict"], summary["verdict_basis"]), ("NO_VERIFICABLE", "vault"))
-        self.assertTrue(summary["verdict_text"].startswith("No verificable según lo documentado en el vault (no verificado contra AWS)"))
-        self.assertTrue(any("ningún control" in r for r in summary["verdict_reasons"]))
+        self.assertEqual((summary["verdict"], summary["verdict_basis"]), ("NOT_VERIFIABLE", "vault"))
+        self.assertTrue(summary["verdict_text"].startswith("Not verifiable based on what the vault documents (not verified against AWS)"))
+        self.assertTrue(any("no control" in r for r in summary["verdict_reasons"]))
 
     def test_vault_basis_scope_component_without_claims_is_named_and_not_verifiable(self):
         self.no_aws()
         self.write_scope(("rds_instance", "acme-notes-db"), ("s3_bucket", "acme-notes-uploads"))
         summary = self.summary([self.documented()])
-        self.assertEqual(summary["verdict"], "NO_VERIFICABLE")
+        self.assertEqual(summary["verdict"], "NOT_VERIFIABLE")
         joined = " ".join(summary["verdict_reasons"])
         self.assertIn("acme-notes-uploads", joined)
         self.assertNotIn("acme-notes-db", joined)
@@ -1212,12 +1212,12 @@ class VerdictBasisTests(AssembleCase):
     def test_vault_basis_scope_fully_documented_is_optimal(self):
         self.no_aws()
         self.write_scope(("rds_instance", "acme-notes-db"))
-        self.assertEqual(self.summary([self.documented()])["verdict"], "OPTIMO")
+        self.assertEqual(self.summary([self.documented()])["verdict"], "OPTIMAL")
 
     def test_vault_basis_drift_or_undocumented_without_failure_keeps_it_not_verifiable(self):
         self.no_aws()
         summary = self.summary([self.documented(), self.documented("UNDOCUMENTED")])
-        self.assertEqual(summary["verdict"], "NO_VERIFICABLE")
+        self.assertEqual(summary["verdict"], "NOT_VERIFIABLE")
 
     def test_no_sources_still_stops(self):
         self.no_aws()
@@ -1237,7 +1237,7 @@ class MetaToolTests(AssembleCase):
         parser = assemble_findings.build_parser()
         base = ["--run-dir", "x", "--platform", "p", "--mode", "full"]
         self.assertEqual(parser.parse_args(base + ["--tool", "vanta"]).tool, "vanta")
-        for bad in (["--tool", "other"], ["--lang", "en"]):
+        for bad in (["--tool", "other"], ["--lang", "es"]):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 parser.parse_args(base + bad)
-        self.assertEqual(parser.parse_args(base + ["--lang", "es"]).lang, "es")
+        self.assertEqual(parser.parse_args(base + ["--lang", "en"]).lang, "en")

@@ -165,12 +165,12 @@ class TrailS3DataEventsTests(unittest.TestCase):
     def test_trail_s3_data_events_fail_when_no_trail_is_multi_region(self):
         responses = self.responses("cloudtrail-describe-trails-single-region", ["cloudtrail-get-event-selectors-advanced-all"])
         (offender,) = evaluate("trail_s3_data_events", responses)
-        self.assertEqual(offender["detail"]["reason"], "ningún trail multi-región")
+        self.assertEqual(offender["detail"]["reason"], "no multi-region trail")
 
     def test_trail_s3_data_events_fail_without_trails(self):
         responses = merge(trails("cloudtrail-describe-trails-empty"), for_each("selectors", []))
         (offender,) = evaluate("trail_s3_data_events", responses)
-        self.assertEqual(offender["detail"]["reason"], "sin trails de CloudTrail")
+        self.assertEqual(offender["detail"]["reason"], "no CloudTrail trails")
 
 
 class TrailBucketTests(unittest.TestCase):
@@ -189,22 +189,22 @@ class TrailBucketTests(unittest.TestCase):
 
     def test_trail_bucket_logging_empty_response_means_logging_not_enabled(self):
         (offender,) = evaluate("trail_bucket_logging", self.logging((TRAIL_BUCKET, None)))
-        self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), (TRAIL_BUCKET, "access logging deshabilitado"))
+        self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), (TRAIL_BUCKET, "access logging disabled"))
 
     def test_empty_cli_output_does_not_raise_in_sibling_evaluators(self):
         hardening = merge(trails("cloudtrail-describe-trails-ok"), for_each("versioning", [(TRAIL_BUCKET, None)]),
                           for_each("policy", [(TRAIL_BUCKET, None)]))
         (offender,) = evaluate("trail_bucket_hardening", hardening)
-        self.assertEqual(offender["detail"]["problems"], ["versionado no habilitado", "el bucket no tiene bucket policy"])
+        self.assertEqual(offender["detail"]["problems"], ["versioning not enabled", "the bucket has no bucket policy"])
         lifecycle = merge(trails("cloudtrail-describe-trails-ok"), for_each("lifecycle", [(TRAIL_BUCKET, None)]))
         self.assertEqual(evaluate("log_bucket_lifecycle", lifecycle, {"min_days": 365, "name_regex": "log"}), [])
         waf = {"__inventory__": [], **for_each("logging", [("arn:aws:wafv2:us-east-1:111122223333:regional/webacl/x/1", None)])}
         (offender,) = evaluate("waf_logging", waf)
-        self.assertEqual(offender["detail"]["reason"], "logging del WAF deshabilitado")
+        self.assertEqual(offender["detail"]["reason"], "WAF logging disabled")
 
     def test_trail_bucket_logging_missing_bucket_is_reported(self):
         (offender,) = evaluate("trail_bucket_logging", self.logging((TRAIL_BUCKET, {"__error__": "NoSuchBucket"})))
-        self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), (TRAIL_BUCKET, "el bucket no existe"))
+        self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), (TRAIL_BUCKET, "the bucket does not exist"))
 
     def test_trail_bucket_logging_unreadable_bucket_is_unverified(self):
         (entry,) = evaluate("trail_bucket_logging", self.logging((TRAIL_BUCKET, {"__error__": "ACCESS_DENIED"})))
@@ -234,17 +234,17 @@ class TrailBucketTests(unittest.TestCase):
         (offender,) = evaluate("trail_bucket_hardening", responses)
         self.assertEqual((offender["resource_id"], offender["region"]), (TRAIL_BUCKET, REGION))
         self.assertEqual(offender["detail"]["problems"],
-                         ["versionado no habilitado", "la bucket policy de CloudTrail no restringe aws:SourceArn"])
+                         ["versioning not enabled", "the CloudTrail bucket policy does not restrict aws:SourceArn"])
 
     def test_trail_bucket_hardening_fail_without_bucket_policy(self):
         responses = self.hardening(fx("s3api-get-bucket-versioning-enabled"), {"__error__": "NoSuchBucketPolicy"})
         (offender,) = evaluate("trail_bucket_hardening", responses)
-        self.assertEqual(offender["detail"]["problems"], ["el bucket no tiene bucket policy"])
+        self.assertEqual(offender["detail"]["problems"], ["the bucket has no bucket policy"])
 
     def test_trail_bucket_hardening_suspended_versioning_fails(self):
         responses = self.hardening({"Status": "Suspended"}, fx("s3api-get-bucket-policy-sourcearn"))
         (offender,) = evaluate("trail_bucket_hardening", responses)
-        self.assertEqual(offender["detail"]["problems"], ["versionado no habilitado"])
+        self.assertEqual(offender["detail"]["problems"], ["versioning not enabled"])
 
     def test_trail_bucket_hardening_unreadable_calls_are_unverified_not_fail(self):
         good_v, good_p = fx("s3api-get-bucket-versioning-enabled"), fx("s3api-get-bucket-policy-sourcearn")
@@ -257,7 +257,7 @@ class TrailBucketTests(unittest.TestCase):
     def test_trail_bucket_hardening_missing_bucket_is_reported(self):
         responses = self.hardening({"__error__": "NoSuchBucket"}, {"__error__": "NoSuchBucket"})
         (offender,) = evaluate("trail_bucket_hardening", responses)
-        self.assertEqual(offender["detail"]["problems"], ["el bucket no existe"])
+        self.assertEqual(offender["detail"]["problems"], ["the bucket does not exist"])
 
 
 class MetricFilterTests(unittest.TestCase):
@@ -283,7 +283,7 @@ class MetricFilterTests(unittest.TestCase):
         responses = self.responses("cloudtrail-describe-trails-no-cwl", "logs-describe-metric-filters-cis")
         (offender,) = evaluate("trail_cw_metric_filters", responses, catalog_check("LOG-007")["verify"]["params"])
         self.assertEqual((offender["resource_id"], offender["detail"]["reason"]),
-                         ("account", "ningún trail multi-región envía sus logs a CloudWatch Logs"))
+                         ("account", "no multi-region trail sends its logs to CloudWatch Logs"))
 
     def test_trail_cw_metric_filters_ignore_filters_of_other_log_groups(self):
         filters = fx("logs-describe-metric-filters-cis")
@@ -311,7 +311,7 @@ class FlowLogTests(unittest.TestCase):
     def test_vpc_flow_logs_fail_reports_offenders(self):
         (offender,) = evaluate("vpc_flow_logs", self.responses("ec2-describe-flow-logs-vpc-main"))
         self.assertEqual((offender["resource_id"], offender["region"]), (VPC_SECOND, "eu-west-1"))
-        self.assertEqual(offender["detail"]["reason"], "sin flow logs")
+        self.assertEqual(offender["detail"]["reason"], "no flow logs")
 
     def test_vpc_flow_logs_failed_delivery_is_not_active(self):
         responses = self.responses("ec2-describe-flow-logs-vpc-main-failed")
@@ -661,7 +661,7 @@ class LoggingCatalogTests(unittest.TestCase):
         (command,) = rem["commands"]
         self.assertIn('RETENTION_DAYS="365"', command)
         self.assertIn('aws logs put-retention-policy --log-group-name "{resource_id}" --retention-in-days "$RETENTION_DAYS"', command)
-        self.assertRegex(rem["notes"], r"(?i)costo")
+        self.assertRegex(rem["notes"], r"(?i)cost")
 
     def test_log_009_threshold_is_in_the_query(self):
         self.assertIn("`365`", catalog_check("LOG-009")["verify"]["offenders"])
@@ -774,7 +774,7 @@ class LoggingCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_nothing_is_unverified(self):
         self.assertEqual(self.code, 0)
-        unverified = [(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NO_VERIFICADO"]
+        unverified = [(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NOT_VERIFIED"]
         self.assertEqual(unverified, [])
 
     def test_trail_checks_outcomes(self):

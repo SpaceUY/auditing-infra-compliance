@@ -43,7 +43,7 @@ def guardduty_regions(responses: dict, params: dict) -> list[dict]:
         ids = (listing or {}).get("DetectorIds") or []
         if any(detectors.get((region, d), {}).get("Status") == "ENABLED" for d in ids):
             continue
-        reason = "detector de GuardDuty deshabilitado" if ids else "sin detector de GuardDuty"
+        reason = "GuardDuty detector disabled" if ids else "no GuardDuty detector"
         extra = {} if region in populated else {"severity_override": "low"}
         offenders.append(_offender("account", region, reason=reason, has_resources=region in populated, **extra))
     return offenders
@@ -57,8 +57,8 @@ def guardduty_s3_protection(responses: dict, params: dict) -> list[dict]:
     enabled = {k: d for k, d in _detectors(responses).items() if d.get("Status") == "ENABLED"}
     if not enabled:
         region = _first(responses, "detectors")[0]
-        return [_offender("account", region, reason="GuardDuty no está habilitado: sin S3 Protection")]
-    return [_offender("account", region, reason="S3 Protection de GuardDuty deshabilitado", detector_id=detector_id)
+        return [_offender("account", region, reason="GuardDuty is not enabled: no S3 Protection")]
+    return [_offender("account", region, reason="GuardDuty S3 Protection disabled", detector_id=detector_id)
             for (region, detector_id), detector in sorted(enabled.items()) if not _s3_protection_enabled(detector)]
 
 
@@ -85,9 +85,9 @@ def guardduty_eventbridge(responses: dict, params: dict) -> list[dict]:
         return []
     region = _first(responses, "rules")[0]
     if not found:
-        return [_offender("account", region, reason="sin regla de EventBridge para findings de GuardDuty")]
-    reason = ("la regla de GuardDuty está deshabilitada" if all(r.get("State") != "ENABLED" for _, r in found)
-              else "la regla de GuardDuty no tiene destino")
+        return [_offender("account", region, reason="no EventBridge rule for GuardDuty findings")]
+    reason = ("the GuardDuty rule is disabled" if all(r.get("State") != "ENABLED" for _, r in found)
+              else "the GuardDuty rule has no target")
     return [_offender("account", region, reason=reason, rules=[r["Name"] for _, r in found])]
 
 
@@ -110,7 +110,7 @@ def securityhub_standards(responses: dict, params: dict) -> list[dict]:
         subscriptions = (data or {}).get("StandardsSubscriptions") or []
         standards = [{"standard": _standard_name(s["StandardsArn"]), "status": s.get("StandardsStatus")} for s in subscriptions]
         if not any(s["standard"] in SECURITY_HUB_STANDARDS and s["status"] == "READY" for s in standards):
-            offenders.append(_offender("account", region, reason="sin el estándar FSBP ni CIS en estado READY", standards=standards))
+            offenders.append(_offender("account", region, reason="neither the FSBP nor the CIS standard is in READY state", standards=standards))
     return offenders
 
 
@@ -139,20 +139,20 @@ def _records_iam_daily(recorder: dict) -> bool:
 
 def _config_problems(recorders: list[dict], statuses: list[dict], channels: list[dict]) -> list[str]:
     if not recorders:
-        return ["sin grabador de AWS Config"]
+        return ["no AWS Config recorder"]
     recorder = recorders[0]
     status = next((s for s in statuses if s.get("name") == recorder.get("name")), {})
-    problems = [] if status.get("recording") is True else ["el grabador está detenido (recording=false)"]
+    problems = [] if status.get("recording") is True else ["the recorder is stopped (recording=false)"]
     if str(status.get("lastStatus", "")).upper() == "FAILURE":  # the API enum is Success / Failure / Not_Applicable
-        problems.append("el último estado del grabador es FAILURE")
+        problems.append("the recorder's last status is FAILURE")
     if not _records_all_types(recorder):
-        problems.append("no graba todos los tipos de recurso")
+        problems.append("does not record all resource types")
     elif not _records_global_types(recorder):
-        problems.append("no graba los tipos IAM globales (includeGlobalResourceTypes=false)")
+        problems.append("does not record the global IAM types (includeGlobalResourceTypes=false)")
     if not _records_iam_daily(recorder):
-        problems.append("los tipos IAM globales no se graban a diario (override DAILY)")
+        problems.append("the global IAM types are not recorded daily (DAILY override)")
     if not any(c.get("s3BucketName") for c in channels):
-        problems.append("sin delivery channel con bucket de S3")
+        problems.append("no delivery channel with an S3 bucket")
     return problems
 
 
@@ -165,7 +165,7 @@ def config_recorder(responses: dict, params: dict) -> list[dict]:
     for region, data in responses.get("recorders", []):
         problems = _config_problems((data or {}).get("ConfigurationRecorders") or [], statuses.get(region, []), channels.get(region, []))
         if problems:
-            offenders.append(_offender("account", region, reason="AWS Config incompleto", problems=problems))
+            offenders.append(_offender("account", region, reason="AWS Config incomplete", problems=problems))
     return offenders
 
 
@@ -176,13 +176,13 @@ def inspector_status(responses: dict, params: dict) -> list[dict]:
     for region, data in responses.get("status", []):
         failed = (data or {}).get("failedAccounts") or []
         if failed:  # the account state could not be read: not evidence of a disabled Inspector
-            offenders.append(_unverified("account", region, reason="Inspector no pudo informar el estado de la cuenta",
+            offenders.append(_unverified("account", region, reason="Inspector could not report the account status",
                                          error_code=failed[0].get("errorCode"), error_message=failed[0].get("errorMessage")))
             continue
         accounts = (data or {}).get("accounts") or []
         states = (accounts[0].get("resourceState") or {}) if accounts else {}
         missing = [t for t in params["required"] if (states.get(t) or {}).get("status") != "ENABLED"]
         if missing:
-            offenders.append(_offender("account", region, reason="Inspector no está activo para todos los tipos de recurso",
+            offenders.append(_offender("account", region, reason="Inspector is not active for all resource types",
                                        not_enabled=missing, statuses={t: (states.get(t) or {}).get("status") for t in missing}))
     return offenders

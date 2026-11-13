@@ -87,7 +87,7 @@ def _group_findings(responses: dict, matches, only_any_address: bool, **extra) -
         for sg in (data or {}).get("SecurityGroups", []):
             gid = sg["GroupId"]
             if region not in answered:
-                found.append(_unverified(gid, region, reason="sin respuesta de describe-network-interfaces"))
+                found.append(_unverified(gid, region, reason="no response from describe-network-interfaces"))
                 continue
             if region not in active:
                 found.append(_not_applicable(gid, region))
@@ -162,7 +162,7 @@ def default_sg_empty(responses: dict, params: dict) -> list[dict]:
     for vpc in (i for i in responses.get("__inventory__", []) if i["type"] == "vpc"):
         sg = defaults.get((vpc["region"], vpc["id"]))
         if sg is None:
-            offenders.append(_unverified(vpc["id"], vpc["region"], reason="no se encontró el security group por defecto de la VPC"))
+            offenders.append(_unverified(vpc["id"], vpc["region"], reason="the default security group of the VPC was not found"))
             continue
         inbound, outbound = len(sg.get("IpPermissions") or []), len(sg.get("IpPermissionsEgress") or [])
         if inbound or outbound:
@@ -202,11 +202,11 @@ def rds_not_public(responses: dict, params: dict) -> list[dict]:
                     public_subnets.append(subnet["SubnetIdentifier"])
             flagged = bool(db.get("PubliclyAccessible"))
             reasons = (["PubliclyAccessible=true"] if flagged else []) + [
-                f"la subnet {s} tiene una ruta hacia un internet gateway" for s in public_subnets]
+                f"subnet {s} has a route to an internet gateway" for s in public_subnets]
             if reasons:
                 offenders.append(_offender(db["DBInstanceIdentifier"], region, publicly_accessible=flagged, public_subnets=public_subnets, reasons=reasons))
             elif unknown:
-                offenders.append(_unverified(db["DBInstanceIdentifier"], region, reason="sin route table para las subnets", subnets=unknown))
+                offenders.append(_unverified(db["DBInstanceIdentifier"], region, reason="no route table for the subnets", subnets=unknown))
     return offenders
 
 
@@ -225,7 +225,7 @@ def _alb_findings(responses: dict, associated: set[tuple[str, str]]) -> list[dic
             if not public_alb:
                 found.append(_not_applicable(name, region))
             elif (region, arn) not in associated:
-                found.append(_offender(name, region, kind="alb", arn=arn, reason="el ALB público no tiene un web ACL de WAF asociado"))
+                found.append(_offender(name, region, kind="alb", arn=arn, reason="the public ALB has no WAF web ACL associated"))
     return found
 
 
@@ -239,7 +239,7 @@ def _api_findings(responses: dict, associated: set[tuple[str, str]]) -> list[dic
             api_id = api["id"]
             answer = stages.get((region, api_id))
             if answer is None:
-                found.append(_unverified(api_id, region, reason="sin respuesta de get-stages"))
+                found.append(_unverified(api_id, region, reason="no response from get-stages"))
                 continue
             names = [stage["stageName"] for stage in answer.get("item") or []]
             private = "PRIVATE" in [str(t).upper() for t in (api.get("endpointConfiguration") or {}).get("types") or []]
@@ -249,7 +249,7 @@ def _api_findings(responses: dict, associated: set[tuple[str, str]]) -> list[dic
             bare = [n for n in names if (region, f"arn:aws:apigateway:{region}::/restapis/{api_id}/stages/{n}") not in associated]
             if bare:
                 found.append(_offender(api_id, region, kind="api_gateway", api=api.get("name", api_id), stages=bare,
-                                       reason="el API público tiene stages sin un web ACL de WAF asociado"))
+                                       reason="the public API has stages without an associated WAF web ACL"))
     return found
 
 
@@ -262,7 +262,7 @@ def _distribution_findings(responses: dict) -> list[dict]:
                 found.append(_not_applicable(dist["Id"], region))
             elif not dist.get("WebACLId"):
                 found.append(_offender(dist["Id"], region, kind="cloudfront", domain=dist.get("DomainName"), available_web_acls=available,
-                                       reason="la distribución no tiene un web ACL de WAF asociado"))
+                                       reason="the distribution has no associated WAF web ACL"))
     return found
 
 

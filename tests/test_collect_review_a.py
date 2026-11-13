@@ -30,7 +30,7 @@ class ScopeRegionsValidationTests(ReviewCase):
 
     def test_a_bare_string_is_an_error_not_a_list_of_characters(self):
         self.assert_rejected("us-east-1")
-        self.assertIn("lista", self.stdout)
+        self.assertIn("list of regions", self.stdout)
 
     def test_an_empty_list_is_an_error(self):
         self.assert_rejected([])
@@ -116,8 +116,8 @@ class NoVacuousPassWithoutRegionsTests(ReviewCase):
         responses[("ec2", "describe-instances", "eu-west-1")] = err(SCP_DENIED.replace("GetAccountSummary", "DescribeInstances"))
         self.run_collect(responses, scope=self.scope_file(regions=["eu-west-1"]), checks_dir=self.catalog_with(self.regional))
         (row,) = self.rows("IAM-902")
-        self.assertEqual((row["status"], row["vacuous"]), ("NO_VERIFICADO", False))
-        self.assertEqual(row["detail"]["reason"], "sin regiones en el alcance")
+        self.assertEqual((row["status"], row["vacuous"]), ("NOT_VERIFIED", False))
+        self.assertEqual(row["detail"]["reason"], "no regions in scope")
         self.assertEqual(self.calls("iam", "get-account-summary"), [])
 
 
@@ -136,10 +136,10 @@ class DescribeRegionsFailureTests(ReviewCase):
     def test_all_regions_checks_are_unverified_with_the_reason_and_never_evaluate_us_east_1_alone(self):
         self.run_collect(self.broken())
         (row,) = self.rows("DET-901")
-        self.assertEqual(row["status"], "NO_VERIFICADO")
-        self.assertEqual(row["detail"]["reason"], "no se pudieron listar las regiones")
+        self.assertEqual(row["status"], "NOT_VERIFIED")
+        self.assertEqual(row["detail"]["reason"], "could not list the regions")
         self.assertEqual(self.calls("securityhub", "describe-hub"), [])
-        self.assertTrue(any("regiones" in w for w in self.result["warnings"]))
+        self.assertTrue(any("regions" in w for w in self.result["warnings"]))
 
     def test_the_missing_permission_is_named_when_the_listing_was_denied(self):
         self.run_collect(self.broken())
@@ -148,7 +148,7 @@ class DescribeRegionsFailureTests(ReviewCase):
     def test_another_error_asks_for_no_permission(self):
         self.run_collect(self.broken("An error occurred (ServiceFailure) boom"))
         row = self.rows("DET-901")[0]
-        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", []))
+        self.assertEqual((row["status"], row["missing"]), ("NOT_VERIFIED", []))
 
     def test_checks_that_do_not_need_the_region_list_still_run(self):
         self.run_collect(self.broken())
@@ -174,10 +174,10 @@ class DescribeRegionsFailureTests(ReviewCase):
         self.run_collect(responses, scope=self.scope_file(regions="auto"), checks_dir=self.catalog_with(ec2_resource_check))
         statuses = {(r["status"], r["resource_id"], r["region"]) for r in self.rows("CMP-901")}
         self.assertIn(("PASS", "i-0acme00000000001", "us-east-1"), statuses)
-        gap = [r for r in self.rows("CMP-901") if r["status"] == "NO_VERIFICADO"]
+        gap = [r for r in self.rows("CMP-901") if r["status"] == "NOT_VERIFIED"]
         self.assertEqual(len(gap), 1)
         self.assertEqual(gap[0]["missing"], ["ec2:DescribeRegions"])
-        self.assertEqual(gap[0]["detail"]["reason"], "no se pudieron listar las regiones")
+        self.assertEqual(gap[0]["detail"]["reason"], "could not list the regions")
 
 
 class PartialInventoryTests(ReviewCase):
@@ -204,15 +204,15 @@ class PartialInventoryTests(ReviewCase):
     def test_a_region_whose_listing_failed_gets_its_own_unverified_row_next_to_the_other_regions_pass(self):
         self.run_two_regions(ok(ONE_INSTANCE), err(INSTANCES_DENIED))
         rows = [(r["status"], r["resource_id"], r["region"]) for r in self.rows("ENC-901")]
-        self.assertEqual(rows, [("NO_VERIFICADO", "account", "eu-west-1"), ("PASS", "i-0acme00000000001", "us-east-1")])
+        self.assertEqual(rows, [("NOT_VERIFIED", "account", "eu-west-1"), ("PASS", "i-0acme00000000001", "us-east-1")])
         gap = self.rows("ENC-901")[0]
         self.assertEqual(gap["missing"], ["inventory:ec2_instance"])
         self.assertEqual((gap["detail"]["reason"], gap["detail"]["type"], gap["detail"]["error_kind"]),
-                         ("inventario incompleto", "ec2_instance", "ACCESS_DENIED"))
+                         ("incomplete inventory", "ec2_instance", "ACCESS_DENIED"))
 
     def test_a_failed_listing_is_never_a_vacuous_not_applicable(self):
         self.run_two_regions(ok({"Reservations": []}), err(INSTANCES_DENIED))
-        self.assertEqual([(r["status"], r["region"], r["vacuous"]) for r in self.rows("ENC-901")], [("NO_VERIFICADO", "eu-west-1", False)])
+        self.assertEqual([(r["status"], r["region"], r["vacuous"]) for r in self.rows("ENC-901")], [("NOT_VERIFIED", "eu-west-1", False)])
 
     def test_when_every_listing_succeeds_nothing_changes(self):
         self.run_two_regions(ok(ONE_INSTANCE), ok({"Reservations": []}))
@@ -239,7 +239,7 @@ class PartialInventoryTests(ReviewCase):
         self.run_collect(self.responses(ok(ONE_INSTANCE), err(INSTANCES_DENIED)), checks_dir=self.catalog_with(depends),
                          scope=self.scope_file(regions=["us-east-1", "eu-west-1"]))
         (row,) = self.rows("DET-905")
-        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["inventory:ec2_instance"]))
+        self.assertEqual((row["status"], row["missing"]), ("NOT_VERIFIED", ["inventory:ec2_instance"]))
 
 
 class ReviewedAllowlistAtRunTimeTests(ReviewCase):
@@ -253,7 +253,7 @@ class ReviewedAllowlistAtRunTimeTests(ReviewCase):
         self.run_collect(checks_dir=self.catalog_with(unreviewed))
         self.assertEqual(self.calls("ec2", "describe-key-pairs"), [])
         (row,) = self.rows("IAM-905")
-        self.assertEqual(row["status"], "NO_VERIFICADO")
+        self.assertEqual(row["status"], "NOT_VERIFIED")
 
 
 class CancellationTests(ReviewCase):
@@ -281,7 +281,7 @@ class CancellationTests(ReviewCase):
         res = collect._aws(ctx, "iam", "get-account-summary", [], "us-east-1")
         self.assertFalse(res.ok)
         self.assertEqual(len(runner.calls), 2)
-        self.assertIn("cancelada", res.error_message)
+        self.assertIn("cancelled", res.error_message)
 
 
 # ---------------------------------------------------------------- CMP-006 evidence for attached instances
@@ -424,8 +424,8 @@ class ScopeWithoutChecksTests(ReviewCase):
         self.assertNotIn("partial", self.result)
         self.assertEqual(self.result["aws"]["account_id"], "111122223333")
         types = sorted({r["type"] for r in scope["resources"]})
-        self.assertIn(f"ningún chequeo del catálogo aplica a: {', '.join(types)}", self.result["warnings"])
-        self.assertIn("ningún chequeo del catálogo aplica", self.stdout)
+        self.assertIn(f"no catalog check applies to: {', '.join(types)}", self.result["warnings"])
+        self.assertIn("no catalog check applies", self.stdout)
 
     def test_every_resource_type_without_a_check_exits_zero_with_a_warning(self):
         for type_ in NO_CHECK_TYPES:
@@ -433,7 +433,7 @@ class ScopeWithoutChecksTests(ReviewCase):
                 self.assert_empty_run(mode="resource", resources=[self.resource(type_)])
 
     def test_a_feature_made_only_of_types_without_checks_exits_zero(self):
-        self.assert_empty_run(mode="feature", target="mensajería",
+        self.assert_empty_run(mode="feature", target="messaging",
                               resources=[self.resource("sns_topic"), self.resource("subnet"), self.resource("launch_template")])
 
     def test_a_domain_filter_that_leaves_no_check_for_the_resources_exits_zero(self):
@@ -446,16 +446,16 @@ class ScopeWithoutChecksTests(ReviewCase):
     def test_assemble_lists_the_components_as_unverified_and_the_verdict_is_not_verifiable(self):
         import shutil
         import assemble_findings
-        scope = self.scope_file(mode="feature", target="mensajería",
+        scope = self.scope_file(mode="feature", target="messaging",
                                 resources=[self.resource("sns_topic", "acme-notes-alerts"), self.resource("subnet", "subnet-0acme000000000001")])
         self.run_collect(scope=scope)
         self.assertEqual(self.code, 0)
         shutil.copy(scope, self.out / "scope.json")
         doc = assemble_findings.assemble(self.out, None, [], {"platform": "Acme Notes", "mode": "feature"}, SKILL_DIR)
-        self.assertEqual(doc["summary"]["verdict"], "NO_VERIFICABLE")
+        self.assertEqual(doc["summary"]["verdict"], "NOT_VERIFIABLE")
         self.assertEqual([r["id"] for r in doc["unverified_scope"]], ["acme-notes-alerts", "subnet-0acme000000000001"])
         self.assertEqual(doc["summary"]["unverified"]["scope_without_claims"], 2)
-        self.assertNotIn("Sin credenciales", " ".join(doc["warnings"] + doc["notes"]))
+        self.assertNotIn("No AWS credentials", " ".join(doc["warnings"] + doc["notes"]))
         self.assertIsNotNone(doc["meta"]["aws"])
 
     def test_malformed_scopes_still_exit_two_before_any_aws_call(self):

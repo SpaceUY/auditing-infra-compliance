@@ -101,9 +101,9 @@ class IndexTests(VaultCase):
         vault = self.copy_vault(FREE)
         secret_path = helpers.make_secret_note(vault)
         key = "AKIA" + "TESTKEYABCDEMNOP"
-        (vault / "Credenciales 2.md").write_text(
-            "# Otro\n\n| Campo | Valor |\n|---|---|\n| aws_secret_access_key | wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY |\n"
-            "| Contacto | admin@acme-notes.example |\n", encoding="utf-8")
+        (vault / "Access 2.md").write_text(
+            "# Other\n\n| Field | Value |\n|---|---|\n| aws_secret_access_key | wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY |\n"
+            "| Contact | admin@acme-notes.example |\n", encoding="utf-8")
         index = vault_index.build_index(vault)
         dumped = json.dumps(index, ensure_ascii=False)
         self.assertNotIn(key, dumped)
@@ -111,7 +111,7 @@ class IndexTests(VaultCase):
         self.assertNotIn("admin@acme", dumped)
         self.assertIn("a***@acme-notes.example", dumped)
         self.assertIn({"path": secret_path.name, "pattern": "aws_access_key_id"}, index["secrets_detected"])
-        self.assertIn({"path": "Credenciales 2.md", "pattern": "aws_secret_access_key"}, index["secrets_detected"])
+        self.assertIn({"path": "Access 2.md", "pattern": "aws_secret_access_key"}, index["secrets_detected"])
         self.assertFalse([i for n in index["notes"] for i in n["aws_ids"] if i["value"].startswith("AKIA")])
 
     def test_ignores_dotfiles_and_env(self):
@@ -142,13 +142,13 @@ class IndexTests(VaultCase):
     def test_sensitive_files_are_listed_by_name_and_never_opened(self):
         vault = self.copy_vault(FREE)
         (vault / "ops").mkdir()
-        names = {".env": "archivo .env", ".env.production": "archivo .env", "ops/server.PEM": "archivo de clave privada (.pem/.key)",
-                 "api.key": "archivo de clave privada (.pem/.key)", "ops/AWS-Credentials.txt": "nombre con 'credentials'"}
+        names = {".env": ".env file", ".env.production": ".env file", "ops/server.PEM": "private key file (.pem/.key)",
+                 "api.key": "private key file (.pem/.key)", "ops/AWS-Credentials.txt": "name containing 'credentials'"}
         for name in names:
             (vault / name).write_text("hunter2\n", encoding="utf-8")
         (vault / ".git").mkdir()
         (vault / ".git" / "credentials").write_text("hunter2\n", encoding="utf-8")
-        (vault / "notas.txt").write_text("hunter2\n", encoding="utf-8")
+        (vault / "notes.txt").write_text("hunter2\n", encoding="utf-8")
         real_open = builtins.open
 
         def guarded(file, *args, **kwargs):
@@ -168,7 +168,7 @@ class IndexTests(VaultCase):
     def test_symlinks_are_not_followed(self):
         vault = self.copy_vault(FREE)
         outside = self.tmp / "outside.md"
-        outside.write_text("# Fuera\n", encoding="utf-8")
+        outside.write_text("# Outside\n", encoding="utf-8")
         (vault / "link.md").symlink_to(outside)
         paths = {n["path"] for n in vault_index.build_index(vault)["notes"]}
         self.assertNotIn("link.md", paths)
@@ -176,7 +176,7 @@ class IndexTests(VaultCase):
     def test_broken_links_reported(self):
         index = vault_index.build_index(FREE)
         self.assertEqual(index["broken_links"],
-                         [{"from": "Runbook de guardia.md", "target": "Checklist de rotación de claves"}])
+                         [{"from": "On-call runbook.md", "target": "Key rotation checklist"}])
         self.assertEqual(vault_index.build_index(TYPED)["broken_links"], [])
 
     def test_free_vault_inferred_types_and_kv(self):
@@ -187,11 +187,11 @@ class IndexTests(VaultCase):
         self.assertEqual(self.note(index, "ALB - acme-public")["inferred_type"], "elbv2")
         self.assertIsNone(self.note(index, "Acme Notes")["inferred_type"])
         rds = self.note(index, "RDS - acme-db")
-        self.assertEqual(rds["kv"]["KMS"], "CMK propia")
-        self.assertEqual(rds["kv"]["Motor"], "PostgreSQL 15")
-        self.assertNotIn("Campo", rds["kv"])
+        self.assertEqual(rds["kv"]["KMS"], "Own CMK")
+        self.assertEqual(rds["kv"]["Engine"], "PostgreSQL 15")
+        self.assertNotIn("Field", rds["kv"])
         self.assertIsNone(rds["type"])
-        self.assertIn("## Conectado a", rds["headings"])
+        self.assertIn("## Connected to", rds["headings"])
         self.assertTrue(all(n["inferred_type"] is None for n in vault_index.build_index(TYPED)["notes"]))
 
     def write_vault(self, **notes):
@@ -248,7 +248,7 @@ class IndexTests(VaultCase):
         secret = "wJalrXUtnFEM" + "IK7MDENGbPxRfiCYEXAMPLEKEY"
         label = "aws_secret" + "_access_key"
         layouts = {
-            "table": ("| Campo | Valor |\n|---|---|\n" f"| Secret | {secret} |\n| Access key | {key} |", "aws_secret_access_key"),
+            "table": ("| Field | Value |\n|---|---|\n" f"| Secret | {secret} |\n| Access key | {key} |", "aws_secret_access_key"),
             "colon": (f"Secret: {secret}", "aws_secret_access_key"),
             "decorated": (f"| Secret Key (prod) | {secret} |", "aws_secret_access_key"),
             "configure": (f"aws configure set {label} {secret}", "aws_secret_access_key"),
@@ -269,20 +269,20 @@ class IndexTests(VaultCase):
         self.assertEqual(self.note(index, "table")["kv"]["Secret"], "[REDACTED]")
 
     def test_clean_prose_is_not_flagged(self):
-        vault = self.write_vault(prosa="# Prosa\n\nLa password se rota cada 90 días. Secrets Manager guarda la clave.\n"
+        vault = self.write_vault(prose="# Prose\n\nThe password is rotated every 90 days. Secrets Manager keeps the key.\n"
                                        "| Secret | acme-notes-db |\n")
         self.assertEqual(vault_index.build_index(vault)["secrets_detected"], [])
 
     def test_fifo_named_like_a_note_does_not_hang_the_indexer(self):
         if not hasattr(os, "mkfifo"):
-            self.skipTest("sin os.mkfifo")
+            self.skipTest("no os.mkfifo")
         vault = self.write_vault(real="# Real\n")
         os.mkfifo(vault / "x.md")
         result = {}
         worker = threading.Thread(target=lambda: result.update(index=vault_index.build_index(vault)), daemon=True)
         worker.start()
         worker.join(5)
-        self.assertFalse(worker.is_alive(), "el indexador quedó colgado en la FIFO")
+        self.assertFalse(worker.is_alive(), "the indexer hung on the FIFO")
         self.assertEqual([n["path"] for n in result["index"]["notes"]], ["real.md"])
 
     def test_notes_with_a_sensitive_name_are_listed_but_never_opened(self):
@@ -298,7 +298,7 @@ class IndexTests(VaultCase):
         with mock.patch.object(builtins, "open", guarded):
             index = vault_index.build_index(vault)
         self.assertEqual([n["path"] for n in index["notes"]], ["real.md"])
-        self.assertEqual(index["sensitive_files"], [{"path": "AWS-Credentials.md", "reason": "nombre con 'credentials'"}])
+        self.assertEqual(index["sensitive_files"], [{"path": "AWS-Credentials.md", "reason": "name containing 'credentials'"}])
         self.assertEqual(index["secrets_detected"], [])
 
     def test_access_key_glued_to_text_is_detected_and_masked(self):
@@ -335,7 +335,7 @@ class IndexTests(VaultCase):
         s3 = self.note(index, "S3 - uploads")
         self.assertEqual((s3["links"], s3["parents"]), ([], ["Acme Notes"]))
         self.assertEqual(vault_index.build_index(FREE)["broken_links"],
-                         [{"from": "Runbook de guardia.md", "target": "Checklist de rotación de claves"}])
+                         [{"from": "On-call runbook.md", "target": "Key rotation checklist"}])
 
     def test_cli_form_is_detected_in_the_index(self):
         secret = "wJalrXUtnFEM" + "IK7MDENGbPxRfiCYEXAMPLEKEY"
@@ -404,9 +404,15 @@ class FeatureTests(VaultCase):
         self.assertEqual(result["components"], [])
 
     def test_feature_match_ignores_case_and_accents(self):
-        index = vault_index.build_index(FREE)
-        result = vault_index.resolve_feature(index, "RUNBOOK DE GUARDÍA")
+        vault = self.tmp / "accents"
+        vault.mkdir()
+        (vault / "Runbook de guardia.md").write_text("# Runbook de guardia\n\nPasos de guardia.\n", encoding="utf-8")
+        result = vault_index.resolve_feature(vault_index.build_index(vault), "RUNBOOK DE GUARDÍA")
         self.assertEqual(result["chosen"], "Runbook de guardia.md")
+
+    def test_feature_match_ignores_case(self):
+        result = vault_index.resolve_feature(vault_index.build_index(FREE), "ON-CALL RUNBOOK")
+        self.assertEqual(result["chosen"], "On-call runbook.md")
 
     def test_feature_body_match(self):
         index = vault_index.build_index(TYPED)
@@ -421,9 +427,16 @@ class FeatureTests(VaultCase):
         self.assertEqual(result["chosen"], "systems/Email delivery.md")
         self.assertIn("Mail Queue", titles(result["components"]))
 
+    def test_feature_token_level_finds_an_english_title(self):
+        index = vault_index.build_index(TYPED)
+        result = vault_index.resolve_feature(index, "sending email")
+        self.assertEqual(result["candidates"], ["systems/Email delivery.md"])
+        self.assertEqual(result["chosen"], "systems/Email delivery.md")
+
     def test_feature_token_level_folds_accents_drops_stopwords_and_short_words(self):
         index = vault_index.build_index(TYPED)
         self.assertEqual(vault_index._tokens("Envío de   EMAIL para los usuarios"), ["envio", "email", "usuarios"])
+        self.assertEqual(vault_index._tokens("The delivery of EMAIL for the users"), ["delivery", "email", "users"])
         self.assertEqual(vault_index._tokens("the and de del a to"), [])
         # only stopwords / short words never match anything
         self.assertEqual(vault_index.resolve_feature(index, "de la para")["candidates"], [])
@@ -458,11 +471,19 @@ class FeatureTests(VaultCase):
         self.assertEqual(titles(result["components"]), {"RDS - acme-db", "S3 - uploads", "VPC", "ALB - acme-public"})
         self.assertEqual({c["title"]: c["depth"] for c in result["components"]}["VPC"], 1)
         self.assertEqual(result["constraints"], [])
-        self.assertTrue(result["pii"])  # S3 note mentions datos personales
+        self.assertTrue(result["pii"])  # the S3 note mentions personal data
+
+    def test_pii_detects_spanish_personal_data(self):
+        vault = self.tmp / "es-pii"
+        vault.mkdir()
+        (vault / "Hub.md").write_text("# Hub\n\n- [[S3 - datos]]\n", encoding="utf-8")
+        (vault / "S3 - datos.md").write_text("# S3 - datos\n\nBucket acme-notes-datos con datos personales.\n", encoding="utf-8")
+        result = vault_index.resolve_feature(vault_index.build_index(vault), "Hub")
+        self.assertTrue(result["pii"])
 
     def test_feature_free_filters_non_aws_notes(self):
         index = vault_index.build_index(FREE)
-        result = vault_index.resolve_feature(index, "Runbook de guardia")
+        result = vault_index.resolve_feature(index, "On-call runbook")
         self.assertEqual(result["components"], [])
         self.assertFalse(result["pii"])
 
@@ -480,10 +501,10 @@ class FeatureTests(VaultCase):
     def test_feature_matches_partial_title_without_h1(self):
         vault = self.tmp / "noh1"
         vault.mkdir()
-        (vault / "Pasarela de pagos.md").write_text("Texto sin encabezado.\n", encoding="utf-8")
+        (vault / "Payment gateway.md").write_text("Text without a heading.\n", encoding="utf-8")
         index = vault_index.build_index(vault)
-        result = vault_index.resolve_feature(index, "pasarela")
-        self.assertEqual(result["chosen"], "Pasarela de pagos.md")
+        result = vault_index.resolve_feature(index, "gateway")
+        self.assertEqual(result["chosen"], "Payment gateway.md")
 
     def test_feature_typed_normalizes_qualified_links(self):
         vault = self.tmp / "q"
@@ -559,7 +580,7 @@ class ReviewTwoFeatureTests(VaultCase):
         database = vault_index.resolve_feature(index, "RDS - acme-db")
         self.assertEqual({c["title"]: c["depth"] for c in database["components"]}["RDS - acme-db"], 0)
         self.assertIn("VPC", titles(database["components"]))
-        self.assertEqual(vault_index.resolve_feature(index, "Runbook de guardia")["components"], [])
+        self.assertEqual(vault_index.resolve_feature(index, "On-call runbook")["components"], [])
         self.assertNotIn("Acme Notes", titles(vault_index.resolve_feature(index, "Acme Notes")["components"]))
 
     def test_empty_stem_prefix_does_not_crash_the_index(self):
@@ -584,9 +605,9 @@ class ReviewTwoFeatureTests(VaultCase):
         vault = self.tmp / "alias"
         (vault / "systems").mkdir(parents=True)
         (vault / "systems" / "Hub.md").write_text(
-            "---\ntype: system\n---\n# Hub\n\n## Structural\n- depends on → [[Cola de correo]]\n", encoding="utf-8")
+            "---\ntype: system\n---\n# Hub\n\n## Structural\n- depends on → [[Mail queue]]\n", encoding="utf-8")
         (vault / "systems" / "Mail Queue.md").write_text(
-            "---\ntype: system\naliases: [Cola de correo]\n---\n# Mail Queue\n", encoding="utf-8")
+            "---\ntype: system\naliases: [Mail queue]\n---\n# Mail Queue\n", encoding="utf-8")
         index = vault_index.build_index(vault)
         self.assertEqual(index["broken_links"], [])
         self.assertEqual(titles(vault_index.resolve_feature(index, "Hub")["components"]), {"Hub", "Mail Queue"})
@@ -606,7 +627,7 @@ class ReviewTwoFeatureTests(VaultCase):
     def test_oversized_notes_are_read_up_to_a_cap_and_reported(self):
         vault = self.tmp / "big"
         vault.mkdir()
-        (vault / "big.md").write_text("# Big\n\n" + "linea de relleno\n" * 200 + "password: hunter2\n", encoding="utf-8")
+        (vault / "big.md").write_text("# Big\n\n" + "filler line\n" * 200 + "password: hunter2\n", encoding="utf-8")
         with mock.patch.object(vault_index, "MAX_NOTE_BYTES", 400):
             index = vault_index.build_index(vault)
         self.assertEqual(index["truncated_notes"], ["big.md"])
@@ -622,7 +643,7 @@ class ReviewTwoSecretTests(VaultCase):
         return vault
 
     def test_password_table_rows_are_masked_in_kv_and_detected(self):
-        vault = self.write(db="# DB\n\n| Campo | Valor |\n|---|---|\n| DBPassword | Abc123xyz |\n| MasterUserPassword | Zzz 999 |\n"
+        vault = self.write(db="# DB\n\n| Field | Value |\n|---|---|\n| DBPassword | Abc123xyz |\n| MasterUserPassword | Zzz 999 |\n"
                               "| Engine | postgres |\n")
         index = vault_index.build_index(vault)
         note = self.note(index, "db")
@@ -641,8 +662,15 @@ class ReviewTwoSecretTests(VaultCase):
         self.assertEqual(index["secrets_detected"], [])
         self.assertEqual(self.note(index, "db")["kv"]["Password"], "en Secrets Manager (prod/db)")
 
+    def test_english_references_in_a_password_table_are_clean(self):
+        vault = self.write(db="# DB\n\n| Field | Value |\n|---|---|\n| Password | in Secrets Manager (prod/db) |\n"
+                              "| Password policy | see Policies |\n| Token | stored in 1Password |\n")
+        index = vault_index.build_index(vault)
+        self.assertEqual(index["secrets_detected"], [])
+        self.assertEqual(self.note(index, "db")["kv"]["Password"], "in Secrets Manager (prod/db)")
+
     def test_column_layout_password_table_is_masked_and_detected(self):
-        vault = self.write(users="# Users\n\n| Usuario | Password |\n|---|---|\n| bob | hunter2 |\n| ana | Zzz 999 |\n")
+        vault = self.write(users="# Users\n\n| User | Password |\n|---|---|\n| bob | hunter2 |\n| ana | Zzz 999 |\n")
         index = vault_index.build_index(vault)
         dumped = json.dumps(index, ensure_ascii=False)
         for leaked in ("hunter2", "Zzz 999"):
@@ -664,12 +692,12 @@ class ReviewTwoSecretTests(VaultCase):
         vault_index.build_index(vault)
         self.assertLess(time.perf_counter() - start, 1.0)
 
-    def test_cli_message_for_a_free_vault_is_spanish_and_says_it_is_untyped(self):
+    def test_cli_message_for_a_free_vault_says_it_is_untyped(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             vault_index.main(["index", str(FREE), "-o", str(self.tmp / "i.json")])
-        self.assertIn("libre (no tipado)", out.getvalue())
-        self.assertNotIn("Vault free", out.getvalue())
+        self.assertIn("Free-form (untyped) vault", out.getvalue())
+        self.assertIn("the component map is inferred", out.getvalue())
 
 
 class CliTests(VaultCase):

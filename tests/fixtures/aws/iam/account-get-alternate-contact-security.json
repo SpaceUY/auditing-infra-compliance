@@ -2,7 +2,7 @@
   "AlternateContact": {
     "AlternateContactType": "SECURITY",
     "EmailAddress": "security@acme-notes.example",
-    "Name": "Equipo de Seguridad",
+    "Name": "Security Team",
     "PhoneNumber": "+5491100000000",
     "Title": "Seguridad"
   }

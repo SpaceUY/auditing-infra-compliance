@@ -22,7 +22,7 @@ def _trail_list(responses: dict) -> list[tuple[str, dict]]:
 
 
 def _no_trails(responses: dict) -> dict:
-    return _offender("account", _first(responses, "trails")[0], reason="sin trails de CloudTrail")
+    return _offender("account", _first(responses, "trails")[0], reason="no CloudTrail trails")
 
 
 def _multi_region_trails(responses: dict) -> list[tuple[str, dict]]:
@@ -49,9 +49,9 @@ def cloudtrail_active(responses: dict, params: dict) -> list[dict]:
     if any(logging.get(trail["TrailARN"]) for _, trail in multi):
         return []
     if not multi:
-        return [_offender("account", trails[0][0], reason="ningún trail es multi-región",
+        return [_offender("account", trails[0][0], reason="no trail is multi-region",
                           trails=[t["Name"] for _, t in trails])]
-    return [_offender(t["Name"], r, reason="trail multi-región sin logging (IsLogging=false)") for r, t in multi]
+    return [_offender(t["Name"], r, reason="multi-region trail without logging (IsLogging=false)") for r, t in multi]
 
 
 ALL_S3_PREFIXES = ("arn:aws:s3", "arn:aws:s3:::")
@@ -103,7 +103,7 @@ def trail_s3_data_events(responses: dict, params: dict) -> list[dict]:
         return [_no_trails(responses)]
     multi = _multi_region_trails(responses)
     if not multi:
-        return [_offender("account", trails[0][0], reason="ningún trail multi-región", trails=[t["Name"] for _, t in trails])]
+        return [_offender("account", trails[0][0], reason="no multi-region trail", trails=[t["Name"] for _, t in trails])]
     multi_arns = {trail["TrailARN"] for _, trail in multi}
     covered: set[str] = set()
     for arn, _, data in _for_each_pairs(responses, "selectors"):
@@ -113,7 +113,7 @@ def trail_s3_data_events(responses: dict, params: dict) -> list[dict]:
     missing = [d for d in ("read", "write") if d not in covered]
     if not missing:
         return []
-    return [_offender("account", multi[0][0], reason="faltan data events de S3 en todos los buckets", missing=missing,
+    return [_offender("account", multi[0][0], reason="S3 data events are missing for all buckets", missing=missing,
                       trails=[t["Name"] for _, t in multi])]
 
 
@@ -130,9 +130,9 @@ def trail_bucket_logging(responses: dict, params: dict) -> list[dict]:
             offenders.append(_unreadable(bucket, region, data["__error__"], "get-bucket-logging"))
             continue
         if "__error__" in data:
-            reason = "el bucket no existe"
+            reason = "the bucket does not exist"
         elif not data.get("LoggingEnabled"):
-            reason = "access logging deshabilitado"
+            reason = "access logging disabled"
         else:
             continue
         offenders.append(_offender(bucket, region, reason=reason, trails=owners.get(bucket, [])))
@@ -171,14 +171,14 @@ def _unreadable_call(versioning: dict, policy: dict) -> tuple[str, str] | None:
 
 def _bucket_problems(versioning: dict, policy: dict) -> list[str]:
     if "NoSuchBucket" in (versioning.get("__error__"), policy.get("__error__")):
-        return ["el bucket no existe"]
+        return ["the bucket does not exist"]
     problems = []
     if versioning.get("Status") != "Enabled":
-        problems.append("versionado no habilitado")
+        problems.append("versioning not enabled")
     if "__error__" in policy or "Policy" not in policy:
-        problems.append("el bucket no tiene bucket policy")
+        problems.append("the bucket has no bucket policy")
     elif not _policy_limits_cloudtrail_by_arn(json.loads(policy["Policy"])):
-        problems.append("la bucket policy de CloudTrail no restringe aws:SourceArn")
+        problems.append("the CloudTrail bucket policy does not restrict aws:SourceArn")
     return problems
 
 
@@ -214,7 +214,7 @@ def trail_cw_metric_filters(responses: dict, params: dict) -> list[dict]:
     trails = [(trail, match) for trail, match in trails if match]
     if not trails:
         return [_offender("account", _first(responses, "trails")[0],
-                          reason="ningún trail multi-región envía sus logs a CloudWatch Logs")]
+                          reason="no multi-region trail sends its logs to CloudWatch Logs")]
     patterns: dict[tuple[str, str], list[str]] = {}
     for region, data in responses.get("filters", []):
         for metric_filter in (data or {}).get("metricFilters", []):
@@ -244,9 +244,9 @@ def vpc_flow_logs(responses: dict, params: dict) -> list[dict]:
         if "ACTIVE" in found:
             continue
         if found:
-            offenders.append(_offender(vpc["id"], vpc["region"], reason="flow log no activo", flow_log_status=found[0]))
+            offenders.append(_offender(vpc["id"], vpc["region"], reason="flow log not active", flow_log_status=found[0]))
         else:
-            offenders.append(_offender(vpc["id"], vpc["region"], reason="sin flow logs"))
+            offenders.append(_offender(vpc["id"], vpc["region"], reason="no flow logs"))
     return offenders
 
 
@@ -326,7 +326,7 @@ def alb_access_logs(responses: dict, params: dict) -> list[dict]:
         attributes = {a["Key"]: a["Value"] for a in (data or {}).get("Attributes", [])}
         if attributes.get("access_logs.s3.enabled") != "true":
             name = load_balancers.get(arn, {}).get("id", arn)
-            offenders.append(_offender(name, region, arn=arn, reason="access logs deshabilitados"))
+            offenders.append(_offender(name, region, arn=arn, reason="access logs disabled"))
     return offenders
 
 
@@ -338,5 +338,5 @@ def waf_logging(responses: dict, params: dict) -> list[dict]:
     for arn, region, data in _for_each_pairs(responses, "logging"):
         destinations = ((data or {}).get("LoggingConfiguration") or {}).get("LogDestinationConfigs") or []
         if "__error__" in (data or {}) or not destinations:
-            offenders.append(_offender(web_acls.get(arn, {}).get("id", arn), region, arn=arn, reason="logging del WAF deshabilitado"))
+            offenders.append(_offender(web_acls.get(arn, {}).get("id", arn), region, arn=arn, reason="WAF logging disabled"))
     return offenders

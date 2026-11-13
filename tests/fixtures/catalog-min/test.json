@@ -3,7 +3,7 @@
   "checks": [
     {
       "id": "IAM-001",
-      "title": "La cuenta root tiene MFA habilitado",
+      "title": "The root account has MFA enabled",
       "domain": "iam",
       "scope": "account",
       "resource_types": [],
@@ -34,7 +34,7 @@
         "kind": "console_only",
         "risk": "low",
         "downtime": false,
-        "steps": ["Iniciar sesion como root y activar MFA virtual."],
+        "steps": ["Sign in as root and turn on virtual MFA."],
         "commands": [],
         "verify_after": "",
         "notes": ""
@@ -43,7 +43,7 @@
     },
     {
       "id": "LOG-001",
-      "title": "Hay un trail de CloudTrail multi-region activo",
+      "title": "An active multi-region CloudTrail trail exists",
       "domain": "logging",
       "scope": "resource",
       "resource_types": ["cloudtrail_trail"],
@@ -56,7 +56,7 @@
         ],
         "evaluator": "python:cloudtrail_multi_region",
         "params": {"require_log_validation": true},
-        "pass_when_text": "Existe al menos un trail multi-region con logging activo",
+        "pass_when_text": "At least one multi-region trail with logging on exists",
         "needs": ["cloudtrail:DescribeTrails"]
       },
       "vault_signals": ["cloudtrail"],
@@ -74,7 +74,7 @@
         "downtime": false,
         "steps": ["Crear un trail multi-region."],
         "commands": [
-          "REGION=\"us-east-1\"\naws cloudtrail create-trail --name acme-notes-trail --s3-bucket-name __COMPLETAR_BUCKET__ --is-multi-region-trail --region \"$REGION\""
+          "REGION=\"us-east-1\"\naws cloudtrail create-trail --name acme-notes-trail --s3-bucket-name __FILL_IN_BUCKET__ --is-multi-region-trail --region \"$REGION\""
         ],
         "verify_after": "aws cloudtrail get-trail-status --name acme-notes-trail",
         "notes": ""

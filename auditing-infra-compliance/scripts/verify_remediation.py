@@ -5,19 +5,19 @@ What it does (spec 9bis):
 - `bash -n` over each finding's commands, fed through stdin (parse only, the commands are never run);
 - optional `aws <service> <operation> help` (local help text, no API call; only with --check-cli and an installed CLI);
   every --flag of an `aws ...` line must appear in that help;
-- unresolved {placeholders}, pending __COMPLETAR_*__ values, heredocs / `set -e`, destructive operations without warning;
+- unresolved {placeholders}, pending __FILL_IN_*__ values, heredocs / `set -e`, destructive operations without warning;
 - the rules of references/conflict-rules.json, tests that depend on the resource, gaps and a suggested apply order;
-- a fix that declares downtime, or has risk high, is never OK (floor REVISAR);
+- a fix that declares downtime, or has risk high, is never OK (floor REVIEW);
 - no green OK on missing evidence: a rule that needs a fact the run did not collect (a CMP-006 result for an instance that uses
-  the security group) records a gap and floors the fix at REVISAR;
-- steps-only fixes (console / DNS) are verified too, and the `__COMPLETAR_*__` values of steps, verify_after and notes are counted;
+  the security group) records a gap and floors the fix at REVIEW;
+- steps-only fixes (console / DNS) are verified too, and the `__FILL_IN_*__` values of steps, verify_after and notes are counted;
 - Claude's vault-based claims (verification-claims.json): the most severe status wins and a claim never lowers a
-  CONFLICTO raised by the script.
+  CONFLICT raised by the script.
 
 verification.json carries `findings_digest` (see assemble_findings.findings_digest): render_report ignores a verification
 whose digest does not match findings.json.
 
-Only findings that carry a fix get a status (OK / REVISAR / CONFLICTO): FAIL ones and any other with commands or steps (DOCUMENTED_GAP...);
+Only findings that carry a fix get a status (OK / REVIEW / CONFLICT): FAIL ones and any other with commands or steps (DOCUMENTED_GAP...);
 the verify-only ones (remediation.note_status) have nothing to verify. Everything written goes through redact.
 
 Usage: verify_remediation.py --run-dir DIR [--claims FILE] [--check-cli]
@@ -40,16 +40,16 @@ import redact
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 RULES_PATH = SKILL_DIR / "references" / "conflict-rules.json"
-RANK = {"OK": 0, "REVISAR": 1, "CONFLICTO": 2}
+RANK = {"OK": 0, "REVIEW": 1, "CONFLICT": 2}
 SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 PROCESS_TIMEOUT = 30
 KIND_STATE = {
-    "syntax": "CONFLICTO", "cli_invalida": "CONFLICTO", "placeholder_sin_resolver": "CONFLICTO", "higiene": "CONFLICTO",
-    "requiere_completar": "REVISAR", "destructivo_sin_aviso": "REVISAR", "impacto_dependencias": "REVISAR", "downtime": "REVISAR",
-    "riesgo_alto": "REVISAR", "evidencia_faltante": "REVISAR",
+    "syntax": "CONFLICT", "invalid_cli": "CONFLICT", "unresolved_placeholder": "CONFLICT", "hygiene": "CONFLICT",
+    "requires_fill_in": "REVIEW", "destructive_without_warning": "REVIEW", "dependency_impact": "REVIEW", "downtime": "REVIEW",
+    "high_risk": "REVIEW", "missing_evidence": "REVIEW",
 }
 
-PENDING = re.compile(r"__COMPLETAR_[A-Z0-9_]+__")
+PENDING = re.compile(r"__FILL_IN_[A-Z0-9_]+__")
 HEREDOC = re.compile(r"(?<!<)<<(?!<)")  # `<<<` is a here-string, not a heredoc
 SET_E = re.compile(r"(?:^|[;&|])\s*set\s+(?:-[a-zA-Z]*e[a-zA-Z]*\b|-o\s+errexit\b)", re.M)
 # `aws` only counts as a command word: at line start, after ; & | ( or $(, or after do / then / else
@@ -145,26 +145,26 @@ def _syntax_issues(commands, runner):
         proc = runner(["bash", "-n"], input="\n".join(commands), text=True, capture_output=True, shell=False,
                       timeout=PROCESS_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired):
-        return [], "no se pudo correr bash -n"
+        return [], "could not run bash -n"
     if proc.returncode == 0:
         return [], None
-    return [_issue("syntax", "error de sintaxis de bash: " + (_one_line(proc.stderr) or "bash -n falló"))], None
+    return [_issue("syntax", "bash syntax error: " + (_one_line(proc.stderr) or "bash -n failed"))], None
 
 
 def _placeholder_issues(texts):
     names = sorted({m.group(0) for text in texts for m in assemble_findings.PLACEHOLDER.finditer(text)})
     if not names:
         return []
-    return [_issue("placeholder_sin_resolver", "quedan placeholders sin resolver: " + ", ".join(names))]
+    return [_issue("unresolved_placeholder", "unresolved placeholders remain: " + ", ".join(names))]
 
 
 def _hygiene_issues(commands):
     lines = _code_text(commands)
     issues = []
     if HEREDOC.search(lines):
-        issues.append(_issue("higiene", "usa '<<' (heredoc): pegado en CloudShell queda esperando el terminador"))
+        issues.append(_issue("hygiene", "uses '<<' (heredoc): pasted into CloudShell it waits for the terminator"))
     if SET_E.search(lines):
-        issues.append(_issue("higiene", "usa 'set -e': cierra la sesión de CloudShell ante el primer error"))
+        issues.append(_issue("hygiene", "uses 'set -e': closes the CloudShell session on the first error"))
     return issues
 
 
@@ -180,9 +180,8 @@ def _destructive_operations(commands):
 
 # A cli_with_decision fix is "warned" only when its notes actually say so; any non-empty text is not a warning.
 WARNING_WORDS = re.compile(
-    r"(?i)\b(?:advertencia|atenci[oó]n|cuidado|precauci[oó]n|peligro|riesgo|irreversible\w*|destructiv\w*|p[eé]rdida|perder\w*|pierd\w*|"
-    r"sobrescrib\w*|reemplaz\w*|elimin\w*|borr\w*|cort(?:a|ar|e|es)|dej\w+ sin|sin acceso|sin tr[aá]fico|downtime|"
-    r"no se puede deshacer|warning|caution|danger|data loss|overwrit\w*|replac\w*|lock(?:ed)?[ -]?out|permanent\w*)\b")
+    r"(?i)\b(?:warning|caution|danger|risk\w*|irreversib\w*|destructive|data loss|loss of|overwrit\w*|replac\w*|"
+    r"lose|lost|cuts?|cutting|delet\w*|remov\w*|cannot be undone|no access|without access|no traffic|downtime|lock(?:ed)?[ -]?out|permanent\w*)\b")
 
 
 def _has_warning(rem):
@@ -193,8 +192,8 @@ def _destructive_issues(finding, commands):
     ops = _destructive_operations(commands)
     if not ops or _has_warning(finding.get("remediation") or {}):
         return []
-    return [_issue("destructivo_sin_aviso", "operación destructiva o que reemplaza configuración sin aviso en el arreglo ("
-                   + ", ".join(ops) + "): marcarlo como cambio planificado o con decisión previa y notas")]
+    return [_issue("destructive_without_warning", "destructive operation or one that replaces configuration with no warning in the fix ("
+                   + ", ".join(ops) + "): mark it as a planned change or as needing a prior decision, and add notes")]
 
 
 def _pending_names(texts):
@@ -209,7 +208,7 @@ def _fix_texts(finding):
 
 
 def _verify_only_texts(finding):
-    """The only text a verify-only finding (DOCUMENTED_ONLY, PASS, N/A, NO_VERIFICADO...) puts in the report to be pasted: verify_after."""
+    """The only text a verify-only finding (DOCUMENTED_ONLY, PASS, N/A, NOT_VERIFIED...) puts in the report to be pasted: verify_after."""
     rem = finding.get("remediation")
     text = rem.get("verify_after") if isinstance(rem, dict) else None
     return [text] if isinstance(text, str) else []
@@ -226,27 +225,27 @@ def _has_fix(finding):
 def _pending_issues(names):
     if not names:
         return []
-    return [_issue("requiere_completar", "faltan valores por completar antes de pegar: " + ", ".join(names))]
+    return [_issue("requires_fill_in", "values to fill in before pasting: " + ", ".join(names))]
 
 
 def _dependency_issues(finding):
     tests = [t for t in finding.get("depends_on_me") or [] if isinstance(t, dict)]
     if not tests:
         return []
-    return [_issue("impacto_dependencias", "el recurso tiene tests que hoy pasan y dependen de él, el cambio podría ponerlos en rojo: "
+    return [_issue("dependency_impact", "the resource has tests that pass today and depend on it, the change could turn them red: "
                    + "; ".join(_test_label(t) for t in tests))]
 
 
 def _downtime_issues(rem):
     if rem.get("downtime") is not True:
         return []
-    return [_issue("downtime", "el arreglo declara downtime")]
+    return [_issue("downtime", "the fix declares downtime")]
 
 
 def _risk_issues(rem):
     if rem.get("risk") != "high":
         return []
-    return [_issue("riesgo_alto", "riesgo alto: pendiente de revisión con el vault antes de aplicar")]
+    return [_issue("high_risk", "high risk: pending review against the vault before applying")]
 
 
 # ---------------------------------------------------------------- aws help check
@@ -304,14 +303,14 @@ def _cli_issues(commands, runner, cache):
     for service, operation, flags in _aws_invocations(commands):
         text = _help_text(service, operation, runner, cache)
         if text is None:
-            issues.append(_issue("cli_invalida", f"la operación '{service} {operation}' no existe en la AWS CLI instalada"))
+            issues.append(_issue("invalid_cli", f"the operation '{service} {operation}' does not exist in the installed AWS CLI"))
             continue
         if not text:
             continue
         missing = [f for f in dict.fromkeys(flags) if f not in GLOBAL_FLAGS
                    and not re.search(rf"(?<![\w-]){re.escape(f)}(?![\w-])", text)]
         if missing:
-            issues.append(_issue("cli_invalida", f"flags que no aparecen en la ayuda de '{service} {operation}': " + ", ".join(missing)))
+            issues.append(_issue("invalid_cli", f"flags that do not appear in the help of '{service} {operation}': " + ", ".join(missing)))
     return issues
 
 
@@ -389,9 +388,9 @@ def _apply_rules(rules, fails, all_findings):
         order_pairs += [tuple(pair) for pair in rule.get("order") or []]
         for affected, involved in hits:
             related = [i for i in involved if i not in affected]
-            note = " Relacionado con: " + ", ".join(related) + "." if related else ""
+            note = " Related to: " + ", ".join(related) + "." if related else ""
             for fid in affected:
-                issues[fid].append(_issue("conflicto_regla", f"{rule['id']}: {rule['message']}{note}", rule_id=rule["id"]))
+                issues[fid].append(_issue("rule_conflict", f"{rule['id']}: {rule['message']}{note}", rule_id=rule["id"]))
         # any_fail / all_fail rules report one conflict listing every finding; the others one per hit
         grouped = "fail" not in rule["when"]
         entries = [[i for _, involved in hits for i in involved]] if grouped else [involved for _, involved in hits]
@@ -406,8 +405,8 @@ def _rule_instances(finding):
 
 def _missing_evidence(rules, fails, all_findings):
     """Rules that need a fact about an attached instance (attached_instance_fail: a CMP-006 result) fire only when that fact says
-    "unreachable". When the run has no usable result for the instance (check not run, NO_VERIFICADO, N/A) the rule cannot clear the
-    fix either: returns (issues by finding id, gaps) so the fix is floored at REVISAR instead of showing a green OK."""
+    "unreachable". When the run has no usable result for the instance (check not run, NOT_VERIFIED, N/A) the rule cannot clear the
+    fix either: returns (issues by finding id, gaps) so the fix is floored at REVIEW instead of showing a green OK."""
     issues, gaps = defaultdict(list), []
     for rule in rules:
         when = rule["when"]
@@ -420,10 +419,10 @@ def _missing_evidence(rules, fails, all_findings):
                            and (g.get("resource") or {}).get("id") == instance and g.get("status") in ("PASS", "FAIL")]
                 if results:
                     continue
-                message = (f"{rule['id']}: no hay resultado de {wanted.get('check')} para la instancia {instance} que usa este security group; "
-                           "no se sabe si es accesible por Systems Manager y cerrar el acceso podría dejarla sin entrada")
-                issues[f["id"]].append(_issue("evidencia_faltante", message, rule_id=rule["id"]))
-                gaps.append(_gap("no_verificado", f"{f['id']}: falta evidencia, {wanted.get('check')} sin resultado para {instance}", f["id"]))
+                message = (f"{rule['id']}: no result of {wanted.get('check')} for the instance {instance} that uses this security group; "
+                           "it is unknown whether it is reachable through Systems Manager and closing access could leave it with no way in")
+                issues[f["id"]].append(_issue("missing_evidence", message, rule_id=rule["id"]))
+                gaps.append(_gap("not_verified", f"{f['id']}: missing evidence, no {wanted.get('check')} result for {instance}", f["id"]))
     return issues, gaps
 
 
@@ -470,8 +469,8 @@ def _apply_order(findings, order_pairs):
     ordered = _toposort(findings, edges)
     if ordered is not None:
         return ordered, []
-    gap = {"kind": "no_verificado", "ref": "apply_order",
-           "message": "las reglas de orden forman un ciclo y se ignoraron: el orden sugerido sigue solo grupo y severidad"}
+    gap = {"kind": "not_verified", "ref": "apply_order",
+           "message": "the ordering rules form a cycle and were ignored: the suggested order follows only group and severity"}
     return _toposort(findings, set()), [gap]
 
 
@@ -485,12 +484,12 @@ def _finding_gaps(findings):
         rem = f.get("remediation")
         if f.get("status") == "FAIL":
             if not rem or (rem.get("kind") != "console_only" and not _commands(f)):
-                gaps.append(_gap("sin_arreglo", f"{f['id']}: falla y no tiene comandos de arreglo ni es de solo consola", f["id"]))
+                gaps.append(_gap("no_fix", f"{f['id']}: fails and has no fix commands and is not console-only", f["id"]))
             elif rem.get("kind") != "console_only" and not str(rem.get("verify_after") or "").strip():
-                gaps.append(_gap("sin_verify_after", f"{f['id']}: el arreglo no trae comando para verificar después", f["id"]))
-        elif f.get("status") == "NO_VERIFICADO":
-            missing = ", ".join(f.get("missing") or []) or "permiso no indicado"
-            gaps.append(_gap("no_verificado", f"{f['id']}: no se pudo verificar; permiso que falta: {missing}", f["id"]))
+                gaps.append(_gap("no_verify_after", f"{f['id']}: the fix has no command to verify afterwards", f["id"]))
+        elif f.get("status") == "NOT_VERIFIED":
+            missing = ", ".join(f.get("missing") or []) or "permission not stated"
+            gaps.append(_gap("not_verified", f"{f['id']}: could not be verified; missing permission: {missing}", f["id"]))
     return gaps
 
 
@@ -505,15 +504,15 @@ def _inventory_gaps(findings, inventory):
             orphans[item.get("type", "?")].append(item.get("id") or item.get("name") or "?")
     gaps = []
     for type_, ids in sorted(orphans.items()):
-        shown = ", ".join(sorted(ids)[:5]) + (f" (y {len(ids) - 5} más)" if len(ids) > 5 else "")
-        gaps.append(_gap("recurso_sin_chequeo", f"{len(ids)} recurso(s) de tipo {type_} sin ningún chequeo que los evalúe: {shown}", type_))
+        shown = ", ".join(sorted(ids)[:5]) + (f" (and {len(ids) - 5} more)" if len(ids) > 5 else "")
+        gaps.append(_gap("resource_without_check", f"{len(ids)} resource(s) of type {type_} with no check that evaluates them: {shown}", type_))
     return gaps
 
 
 # ---------------------------------------------------------------- claims
 
 
-CLAIM_FORM = "se esperaba finding_id y status de texto, y message y vault_note de texto o nulos"
+CLAIM_FORM = "expected a text finding_id and status, and a text or null message and vault_note"
 
 
 def _valid_claim(claim):
@@ -524,22 +523,22 @@ def _valid_claim(claim):
 def _claim_issues(claims, per_finding):
     """Adds Claude's claims to per_finding; returns warnings for claims that are skipped because of their shape."""
     if claims is not None and not isinstance(claims, list):
-        return [f"claims ignorados: {CLAIM_FORM} (se esperaba una lista)"]
+        return [f"claims ignored: {CLAIM_FORM} (a list was expected)"]
     warnings = []
     for number, claim in enumerate(claims or [], start=1):
         if not _valid_claim(claim):
-            warnings.append(f"claim {number} ignorado: forma inválida ({CLAIM_FORM})")
+            warnings.append(f"claim {number} ignored: invalid shape ({CLAIM_FORM})")
             continue
         fid = claim["finding_id"]
         if fid not in per_finding:
-            warnings.append(f"claim {number} ignorado: {_one_line(fid, 40)} no tiene arreglo que verificar (id inexistente o hallazgo sin arreglo)")
+            warnings.append(f"claim {number} ignored: {_one_line(fid, 40)} has no fix to verify (nonexistent id or finding without a fix)")
             continue
         if claim["status"] == "OK":
             continue
-        state = claim["status"] if claim["status"] in RANK else "REVISAR"
-        message = _one_line(claim.get("message") or "revisión de Claude sin detalle", 600)
+        state = claim["status"] if claim["status"] in RANK else "REVIEW"
+        message = _one_line(claim.get("message") or "Claude review with no detail", 600)
         if claim.get("vault_note"):
-            message += f" (nota: {_one_line(claim['vault_note'], 200)})"
+            message += f" (note: {_one_line(claim['vault_note'], 200)})"
         per_finding[fid]["issues"].append(_issue("claude", message, source="claude"))
         per_finding[fid]["_floor"] = max(per_finding[fid].get("_floor", "OK"), state, key=RANK.get)
     return warnings
@@ -549,7 +548,7 @@ def _claim_issues(claims, per_finding):
 
 
 def _issue_state(issue, rules_status):
-    if issue["kind"] == "conflicto_regla":
+    if issue["kind"] == "rule_conflict":
         return rules_status[issue["rule_id"]]
     return KIND_STATE[issue["kind"]]
 
@@ -562,7 +561,7 @@ def _analyse(finding, runner, cache, cli_on):
         syntax, problem = _syntax_issues(commands, runner)
         issues += syntax
         if problem:
-            gaps.append(_gap("no_verificado", f"{finding['id']}: {problem}", finding["id"]))
+            gaps.append(_gap("not_verified", f"{finding['id']}: {problem}", finding["id"]))
         issues += _hygiene_issues(commands)
         if cli_on:
             issues += _cli_issues(commands, runner, cache)
@@ -576,15 +575,15 @@ def verify(findings: dict, inventory: list, rules: list, *, claims: list | None 
            which=shutil.which, check_cli: bool = False) -> dict:
     all_findings = [f for f in findings.get("findings", []) if isinstance(f, dict)]
     # every finding that carries a fix gets a status: FAIL (console_only included) and any other status with commands or steps
-    # (DOCUMENTED_GAP, DRIFT whose actual fails...); verify-only findings (DOCUMENTED_ONLY, PASS, N/A, NO_VERIFICADO) have nothing to verify
+    # (DOCUMENTED_GAP, DRIFT whose actual fails...); verify-only findings (DOCUMENTED_ONLY, PASS, N/A, NOT_VERIFIED) have nothing to verify
     fails = [f for f in all_findings if _has_fix(f)]
     cli_on = bool(check_cli and which("aws"))
     gaps = _finding_gaps(all_findings) + _inventory_gaps(all_findings, inventory)
     meta = findings.get("meta")
     if isinstance(meta, dict) and "aws" in meta and not meta["aws"]:
-        gaps.append(_gap("no_verificado", "sin credenciales AWS: ningún estado se verificó contra AWS, los arreglos no se contrastaron con la cuenta", "aws"))
+        gaps.append(_gap("not_verified", "no AWS credentials: no state was verified against AWS, the fixes were not checked against the account", "aws"))
     if check_cli and not cli_on:
-        gaps.append(_gap("no_verificado", "la AWS CLI no está instalada: no se comprobó la validez de operaciones y flags (cli_checked: false)", "aws-cli"))
+        gaps.append(_gap("not_verified", "the AWS CLI is not installed: the validity of operations and flags was not checked (cli_checked: false)", "aws-cli"))
 
     cache, per_finding, pending = {}, {}, 0
     for f in fails:
@@ -610,11 +609,11 @@ def verify(findings: dict, inventory: list, rules: list, *, claims: list | None 
     order, order_gaps = _apply_order(fails, order_pairs)
     unavailable = sorted(f"{service} {operation}" for (service, operation), text in cache.items() if text == "")
     if unavailable:
-        gaps.append(_gap("no_verificado", "ayuda de la CLI no disponible, no se comprobaron operaciones ni flags de: " + ", ".join(unavailable), "aws-cli"))
+        gaps.append(_gap("not_verified", "CLI help not available, operations and flags were not checked for: " + ", ".join(unavailable), "aws-cli"))
     compared = sum(1 for text in cache.values() if text != "")
     summary = {s: sum(1 for e in per_finding.values() if e["status"] == s) for s in RANK}
     result = {"per_finding": per_finding, "conflicts": conflicts, "gaps": gaps + order_gaps, "apply_order": order,
-              "completar_pendientes": pending, "cli_checked": cli_on and not unavailable and compared > 0,
+              "fill_in_pending": pending, "cli_checked": cli_on and not unavailable and compared > 0,
               "cli_requested": bool(check_cli), "cli_operations_checked": compared if cli_on else 0, "summary": summary,
               "warnings": warnings, "findings_digest": assemble_findings.findings_digest(findings)}
     return redact.mask_obj(result)
@@ -631,10 +630,10 @@ def _read_json(path, expected, label):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Verifica los comandos de remediación de findings.json sin ejecutarlos")
+    parser = argparse.ArgumentParser(description="Verifies the remediation commands of findings.json without executing them")
     parser.add_argument("--run-dir", required=True)
-    parser.add_argument("--claims", help="verification-claims.json escrito por Claude")
-    parser.add_argument("--check-cli", action="store_true", help="comprobar operaciones y flags con 'aws <svc> <op> help' (local)")
+    parser.add_argument("--claims", help="verification-claims.json written by Claude")
+    parser.add_argument("--check-cli", action="store_true", help="check operations and flags with 'aws <svc> <op> help' (local)")
     return parser
 
 
@@ -643,10 +642,10 @@ def main(argv=None) -> int:
 
     run_dir = Path(args.run_dir)
     if not run_dir.is_dir():
-        print(f"el directorio de la corrida no existe: {run_dir}", file=sys.stderr)
+        print(f"the run directory does not exist: {run_dir}", file=sys.stderr)
         return 2
     if not (run_dir / "findings.json").is_file():
-        print(f"error: no existe {run_dir / 'findings.json'}: correr assemble_findings.py antes de verificar", file=sys.stderr)
+        print(f"error: {run_dir / 'findings.json'} does not exist: run assemble_findings.py before verifying", file=sys.stderr)
         return 2
     try:
         findings = _read_json(run_dir / "findings.json", dict, "findings.json")
@@ -656,16 +655,16 @@ def main(argv=None) -> int:
         claims = _read_json(args.claims, list, args.claims) if args.claims and not missing_claims else None
         result = verify(findings, inventory, rules, claims=claims, check_cli=args.check_cli)
         if missing_claims:
-            result["warnings"].append(f"el archivo de claims no existe, se verificó sin claims de Claude: {redact.mask(args.claims)}")
+            result["warnings"].append(f"the claims file does not exist, verified without Claude claims: {redact.mask(args.claims)}")
         (run_dir / "verification.json").write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     except (ValueError, OSError, KeyError, TypeError) as exc:
         print(f"error: {' '.join(str(exc).split())}", file=sys.stderr)
         return 2
     s = result["summary"]
-    print(f"verificación: OK {s['OK']}, REVISAR {s['REVISAR']}, CONFLICTO {s['CONFLICTO']}; "
-          f"{len(result['conflicts'])} conflictos, {len(result['gaps'])} faltantes, {result['completar_pendientes']} valores por completar, "
-          f"{len(result['warnings'])} advertencias.")
-    print(f"Detalle en: {run_dir / 'verification.json'}")
+    print(f"verification: OK {s['OK']}, REVIEW {s['REVIEW']}, CONFLICT {s['CONFLICT']}; "
+          f"{len(result['conflicts'])} conflicts, {len(result['gaps'])} gaps, {result['fill_in_pending']} values to fill in, "
+          f"{len(result['warnings'])} warnings.")
+    print(f"Detail in: {run_dir / 'verification.json'}")
     return 0
 
 

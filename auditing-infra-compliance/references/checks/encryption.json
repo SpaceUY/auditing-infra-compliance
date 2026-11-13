@@ -3,7 +3,7 @@
   "checks": [
     {
       "id": "ENC-001",
-      "title": "El cifrado de EBS por defecto está habilitado en cada región con instancias EC2",
+      "title": "EBS encryption by default is enabled in every region with EC2 instances",
       "scope": "resource",
       "resource_types": [
         "ec2_instance"
@@ -22,7 +22,7 @@
           }
         ],
         "evaluator": "python:ebs_default_encryption",
-        "pass_when_text": "La región de la instancia tiene EbsEncryptionByDefault=true. Es un test por región, como el 218 de Drata y el de Vanta: si el ajuste está apagado se reporta cada instancia de esa región y un solo comando lo resuelve. Sin instancias EC2 no hay nada que evaluar. El ajuste no cifra los volúmenes que ya existen (ver ENC-002).",
+        "pass_when_text": "The instance's region has EbsEncryptionByDefault=true. It is a per-region test, like Drata's 218 and Vanta's: if the setting is off, every instance in that region is reported and a single command resolves it. With no EC2 instances there is nothing to evaluate. The setting does not encrypt volumes that already exist (see ENC-002).",
         "needs": [
           "ec2:GetEbsEncryptionByDefault",
           "ec2:DescribeInstances"
@@ -33,7 +33,10 @@
         "EBS",
         "cifrado por defecto",
         "cifrado de discos",
-        "encryption at rest"
+        "encryption at rest",
+        "EBS encryption",
+        "default encryption",
+        "disk encryption"
       ],
       "mappings": {
         "drata": [
@@ -63,14 +66,14 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Activar el cifrado de EBS por defecto en la región {region}; afecta solo a los volúmenes y snapshots que se creen desde ahora.",
-          "Verificar con get-ebs-encryption-by-default y, para cifrar los volúmenes que ya existen, seguir ENC-002."
+          "Turn on EBS encryption by default in region {region}; it affects only the volumes and snapshots created from now on.",
+          "Verify with get-ebs-encryption-by-default and, to encrypt the volumes that already exist, follow ENC-002."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws ec2 enable-ebs-encryption-by-default --region \"$REGION\""
         ],
         "verify_after": "aws ec2 get-ebs-encryption-by-default --region \"{region}\"",
-        "notes": "Sin downtime. Usa la clave aws/ebs; para una CMK propia, aws ec2 modify-ebs-default-kms-key-id --kms-key-id <clave> en la misma región. El ajuste es por región: repetirlo en cada región que tenga instancias. No cifra los volúmenes existentes."
+        "notes": "No downtime. It uses the aws/ebs key; for your own CMK, aws ec2 modify-ebs-default-kms-key-id --kms-key-id <key> in the same region. The setting is per region: repeat it in every region that has instances. It does not encrypt existing volumes."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828784",
@@ -81,7 +84,7 @@
     },
     {
       "id": "ENC-002",
-      "title": "Los volúmenes EBS están cifrados",
+      "title": "EBS volumes are encrypted",
       "scope": "resource",
       "resource_types": [
         "ebs_volume"
@@ -101,7 +104,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "Volumes[?Encrypted!=`true`].{resource_id: VolumeId, detail: {State: State, Size: Size, VolumeType: VolumeType, Instances: Attachments[].InstanceId}}",
-        "pass_when_text": "Todos los volúmenes tienen Encrypted=true. Un volumen sin cifrar no se puede cifrar en el lugar: hay que reemplazarlo por una copia cifrada.",
+        "pass_when_text": "All volumes have Encrypted=true. An unencrypted volume cannot be encrypted in place: it must be replaced with an encrypted copy.",
         "needs": [
           "ec2:DescribeVolumes"
         ]
@@ -111,7 +114,11 @@
         "cifrado de volúmenes",
         "discos sin cifrar",
         "EBS",
-        "snapshot cifrado"
+        "snapshot cifrado",
+        "EBS volumes",
+        "volume encryption",
+        "unencrypted disks",
+        "encrypted snapshot"
       ],
       "mappings": {
         "drata": [
@@ -134,20 +141,20 @@
         "risk": "medium",
         "downtime": true,
         "steps": [
-          "Activar antes el cifrado por defecto (ENC-001) para que los volúmenes nuevos nazcan cifrados.",
-          "Elegir la clave KMS (alias/aws/ebs o una CMK propia) y una ventana de mantenimiento: la instancia dueña del volumen {resource_id} se detiene.",
-          "Detener la instancia y esperar a que esté detenida ANTES del snapshot (primer bloque): así no se pierden las escrituras posteriores. Un volumen sin adjuntar no necesita este paso.",
-          "Crear un snapshot del volumen {resource_id}, copiarlo con cifrado y crear a partir de la copia un volumen nuevo en la misma zona de disponibilidad (segundo bloque; se detiene con DETENIDO si la instancia sigue en ejecución).",
-          "Reemplazar el volumen viejo por el cifrado en el mismo dispositivo e iniciar la instancia (tercer bloque).",
-          "Verificar que la instancia arranca con sus datos y recién entonces borrar el volumen y los snapshots sin cifrar (a mano, no hay comando para eso)."
+          "Turn on default encryption first (ENC-001) so that new volumes are born encrypted.",
+          "Choose the KMS key (alias/aws/ebs or your own CMK) and a maintenance window: the instance that owns volume {resource_id} is stopped.",
+          "Stop the instance and wait for it to be stopped BEFORE the snapshot (first block): that way later writes are not lost. An unattached volume does not need this step.",
+          "Create a snapshot of volume {resource_id}, copy it with encryption and create a new volume from the copy in the same Availability Zone (second block; it stops with STOPPED if the instance is still running).",
+          "Replace the old volume with the encrypted one on the same device and start the instance (third block).",
+          "Verify that the instance boots with its data and only then delete the unencrypted volume and snapshots (by hand, there is no command for that)."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nINSTANCE_ID=\"__COMPLETAR_INSTANCE_ID__\"\n# detiene la instancia dueña del volumen ANTES del snapshot, para no perder las escrituras posteriores: downtime hasta el start-instances del tercer bloque\naws ec2 stop-instances --instance-ids \"$INSTANCE_ID\" --region \"$REGION\" && aws ec2 wait instance-stopped --instance-ids \"$INSTANCE_ID\" --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVOLUME_ID=\"{resource_id}\"\nKMS_KEY_ID=\"__COMPLETAR_KMS_KEY_ID__\"\nAZ=\"__COMPLETAR_ZONA_DISPONIBILIDAD__\"\n# tipo, IOPS y throughput del volumen original (solo lectura); IOPS y throughput quedan vacíos si el tipo no los usa\nVOL_TYPE=$(aws ec2 describe-volumes --volume-ids \"$VOLUME_ID\" --region \"$REGION\" --query 'Volumes[0].VolumeType' --output text)\nVOL_IOPS=$(aws ec2 describe-volumes --volume-ids \"$VOLUME_ID\" --region \"$REGION\" --query 'Volumes[0].Iops' --output text)\nVOL_THROUGHPUT=$(aws ec2 describe-volumes --volume-ids \"$VOLUME_ID\" --region \"$REGION\" --query 'Volumes[0].Throughput' --output text)\nIOPS_ARG=\"\"; case \"$VOL_TYPE\" in gp3|io1|io2) [ \"$VOL_IOPS\" != \"None\" ] && IOPS_ARG=\"--iops $VOL_IOPS\";; esac\nTHR_ARG=\"\"; [ \"$VOL_TYPE\" = \"gp3\" ] && [ \"$VOL_THROUGHPUT\" != \"None\" ] && THR_ARG=\"--throughput $VOL_THROUGHPUT\"\n# la instancia dueña debe estar detenida antes del snapshot (si no, se pierden las escrituras posteriores); un volumen sin adjuntar no la necesita\nATTACHED_TO=$(aws ec2 describe-volumes --volume-ids \"$VOLUME_ID\" --region \"$REGION\" --query 'Volumes[0].Attachments[0].InstanceId' --output text)\nINSTANCE_STATE=\"stopped\"\n[ \"$ATTACHED_TO\" != \"None\" ] && INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids \"$ATTACHED_TO\" --region \"$REGION\" --query 'Reservations[0].Instances[0].State.Name' --output text)\nif [ \"$INSTANCE_STATE\" != \"stopped\" ]; then echo \"DETENIDO: la instancia $ATTACHED_TO no está detenida (estado: $INSTANCE_STATE): detenerla con el primer bloque y esperar a que se detenga antes de tomar el snapshot\"; else\n[ -n \"$VOL_TYPE\" ] && [ \"$VOL_TYPE\" != \"None\" ] && SNAP_ID=$(aws ec2 create-snapshot --volume-id \"$VOLUME_ID\" --region \"$REGION\" --query SnapshotId --output text) && aws ec2 wait snapshot-completed --snapshot-ids \"$SNAP_ID\" --region \"$REGION\" && ENC_SNAP_ID=$(aws ec2 copy-snapshot --source-region \"$REGION\" --source-snapshot-id \"$SNAP_ID\" --encrypted --kms-key-id \"$KMS_KEY_ID\" --region \"$REGION\" --query SnapshotId --output text) && aws ec2 wait snapshot-completed --snapshot-ids \"$ENC_SNAP_ID\" --region \"$REGION\" && aws ec2 create-volume --snapshot-id \"$ENC_SNAP_ID\" --availability-zone \"$AZ\" --volume-type \"$VOL_TYPE\" $IOPS_ARG $THR_ARG --region \"$REGION\" --query VolumeId --output text\nfi",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nINSTANCE_ID=\"__COMPLETAR_INSTANCE_ID__\"\nOLD_VOLUME_ID=\"{resource_id}\"\nNEW_VOLUME_ID=\"__COMPLETAR_VOLUME_ID_CIFRADO__\"\nDEVICE=\"__COMPLETAR_DISPOSITIVO__\"\n# la instancia sigue detenida desde el primer bloque; el volumen viejo queda desadjuntado, con los datos más recientes, hasta que se borre a mano\naws ec2 wait instance-stopped --instance-ids \"$INSTANCE_ID\" --region \"$REGION\" && aws ec2 detach-volume --volume-id \"$OLD_VOLUME_ID\" --region \"$REGION\" && aws ec2 wait volume-available --volume-ids \"$OLD_VOLUME_ID\" --region \"$REGION\" && aws ec2 attach-volume --volume-id \"$NEW_VOLUME_ID\" --instance-id \"$INSTANCE_ID\" --device \"$DEVICE\" --region \"$REGION\" && aws ec2 start-instances --instance-ids \"$INSTANCE_ID\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nINSTANCE_ID=\"__FILL_IN_INSTANCE_ID__\"\n# stops the instance that owns the volume BEFORE the snapshot, so that later writes are not lost: downtime until the start-instances of the third block\naws ec2 stop-instances --instance-ids \"$INSTANCE_ID\" --region \"$REGION\" && aws ec2 wait instance-stopped --instance-ids \"$INSTANCE_ID\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVOLUME_ID=\"{resource_id}\"\nKMS_KEY_ID=\"__FILL_IN_KMS_KEY_ID__\"\nAZ=\"__FILL_IN_AVAILABILITY_ZONE__\"\n# type, IOPS and throughput of the original volume (read-only); IOPS and throughput stay empty if the type does not use them\nVOL_TYPE=$(aws ec2 describe-volumes --volume-ids \"$VOLUME_ID\" --region \"$REGION\" --query 'Volumes[0].VolumeType' --output text)\nVOL_IOPS=$(aws ec2 describe-volumes --volume-ids \"$VOLUME_ID\" --region \"$REGION\" --query 'Volumes[0].Iops' --output text)\nVOL_THROUGHPUT=$(aws ec2 describe-volumes --volume-ids \"$VOLUME_ID\" --region \"$REGION\" --query 'Volumes[0].Throughput' --output text)\nIOPS_ARG=\"\"; case \"$VOL_TYPE\" in gp3|io1|io2) [ \"$VOL_IOPS\" != \"None\" ] && IOPS_ARG=\"--iops $VOL_IOPS\";; esac\nTHR_ARG=\"\"; [ \"$VOL_TYPE\" = \"gp3\" ] && [ \"$VOL_THROUGHPUT\" != \"None\" ] && THR_ARG=\"--throughput $VOL_THROUGHPUT\"\n# the owning instance must be stopped before the snapshot (otherwise later writes are lost); an unattached volume does not need it\nATTACHED_TO=$(aws ec2 describe-volumes --volume-ids \"$VOLUME_ID\" --region \"$REGION\" --query 'Volumes[0].Attachments[0].InstanceId' --output text)\nINSTANCE_STATE=\"stopped\"\n[ \"$ATTACHED_TO\" != \"None\" ] && INSTANCE_STATE=$(aws ec2 describe-instances --instance-ids \"$ATTACHED_TO\" --region \"$REGION\" --query 'Reservations[0].Instances[0].State.Name' --output text)\nif [ \"$INSTANCE_STATE\" != \"stopped\" ]; then echo \"STOPPED: instance $ATTACHED_TO is not stopped (state: $INSTANCE_STATE): stop it with the first block and wait for it to stop before taking the snapshot\"; else\n[ -n \"$VOL_TYPE\" ] && [ \"$VOL_TYPE\" != \"None\" ] && SNAP_ID=$(aws ec2 create-snapshot --volume-id \"$VOLUME_ID\" --region \"$REGION\" --query SnapshotId --output text) && aws ec2 wait snapshot-completed --snapshot-ids \"$SNAP_ID\" --region \"$REGION\" && ENC_SNAP_ID=$(aws ec2 copy-snapshot --source-region \"$REGION\" --source-snapshot-id \"$SNAP_ID\" --encrypted --kms-key-id \"$KMS_KEY_ID\" --region \"$REGION\" --query SnapshotId --output text) && aws ec2 wait snapshot-completed --snapshot-ids \"$ENC_SNAP_ID\" --region \"$REGION\" && aws ec2 create-volume --snapshot-id \"$ENC_SNAP_ID\" --availability-zone \"$AZ\" --volume-type \"$VOL_TYPE\" $IOPS_ARG $THR_ARG --region \"$REGION\" --query VolumeId --output text\nfi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nINSTANCE_ID=\"__FILL_IN_INSTANCE_ID__\"\nOLD_VOLUME_ID=\"{resource_id}\"\nNEW_VOLUME_ID=\"__FILL_IN_ENCRYPTED_VOLUME_ID__\"\nDEVICE=\"__FILL_IN_DEVICE__\"\n# the instance is still stopped from the first block; the old volume stays detached, with the most recent data, until it is deleted by hand\naws ec2 wait instance-stopped --instance-ids \"$INSTANCE_ID\" --region \"$REGION\" && aws ec2 detach-volume --volume-id \"$OLD_VOLUME_ID\" --region \"$REGION\" && aws ec2 wait volume-available --volume-ids \"$OLD_VOLUME_ID\" --region \"$REGION\" && aws ec2 attach-volume --volume-id \"$NEW_VOLUME_ID\" --instance-id \"$INSTANCE_ID\" --device \"$DEVICE\" --region \"$REGION\" && aws ec2 start-instances --instance-ids \"$INSTANCE_ID\" --region \"$REGION\""
         ],
         "verify_after": "aws ec2 describe-volumes --filters \"Name=encrypted,Values=false\" --region \"{region}\" --query 'Volumes[].VolumeId'",
-        "notes": "ADVERTENCIA: es un reemplazo, no un cambio en el lugar, y requiere detener la instancia (downtime). La instancia se detiene ANTES del snapshot: si se tomara con la instancia en ejecución, las escrituras posteriores al snapshot no estarían en el volumen nuevo. El volumen original queda desadjuntado con los datos más recientes hasta que se borre a mano: conservarlo hasta validar el nuevo. create-volume sobre un snapshot cifrado hereda el cifrado y la clave de la copia. Para el volumen raíz usar el dispositivo raíz de la instancia (por ejemplo /dev/xvda). El volumen nuevo no hereda DeleteOnTermination ni las tags: reaplicarlos. Si la instancia pertenece a un grupo de Auto Scaling, corregir también la launch template (BlockDeviceMappings con Encrypted=true) y reemplazar las instancias. Un volumen sin adjuntar (available) se reemplaza sin detener nada. El volumen nuevo conserva el tipo, los IOPS y el throughput del original (se leen con describe-volumes). Los datos de instance store se pierden al detener la instancia. Los snapshots y volúmenes duplicados se cobran hasta que se borran."
+        "notes": "WARNING: this is a replacement, not an in-place change, and it requires stopping the instance (downtime). The instance is stopped BEFORE the snapshot: if it were taken with the instance running, writes after the snapshot would not be on the new volume. The original volume is left detached with the most recent data until it is deleted by hand: keep it until the new one is validated. create-volume from an encrypted snapshot inherits the copy's encryption and key. For the root volume use the instance's root device (for example /dev/xvda). The new volume does not inherit DeleteOnTermination or the tags: reapply them. If the instance belongs to an Auto Scaling group, also fix the launch template (BlockDeviceMappings with Encrypted=true) and replace the instances. An unattached (available) volume is replaced without stopping anything. The new volume keeps the original's type, IOPS and throughput (read with describe-volumes). Data on instance store volumes is lost when the instance is stopped. Duplicated snapshots and volumes are billed until they are deleted."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828784",
@@ -157,7 +164,7 @@
     },
     {
       "id": "ENC-003",
-      "title": "Las instancias y clusters de RDS tienen el almacenamiento cifrado",
+      "title": "RDS instances and clusters have encrypted storage",
       "scope": "resource",
       "resource_types": [
         "rds_instance",
@@ -184,7 +191,7 @@
           }
         ],
         "evaluator": "python:rds_encrypted",
-        "pass_when_text": "Cada instancia y cada cluster tiene StorageEncrypted=true. Las instancias que son miembros de un cluster (Aurora, Multi-AZ DB cluster) se evalúan a través de su cluster. RDS no permite activar el cifrado en una base que ya existe: hay que restaurarla desde un snapshot cifrado.",
+        "pass_when_text": "Each instance and each cluster has StorageEncrypted=true. Instances that are members of a cluster (Aurora, Multi-AZ DB cluster) are evaluated through their cluster. RDS does not allow turning on encryption on an existing database: it must be restored from an encrypted snapshot.",
         "needs": [
           "rds:DescribeDBInstances",
           "rds:DescribeDBClusters"
@@ -196,7 +203,10 @@
         "base de datos",
         "StorageEncrypted",
         "Aurora",
-        "encryption at rest"
+        "encryption at rest",
+        "encrypted RDS",
+        "database encryption",
+        "database"
       ],
       "mappings": {
         "drata": [
@@ -227,19 +237,19 @@
         "risk": "high",
         "downtime": true,
         "steps": [
-          "Elegir la clave KMS (aws/rds o una CMK propia) y una ventana de mantenimiento: el cambio reemplaza la base {resource_id}.",
-          "Crear un snapshot de la base y esperar a que esté disponible.",
-          "Copiar el snapshot con --kms-key-id para cifrarlo y esperar a que la copia esté disponible.",
-          "Restaurar una base nueva desde la copia cifrada con la misma configuración (clase, subnet group, security groups y parameter group) y sin acceso público (--no-publicly-accessible; si la original era pública a propósito, decidirlo después de restaurar, nunca por omisión).",
-          "Cambiar la aplicación al endpoint de la base nueva (o renombrar las bases para conservar el endpoint) y verificar que funciona.",
-          "Cuando todo funcione, borrar la base sin cifrar y los snapshots sin cifrar."
+          "Choose the KMS key (aws/rds or your own CMK) and a maintenance window: the change replaces database {resource_id}.",
+          "Create a snapshot of the database and wait for it to be available.",
+          "Copy the snapshot with --kms-key-id to encrypt it and wait for the copy to be available.",
+          "Restore a new database from the encrypted copy with the same configuration (class, subnet group, security groups and parameter group) and without public access (--no-publicly-accessible; if the original was public on purpose, decide that after restoring, never by omission).",
+          "Switch the application to the new database's endpoint (or rename the databases to keep the endpoint) and verify that it works.",
+          "When everything works, delete the unencrypted database and the unencrypted snapshots."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\nNEW_DB_ID=\"__COMPLETAR_ID_BASE_NUEVA__\"\nKMS_KEY_ID=\"__COMPLETAR_KMS_KEY_ID__\"\nSUBNET_GROUP=\"__COMPLETAR_DB_SUBNET_GROUP__\"\nSG_ID=\"__COMPLETAR_SECURITY_GROUP_ID__\"\nPARAM_GROUP=\"__COMPLETAR_PARAMETER_GROUP__\"\n# solo para una instancia que no pertenece a un cluster; la base nueva se restaura sin acceso público (--no-publicly-accessible)\naws rds create-db-snapshot --db-instance-identifier \"$DB_ID\" --db-snapshot-identifier \"$DB_ID-pre-cifrado\" --region \"$REGION\" && aws rds wait db-snapshot-available --db-snapshot-identifier \"$DB_ID-pre-cifrado\" --region \"$REGION\" && aws rds copy-db-snapshot --source-db-snapshot-identifier \"$DB_ID-pre-cifrado\" --target-db-snapshot-identifier \"$DB_ID-cifrado\" --kms-key-id \"$KMS_KEY_ID\" --region \"$REGION\" && aws rds wait db-snapshot-available --db-snapshot-identifier \"$DB_ID-cifrado\" --region \"$REGION\" && aws rds restore-db-instance-from-db-snapshot --db-instance-identifier \"$NEW_DB_ID\" --db-snapshot-identifier \"$DB_ID-cifrado\" --db-subnet-group-name \"$SUBNET_GROUP\" --vpc-security-group-ids \"$SG_ID\" --db-parameter-group-name \"$PARAM_GROUP\" --no-publicly-accessible --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCLUSTER_ID=\"{resource_id}\"\nNEW_CLUSTER_ID=\"__COMPLETAR_ID_CLUSTER_NUEVO__\"\nKMS_KEY_ID=\"__COMPLETAR_KMS_KEY_ID__\"\nSUBNET_GROUP=\"__COMPLETAR_DB_SUBNET_GROUP__\"\nSG_ID=\"__COMPLETAR_SECURITY_GROUP_ID__\"\nENGINE=\"__COMPLETAR_MOTOR__\"\nINSTANCE_CLASS=\"__COMPLETAR_CLASE_INSTANCIA__\"\n# solo para un cluster: el cluster restaurado no trae instancias, por eso create-db-instance al final (sin acceso público)\naws rds create-db-cluster-snapshot --db-cluster-identifier \"$CLUSTER_ID\" --db-cluster-snapshot-identifier \"$CLUSTER_ID-pre-cifrado\" --region \"$REGION\" && aws rds wait db-cluster-snapshot-available --db-cluster-snapshot-identifier \"$CLUSTER_ID-pre-cifrado\" --region \"$REGION\" && aws rds copy-db-cluster-snapshot --source-db-cluster-snapshot-identifier \"$CLUSTER_ID-pre-cifrado\" --target-db-cluster-snapshot-identifier \"$CLUSTER_ID-cifrado\" --kms-key-id \"$KMS_KEY_ID\" --region \"$REGION\" && aws rds wait db-cluster-snapshot-available --db-cluster-snapshot-identifier \"$CLUSTER_ID-cifrado\" --region \"$REGION\" && aws rds restore-db-cluster-from-snapshot --db-cluster-identifier \"$NEW_CLUSTER_ID\" --snapshot-identifier \"$CLUSTER_ID-cifrado\" --engine \"$ENGINE\" --db-subnet-group-name \"$SUBNET_GROUP\" --vpc-security-group-ids \"$SG_ID\" --region \"$REGION\" && aws rds create-db-instance --db-instance-identifier \"$NEW_CLUSTER_ID-1\" --db-cluster-identifier \"$NEW_CLUSTER_ID\" --db-instance-class \"$INSTANCE_CLASS\" --engine \"$ENGINE\" --no-publicly-accessible --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\nNEW_DB_ID=\"__FILL_IN_NEW_DB_ID__\"\nKMS_KEY_ID=\"__FILL_IN_KMS_KEY_ID__\"\nSUBNET_GROUP=\"__FILL_IN_DB_SUBNET_GROUP__\"\nSG_ID=\"__FILL_IN_SECURITY_GROUP_ID__\"\nPARAM_GROUP=\"__FILL_IN_PARAMETER_GROUP__\"\n# only for an instance that does not belong to a cluster; the new database is restored without public access (--no-publicly-accessible)\naws rds create-db-snapshot --db-instance-identifier \"$DB_ID\" --db-snapshot-identifier \"$DB_ID-pre-cifrado\" --region \"$REGION\" && aws rds wait db-snapshot-available --db-snapshot-identifier \"$DB_ID-pre-cifrado\" --region \"$REGION\" && aws rds copy-db-snapshot --source-db-snapshot-identifier \"$DB_ID-pre-cifrado\" --target-db-snapshot-identifier \"$DB_ID-cifrado\" --kms-key-id \"$KMS_KEY_ID\" --region \"$REGION\" && aws rds wait db-snapshot-available --db-snapshot-identifier \"$DB_ID-cifrado\" --region \"$REGION\" && aws rds restore-db-instance-from-db-snapshot --db-instance-identifier \"$NEW_DB_ID\" --db-snapshot-identifier \"$DB_ID-cifrado\" --db-subnet-group-name \"$SUBNET_GROUP\" --vpc-security-group-ids \"$SG_ID\" --db-parameter-group-name \"$PARAM_GROUP\" --no-publicly-accessible --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCLUSTER_ID=\"{resource_id}\"\nNEW_CLUSTER_ID=\"__FILL_IN_NEW_CLUSTER_ID__\"\nKMS_KEY_ID=\"__FILL_IN_KMS_KEY_ID__\"\nSUBNET_GROUP=\"__FILL_IN_DB_SUBNET_GROUP__\"\nSG_ID=\"__FILL_IN_SECURITY_GROUP_ID__\"\nENGINE=\"__FILL_IN_ENGINE__\"\nINSTANCE_CLASS=\"__FILL_IN_INSTANCE_CLASS__\"\n# only for a cluster: the restored cluster comes with no instances, which is why create-db-instance at the end (without public access)\naws rds create-db-cluster-snapshot --db-cluster-identifier \"$CLUSTER_ID\" --db-cluster-snapshot-identifier \"$CLUSTER_ID-pre-cifrado\" --region \"$REGION\" && aws rds wait db-cluster-snapshot-available --db-cluster-snapshot-identifier \"$CLUSTER_ID-pre-cifrado\" --region \"$REGION\" && aws rds copy-db-cluster-snapshot --source-db-cluster-snapshot-identifier \"$CLUSTER_ID-pre-cifrado\" --target-db-cluster-snapshot-identifier \"$CLUSTER_ID-cifrado\" --kms-key-id \"$KMS_KEY_ID\" --region \"$REGION\" && aws rds wait db-cluster-snapshot-available --db-cluster-snapshot-identifier \"$CLUSTER_ID-cifrado\" --region \"$REGION\" && aws rds restore-db-cluster-from-snapshot --db-cluster-identifier \"$NEW_CLUSTER_ID\" --snapshot-identifier \"$CLUSTER_ID-cifrado\" --engine \"$ENGINE\" --db-subnet-group-name \"$SUBNET_GROUP\" --vpc-security-group-ids \"$SG_ID\" --region \"$REGION\" && aws rds create-db-instance --db-instance-identifier \"$NEW_CLUSTER_ID-1\" --db-cluster-identifier \"$NEW_CLUSTER_ID\" --db-instance-class \"$INSTANCE_CLASS\" --engine \"$ENGINE\" --no-publicly-accessible --region \"$REGION\""
         ],
         "verify_after": "aws rds describe-db-instances --region \"{region}\" --query \"DBInstances[?DBInstanceIdentifier=='{resource_id}' || DBClusterIdentifier=='{resource_id}'].[DBInstanceIdentifier,StorageEncrypted,PubliclyAccessible]\"",
-        "notes": "Es un reemplazo, no un cambio en el lugar: RDS no cifra una base existente. Downtime: desde el snapshot hasta el cambio de endpoint; para acortarlo, detener las escrituras antes del snapshot, o usar DMS / una réplica lógica para sincronizar el último tramo. Se pierden los cambios hechos después del snapshot. Mientras dure la migración se pagan dos bases. La base restaurada no hereda Multi-AZ, réplicas de lectura, tags, backup retention, IAM auth, protección contra borrado, actualización automática de versiones menores, exportación de logs a CloudWatch ni ventana de mantenimiento: reconfigurarlos. El acceso público tampoco se hereda: RDS lo decide por el subnet group (un subnet group con ruta a un internet gateway da una base pública), por eso los bloques pasan --no-publicly-accessible para que el reemplazo no quede más expuesto que la original (NET-007); si la original era pública a propósito, cambiarlo de forma explícita después de restaurar. Verificar con el comando de abajo (scopeado al identificador de esta base): una lista vacía significa que ninguna base conserva ese identificador (por ejemplo la nueva quedó con otro nombre): consultar por el identificador nuevo. Los snapshots y las réplicas de una base cifrada quedan cifrados. No borrar la base original hasta validar la nueva."
+        "notes": "It is a replacement, not an in-place change: RDS does not encrypt an existing database. Downtime: from the snapshot until the endpoint switch; to shorten it, stop writes before the snapshot, or use DMS / a logical replica to sync the last stretch. Changes made after the snapshot are lost. While the migration lasts, two databases are paid for. The restored database does not inherit Multi-AZ, read replicas, tags, backup retention, IAM auth, deletion protection, automatic minor version upgrade, log export to CloudWatch or the maintenance window: reconfigure them. Public access is not inherited either: RDS decides it by the subnet group (a subnet group with a route to an internet gateway gives a public database), which is why the blocks pass --no-publicly-accessible so that the replacement is not more exposed than the original (NET-007); if the original was public on purpose, change it explicitly after restoring. Verify with the command below (scoped to this database's identifier): an empty list means that no database keeps that identifier (for example the new one ended up with another name): query by the new identifier. Snapshots and replicas of an encrypted database stay encrypted. Do not delete the original database until the new one is validated."
       },
       "sources": [
         "https://help.drata.com/en/articles/4776970",
@@ -250,7 +260,7 @@
     },
     {
       "id": "ENC-004",
-      "title": "Los file systems de EFS están cifrados en reposo",
+      "title": "EFS file systems are encrypted at rest",
       "scope": "resource",
       "resource_types": [
         "efs"
@@ -270,7 +280,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "FileSystems[?Encrypted!=`true`].{resource_id: FileSystemId, detail: {Name: Name, LifeCycleState: LifeCycleState}}",
-        "pass_when_text": "Todos los file systems tienen Encrypted=true. El cifrado se decide al crear el file system y no se puede activar después (así lo trata también Drata 231).",
+        "pass_when_text": "All file systems have Encrypted=true. Encryption is decided when the file system is created and cannot be turned on afterwards (Drata 231 treats it the same way).",
         "needs": [
           "elasticfilesystem:DescribeFileSystems"
         ]
@@ -280,7 +290,9 @@
         "file system",
         "sistema de archivos",
         "cifrado de EFS",
-        "almacenamiento compartido"
+        "almacenamiento compartido",
+        "EFS encryption",
+        "shared storage"
       ],
       "mappings": {
         "drata": [
@@ -310,18 +322,18 @@
         "risk": "high",
         "downtime": true,
         "steps": [
-          "Elegir la clave KMS (la de EFS por defecto o una CMK propia) y una ventana de mantenimiento: los datos de {resource_id} hay que migrarlos a un file system nuevo.",
-          "Crear un file system EFS nuevo con --encrypted en la región {region}, con los mismos mount targets, security groups, modo de throughput y política de backup.",
-          "Copiar los datos del file system viejo al nuevo con AWS DataSync (o rsync desde una instancia que monte los dos).",
-          "Detener a los escritores, hacer una última sincronización y montar el file system nuevo en las aplicaciones.",
-          "Verificar los datos y, recién entonces, borrar el file system sin cifrar."
+          "Choose the KMS key (the default EFS one or your own CMK) and a maintenance window: the data in {resource_id} must be migrated to a new file system.",
+          "Create a new EFS file system with --encrypted in region {region}, with the same mount targets, security groups, throughput mode and backup policy.",
+          "Copy the data from the old file system to the new one with AWS DataSync (or rsync from an instance that mounts both).",
+          "Stop the writers, do a final sync and mount the new file system in the applications.",
+          "Verify the data and only then delete the unencrypted file system."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOKEN=\"efs-cifrado-$(date +%s)\"\nKMS_KEY_ID=\"__COMPLETAR_KMS_KEY_ID__\"\nFS_NAME=\"__COMPLETAR_NOMBRE_FILE_SYSTEM__\"\naws efs create-file-system --creation-token \"$TOKEN\" --encrypted --kms-key-id \"$KMS_KEY_ID\" --performance-mode generalPurpose --tags \"Key=Name,Value=$FS_NAME\" --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNEW_FS_ID=\"__COMPLETAR_ID_FILE_SYSTEM_NUEVO__\"\nSUBNET_ID=\"__COMPLETAR_SUBNET_ID__\"\nSG_ID=\"__COMPLETAR_SECURITY_GROUP_ID__\"\n# uno por cada zona de disponibilidad en la que se monta el file system\naws efs create-mount-target --file-system-id \"$NEW_FS_ID\" --subnet-id \"$SUBNET_ID\" --security-groups \"$SG_ID\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOKEN=\"efs-cifrado-$(date +%s)\"\nKMS_KEY_ID=\"__FILL_IN_KMS_KEY_ID__\"\nFS_NAME=\"__FILL_IN_FILE_SYSTEM_NAME__\"\naws efs create-file-system --creation-token \"$TOKEN\" --encrypted --kms-key-id \"$KMS_KEY_ID\" --performance-mode generalPurpose --tags \"Key=Name,Value=$FS_NAME\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nNEW_FS_ID=\"__FILL_IN_NEW_FILE_SYSTEM_ID__\"\nSUBNET_ID=\"__FILL_IN_SUBNET_ID__\"\nSG_ID=\"__FILL_IN_SECURITY_GROUP_ID__\"\n# one per Availability Zone in which the file system is mounted\naws efs create-mount-target --file-system-id \"$NEW_FS_ID\" --subnet-id \"$SUBNET_ID\" --security-groups \"$SG_ID\" --region \"$REGION\""
         ],
         "verify_after": "aws efs describe-file-systems --region \"{region}\" --query 'FileSystems[].[FileSystemId,Encrypted]'",
-        "notes": "No se puede activar el cifrado en un file system existente: hay que crear uno nuevo y migrar. Downtime: el de la última sincronización y el remontaje en las aplicaciones. Mientras dure la copia se pagan los dos file systems. Reaplicar lifecycle policy, backup policy, access points y file system policy en el nuevo. Con AWS Backup, restaurar a un file system nuevo también permite elegir cifrado."
+        "notes": "Encryption cannot be turned on for an existing file system: a new one must be created and the data migrated. Downtime: that of the final sync and the remount in the applications. While the copy lasts, both file systems are paid for. Reapply the lifecycle policy, backup policy, access points and file system policy on the new one. With AWS Backup, restoring to a new file system also lets you choose encryption."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828789",
@@ -332,7 +344,7 @@
     },
     {
       "id": "ENC-005",
-      "title": "Los buckets de S3 tienen un cifrado por defecto configurado",
+      "title": "S3 buckets have default encryption configured",
       "scope": "resource",
       "resource_types": [
         "s3_bucket"
@@ -361,7 +373,7 @@
           }
         ],
         "evaluator": "python:s3_default_encryption",
-        "pass_when_text": "Cada bucket devuelve una regla de cifrado por defecto (SSE-S3, SSE-KMS o DSSE-KMS). Un bucket sin configuración (ServerSideEncryptionConfigurationNotFoundError) falla. Drata 69 acepta SSE-S3.",
+        "pass_when_text": "Each bucket returns a default encryption rule (SSE-S3, SSE-KMS or DSSE-KMS). A bucket without a configuration (ServerSideEncryptionConfigurationNotFoundError) fails. Drata 69 accepts SSE-S3.",
         "needs": [
           "s3:GetEncryptionConfiguration",
           "s3:ListAllMyBuckets"
@@ -373,7 +385,11 @@
         "SSE-KMS",
         "buckets cifrados",
         "datos en reposo",
-        "cifrado por defecto del bucket"
+        "cifrado por defecto del bucket",
+        "S3 encryption",
+        "encrypted buckets",
+        "data at rest",
+        "bucket default encryption"
       ],
       "mappings": {
         "drata": [
@@ -394,14 +410,14 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Configurar el cifrado por defecto del bucket {resource_id} con SSE-S3 (AES256), o con SSE-KMS si hace falta controlar la clave.",
-          "Verificar con get-bucket-encryption."
+          "Configure default encryption on bucket {resource_id} with SSE-S3 (AES256), or with SSE-KMS if you need to control the key.",
+          "Verify with get-bucket-encryption."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws s3api put-bucket-encryption --bucket \"{resource_id}\" --server-side-encryption-configuration '{\"Rules\":[{\"ApplyServerSideEncryptionByDefault\":{\"SSEAlgorithm\":\"AES256\"}}]}'"
         ],
         "verify_after": "aws s3api get-bucket-encryption --bucket \"{resource_id}\"",
-        "notes": "Sin downtime. Solo afecta a los objetos nuevos; los existentes se re-cifran copiándolos sobre sí mismos o con S3 Batch Operations. Para SSE-KMS usar SSEAlgorithm=aws:kms con KMSMasterKeyID y BucketKeyEnabled=true (reduce las llamadas a KMS). put-bucket-encryption reemplaza la configuración anterior: no usarlo en un bucket que ya tiene SSE-KMS."
+        "notes": "No downtime. It only affects new objects; existing ones are re-encrypted by copying them onto themselves or with S3 Batch Operations. For SSE-KMS use SSEAlgorithm=aws:kms with KMSMasterKeyID and BucketKeyEnabled=true (reduces KMS calls). put-bucket-encryption replaces the previous configuration: do not use it on a bucket that already has SSE-KMS."
       },
       "sources": [
         "https://help.drata.com/en/articles/4776971",
@@ -411,7 +427,7 @@
     },
     {
       "id": "ENC-006",
-      "title": "Las claves KMS propias simétricas tienen la rotación automática habilitada",
+      "title": "Symmetric customer-managed KMS keys have automatic rotation enabled",
       "scope": "resource",
       "resource_types": [
         "kms_key"
@@ -458,7 +474,7 @@
           }
         ],
         "evaluator": "python:kms_rotation",
-        "pass_when_text": "Toda clave habilitada, gestionada por el cliente, simétrica y con material de KMS tiene KeyRotationEnabled=true. Las claves administradas por AWS (alias aws/*), las asimétricas, las deshabilitadas, las que están por borrarse y las de material externo no aplican. Si la key policy de una clave bloquea al auditor (como pide Drata 223, la policy debe permitir kms:DescribeKey y kms:GetKeyRotationStatus), esa clave queda NO_VERIFICADO con el permiso que falta y las demás se evalúan.",
+        "pass_when_text": "Every enabled, customer-managed, symmetric key with KMS key material has KeyRotationEnabled=true. AWS-managed keys (aws/* aliases), asymmetric keys, disabled keys, keys pending deletion and external-material keys do not apply. If a key's key policy blocks the auditor (as Drata 223 asks, the policy must allow kms:DescribeKey and kms:GetKeyRotationStatus), that key ends up NOT_VERIFIED with the missing permission and the others are evaluated.",
         "needs": [
           "kms:ListKeys",
           "kms:DescribeKey",
@@ -471,7 +487,9 @@
         "CMK",
         "clave gestionada por el cliente",
         "rotación anual",
-        "key rotation"
+        "key rotation",
+        "customer-managed key",
+        "annual rotation"
       ],
       "mappings": {
         "drata": [
@@ -501,14 +519,14 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Habilitar la rotación automática de la clave {resource_id} (por defecto, una vez al año).",
-          "Verificar con get-key-rotation-status."
+          "Enable automatic rotation of key {resource_id} (by default, once a year).",
+          "Verify with get-key-rotation-status."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws kms enable-key-rotation --key-id \"{resource_id}\" --region \"$REGION\""
         ],
         "verify_after": "aws kms get-key-rotation-status --key-id \"{resource_id}\" --region \"{region}\"",
-        "notes": "Sin downtime y sin re-cifrar datos: KMS conserva el material anterior para descifrar lo ya cifrado y usa el nuevo para lo que se cifre desde ahora. Cada rotación acumulada puede tener un cargo mensual adicional. Con la CLI reciente se puede fijar el período con --rotation-period-in-days (90 a 2560, por defecto 365). Las claves de otra cuenta o con key policy cerrada se corrigen desde la cuenta dueña."
+        "notes": "No downtime and no re-encryption of data: KMS keeps the previous material to decrypt what is already encrypted and uses the new one for what is encrypted from now on. Each accumulated rotation can carry an additional monthly charge. With the recent CLI the period can be set with --rotation-period-in-days (90 to 2560, default 365). Keys from another account or with a closed key policy are fixed from the owning account."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828731",
@@ -519,7 +537,7 @@
     },
     {
       "id": "ENC-007",
-      "title": "Las claves KMS no están programadas para borrarse",
+      "title": "KMS keys are not scheduled for deletion",
       "scope": "resource",
       "resource_types": [
         "kms_key"
@@ -547,7 +565,7 @@
           }
         ],
         "evaluator": "python:kms_pending_deletion",
-        "pass_when_text": "Ninguna clave está en estado PendingDeletion (ni PendingReplicaDeletion). Borrar una clave deja ilegibles para siempre los datos cifrados con ella. Una clave borrada entre el listado y la consulta no aplica; una clave cuya key policy bloquea al auditor queda NO_VERIFICADO.",
+        "pass_when_text": "No key is in the PendingDeletion (or PendingReplicaDeletion) state. Deleting a key leaves the data encrypted with it unreadable forever. A key deleted between listing and querying does not apply; a key whose key policy blocks the auditor ends up NOT_VERIFIED.",
         "needs": [
           "kms:ListKeys",
           "kms:DescribeKey"
@@ -558,7 +576,9 @@
         "KMS",
         "ScheduleKeyDeletion",
         "clave pendiente de borrado",
-        "CMK"
+        "CMK",
+        "key deletion",
+        "key pending deletion"
       ],
       "mappings": {
         "drata": [],
@@ -579,16 +599,16 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Confirmar con el equipo dueño si la clave {resource_id} todavía cifra datos o recursos (S3, EBS, RDS, secretos, trails).",
-          "Si se necesita, cancelar el borrado: cancel-key-deletion deja la clave deshabilitada, por eso hay que volver a habilitarla.",
-          "Si ya no se necesita, no hacer nada: se borra en la fecha programada y los datos cifrados con ella se pierden."
+          "Confirm with the owning team whether key {resource_id} still encrypts data or resources (S3, EBS, RDS, secrets, trails).",
+          "If it is needed, cancel the deletion: cancel-key-deletion leaves the key disabled, so it must be enabled again.",
+          "If it is no longer needed, do nothing: it is deleted on the scheduled date and the data encrypted with it is lost."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws kms describe-key --key-id \"{resource_id}\" --region \"$REGION\" --query 'KeyMetadata.[KeyId,KeyState,DeletionDate,Description]'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# solo si la clave se necesita: cancela el borrado y la vuelve a habilitar\naws kms cancel-key-deletion --key-id \"{resource_id}\" --region \"$REGION\" && aws kms enable-key --key-id \"{resource_id}\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# only if the key is needed: cancels the deletion and enables it again\naws kms cancel-key-deletion --key-id \"{resource_id}\" --region \"$REGION\" && aws kms enable-key --key-id \"{resource_id}\" --region \"$REGION\""
         ],
         "verify_after": "aws kms describe-key --key-id \"{resource_id}\" --region \"{region}\" --query 'KeyMetadata.[KeyState,Enabled]'",
-        "notes": "Decisión: cancelar o dejar que se borre. Mientras la clave está pendiente de borrado nadie puede usarla; si hay recursos que dependen de ella ya están fallando. Si la clave es multi-región, revisar también las réplicas. Para el caso intencional (clave retirada a propósito), documentar la decisión: este hallazgo seguirá apareciendo hasta que pase el período de espera."
+        "notes": "Decision: cancel or let it be deleted. While the key is pending deletion nobody can use it; if there are resources that depend on it, they are already failing. If the key is multi-Region, also check the replicas. For the intentional case (key retired on purpose), document the decision: this finding will keep appearing until the waiting period passes."
       },
       "sources": [
         "https://docs.aws.amazon.com/securityhub/latest/userguide/kms-controls.html",
@@ -598,7 +618,7 @@
     },
     {
       "id": "ENC-008",
-      "title": "Los secretos de Secrets Manager tienen la rotación automática habilitada",
+      "title": "Secrets Manager secrets have automatic rotation enabled",
       "scope": "resource",
       "resource_types": [
         "secret"
@@ -618,7 +638,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "SecretList[?RotationEnabled!=`true`].{resource_id: Name, detail: {RotationEnabled: RotationEnabled, LastChangedDate: LastChangedDate}}",
-        "pass_when_text": "Todos los secretos tienen RotationEnabled=true. No incluye los secretos programados para borrarse (list-secrets los omite).",
+        "pass_when_text": "All secrets have RotationEnabled=true. Secrets scheduled for deletion are not included (list-secrets omits them).",
         "needs": [
           "secretsmanager:ListSecrets"
         ]
@@ -628,7 +648,11 @@
         "rotación de secretos",
         "secretos",
         "credenciales de base de datos",
-        "rotación automática"
+        "rotación automática",
+        "secret rotation",
+        "secrets",
+        "database credentials",
+        "automatic rotation"
       ],
       "mappings": {
         "drata": [],
@@ -649,15 +673,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Decidir si el secreto {resource_id} puede rotarse automáticamente: los secretos de bases de datos sí (hay funciones de rotación plantilla); una API key de un tercero suele rotarse a mano.",
-          "Tener la función Lambda de rotación (plantilla de AWS para el motor de la base) y confirmar que su red llega a la base y a Secrets Manager.",
-          "Habilitar la rotación con un período de 90 días y verificar que la primera rotación termina bien."
+          "Decide whether secret {resource_id} can be rotated automatically: database secrets can (there are template rotation functions); a third party's API key is usually rotated by hand.",
+          "Have the rotation Lambda function (AWS template for the database engine) and confirm that its network reaches the database and Secrets Manager.",
+          "Enable rotation with a 90-day period and verify that the first rotation finishes successfully."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nROTATION_LAMBDA_ARN=\"__COMPLETAR_ARN_LAMBDA_ROTACION__\"\naws secretsmanager rotate-secret --secret-id \"{resource_id}\" --rotation-lambda-arn \"$ROTATION_LAMBDA_ARN\" --rotation-rules AutomaticallyAfterDays=90 --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nROTATION_LAMBDA_ARN=\"__FILL_IN_ROTATION_LAMBDA_ARN__\"\naws secretsmanager rotate-secret --secret-id \"{resource_id}\" --rotation-lambda-arn \"$ROTATION_LAMBDA_ARN\" --rotation-rules AutomaticallyAfterDays=90 --region \"$REGION\""
         ],
         "verify_after": "aws secretsmanager describe-secret --secret-id \"{resource_id}\" --region \"{region}\" --query '[RotationEnabled,RotationRules,LastRotatedDate]'",
-        "notes": "Decisión: función de rotación y período (90 días acá). rotate-secret rota una vez enseguida (para desactivarlo, agregar --no-rotate-immediately): las aplicaciones tienen que volver a leer el secreto y tolerar el cambio de valor, y si la función falla el secreto no cambia pero el hallazgo persiste. Los secretos que no se pueden rotar (claves de terceros) conviene documentarlos como excepción. Los secretos administrados por otro servicio (por ejemplo la contraseña maestra de RDS) se rotan desde ese servicio."
+        "notes": "Decision: rotation function and period (90 days here). rotate-secret rotates once immediately (to disable that, add --no-rotate-immediately): applications must re-read the secret and tolerate the change of value, and if the function fails the secret does not change but the finding persists. Secrets that cannot be rotated (third-party keys) should be documented as an exception. Secrets managed by another service (for example the RDS master password) are rotated from that service."
       },
       "sources": [
         "https://docs.aws.amazon.com/securityhub/latest/userguide/secretsmanager-controls.html",
@@ -667,7 +691,7 @@
     },
     {
       "id": "TLS-001",
-      "title": "Los buckets de S3 niegan las solicitudes sin TLS (aws:SecureTransport=false)",
+      "title": "S3 buckets deny requests without TLS (aws:SecureTransport=false)",
       "scope": "resource",
       "resource_types": [
         "s3_bucket"
@@ -696,7 +720,7 @@
           }
         ],
         "evaluator": "python:s3_tls_only",
-        "pass_when_text": "La bucket policy tiene un Deny explícito para todos los principals y acciones de S3, con la condición Bool aws:SecureTransport=false (y ninguna otra), sobre el bucket y sobre sus objetos. Un bucket sin policy (NoSuchBucketPolicy) falla, igual que en Drata 234.",
+        "pass_when_text": "The bucket policy has an explicit Deny for all principals and S3 actions, with the condition Bool aws:SecureTransport=false (and no other), on the bucket and on its objects. A bucket without a policy (NoSuchBucketPolicy) fails, as in Drata 234.",
         "needs": [
           "s3:GetBucketPolicy",
           "s3:ListAllMyBuckets"
@@ -708,7 +732,11 @@
         "HTTPS obligatorio",
         "cifrado en tránsito",
         "bucket policy",
-        "HTTP denegado"
+        "HTTP denegado",
+        "TLS on S3",
+        "HTTPS required",
+        "encryption in transit",
+        "HTTP denied"
       ],
       "mappings": {
         "drata": [
@@ -738,17 +766,17 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Traer la policy actual del bucket {resource_id} a un archivo (primer bloque, solo lectura): si el bucket no tiene policy parte de una vacía; ante cualquier otro error (por ejemplo AccessDenied) se detiene.",
-          "Agregar al archivo la statement Deny de aws:SecureTransport=false (segundo bloque, no aplica nada) y revisarlo: el Deny también corta a los clientes que acceden por HTTP (herramientas viejas, URLs http:// en configuraciones, sitios web de S3).",
-          "Aplicar la policy revisada con put-bucket-policy (tercer bloque) y verificar con get-bucket-policy."
+          "Fetch the current policy of bucket {resource_id} into a file (first block, read-only): if the bucket has no policy it starts from an empty one; on any other error (for example AccessDenied) it stops.",
+          "Add the aws:SecureTransport=false Deny statement to the file (second block, applies nothing) and review it: the Deny also cuts off clients that access over HTTP (old tools, http:// URLs in configurations, S3 websites).",
+          "Apply the reviewed policy with put-bucket-policy (third block) and verify with get-bucket-policy."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# solo lectura: trae la policy actual a un archivo y la muestra. Si el bucket no tiene policy, escribe una vacía; ante cualquier otro error (por ejemplo AccessDenied) borra el archivo y se detiene, y el segundo bloque no puede seguir\nrm -f \"policy-$BUCKET-new.json\"\nif aws s3api get-bucket-policy --bucket \"$BUCKET\" --query Policy --output text > \"policy-$BUCKET.json\" 2> \"policy-$BUCKET.err\"; then cat \"policy-$BUCKET.json\"; elif grep -q NoSuchBucketPolicy \"policy-$BUCKET.err\"; then echo '{\"Version\":\"2012-10-17\",\"Statement\":[]}' > \"policy-$BUCKET.json\"; echo \"el bucket no tiene policy: se parte de una vacía\"; else cat \"policy-$BUCKET.err\"; rm -f \"policy-$BUCKET.json\"; echo \"DETENIDO: no se pudo leer la policy actual; no seguir\"; fi",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# no aplica nada: agrega el Deny a la policy leída (conserva todas las statements) y muestra el resultado para revisarlo\nrm -f \"policy-$BUCKET-new.json\"\nif [ ! -s \"policy-$BUCKET.json\" ]; then echo \"DETENIDO: falta policy-$BUCKET.json; correr antes el primer bloque\"; else python3 -c 'import json,sys; b=sys.argv[1]; p=json.load(open(\"policy-\"+b+\".json\")); s=p.get(\"Statement\",[]); s=[s] if isinstance(s,dict) else s; s.append({\"Sid\":\"DenyInsecureTransport\",\"Effect\":\"Deny\",\"Principal\":\"*\",\"Action\":\"s3:*\",\"Resource\":[\"arn:aws:s3:::\"+b,\"arn:aws:s3:::\"+b+\"/*\"],\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"false\"}}}) if not any(isinstance(x,dict) and x.get(\"Sid\")==\"DenyInsecureTransport\" for x in s) else None; p[\"Statement\"]=s; json.dump(p,open(\"policy-\"+b+\"-new.json\",\"w\"),indent=2)' \"$BUCKET\" && cat \"policy-$BUCKET-new.json\"; fi",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# put-bucket-policy REEMPLAZA la policy completa: aplicar solo el archivo revisado (policy-$BUCKET-new.json), nunca una policy escrita a mano\nif [ -s \"policy-$BUCKET-new.json\" ]; then aws s3api put-bucket-policy --bucket \"$BUCKET\" --policy \"file://policy-$BUCKET-new.json\"; else echo \"DETENIDO: falta policy-$BUCKET-new.json; correr antes los bloques anteriores\"; fi"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# read-only: fetches the current policy into a file and shows it. If the bucket has no policy, it writes an empty one; on any other error (for example AccessDenied) it deletes the file and stops, and the second block cannot continue\nrm -f \"policy-$BUCKET-new.json\"\nif aws s3api get-bucket-policy --bucket \"$BUCKET\" --query Policy --output text > \"policy-$BUCKET.json\" 2> \"policy-$BUCKET.err\"; then cat \"policy-$BUCKET.json\"; elif grep -q NoSuchBucketPolicy \"policy-$BUCKET.err\"; then echo '{\"Version\":\"2012-10-17\",\"Statement\":[]}' > \"policy-$BUCKET.json\"; echo \"the bucket has no policy: starting from an empty one\"; else cat \"policy-$BUCKET.err\"; rm -f \"policy-$BUCKET.json\"; echo \"STOPPED: could not read the current policy; do not continue\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# applies nothing: adds the Deny to the policy that was read (keeps all statements) and shows the result for review\nrm -f \"policy-$BUCKET-new.json\"\nif [ ! -s \"policy-$BUCKET.json\" ]; then echo \"STOPPED: policy-$BUCKET.json is missing; run the first block first\"; else python3 -c 'import json,sys; b=sys.argv[1]; p=json.load(open(\"policy-\"+b+\".json\")); s=p.get(\"Statement\",[]); s=[s] if isinstance(s,dict) else s; s.append({\"Sid\":\"DenyInsecureTransport\",\"Effect\":\"Deny\",\"Principal\":\"*\",\"Action\":\"s3:*\",\"Resource\":[\"arn:aws:s3:::\"+b,\"arn:aws:s3:::\"+b+\"/*\"],\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"false\"}}}) if not any(isinstance(x,dict) and x.get(\"Sid\")==\"DenyInsecureTransport\" for x in s) else None; p[\"Statement\"]=s; json.dump(p,open(\"policy-\"+b+\"-new.json\",\"w\"),indent=2)' \"$BUCKET\" && cat \"policy-$BUCKET-new.json\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nBUCKET=\"{resource_id}\"\n# put-bucket-policy REPLACES the whole policy: apply only the reviewed file (policy-$BUCKET-new.json), never a hand-written policy\nif [ -s \"policy-$BUCKET-new.json\" ]; then aws s3api put-bucket-policy --bucket \"$BUCKET\" --policy \"file://policy-$BUCKET-new.json\"; else echo \"STOPPED: policy-$BUCKET-new.json is missing; run the previous blocks first\"; fi"
         ],
         "verify_after": "aws s3api get-bucket-policy --bucket \"{resource_id}\" --query Policy --output text",
-        "notes": "put-bucket-policy reemplaza toda la policy: aplicar solo el archivo revisado que conserva las statements existentes. Si el bucket ya tiene una policy (por ejemplo la de CloudFront/OAC de un sitio), el primer bloque la trae y el segundo solo le agrega el Deny: nunca se escribe una policy desde cero sobre una existente, y ante un error de lectura el arreglo se detiene con DETENIDO. Decisión: confirmar que ningún cliente legítimo usa HTTP. Un bucket con hosting de sitio web de S3 solo atiende HTTP: no aplicar el Deny ahí y poner CloudFront (HTTPS) delante. CloudFront y los servicios de AWS hablan con S3 por HTTPS, no se ven afectados. Los archivos temporales llevan el nombre del bucket (policy-<bucket>.json y policy-<bucket>-new.json) para no aplicar por error el de otro bucket; si la policy ya tiene una statement con Sid DenyInsecureTransport el comando no agrega otra, así que revisar que esa statement cumpla. Los comandos usan python3, que CloudShell trae instalado."
+        "notes": "put-bucket-policy replaces the entire policy: apply only the reviewed file that keeps the existing statements. If the bucket already has a policy (for example the CloudFront/OAC one of a site), the first block fetches it and the second only adds the Deny to it: a policy is never written from scratch over an existing one, and on a read error the fix stops with STOPPED. Decision: confirm that no legitimate client uses HTTP. A bucket with S3 website hosting only serves HTTP: do not apply the Deny there and put CloudFront (HTTPS) in front. CloudFront and AWS services talk to S3 over HTTPS and are not affected. The temporary files carry the bucket name (policy-<bucket>.json and policy-<bucket>-new.json) so as not to apply another bucket's by mistake; if the policy already has a statement with Sid DenyInsecureTransport the command does not add another, so check that this statement complies. The commands use python3, which CloudShell has installed."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828783",
@@ -759,7 +787,7 @@
     },
     {
       "id": "TLS-002",
-      "title": "Los listeners HTTP de los Application Load Balancers redirigen a HTTPS",
+      "title": "HTTP listeners of Application Load Balancers redirect to HTTPS",
       "scope": "resource",
       "resource_types": [
         "elbv2"
@@ -783,7 +811,7 @@
           }
         ],
         "evaluator": "python:alb_http_redirect",
-        "pass_when_text": "Todo listener HTTP del ALB tiene como acción por defecto una redirección a HTTPS, puerto 443, con 301 o 302 (Drata 299). Un ALB sin listeners HTTP pasa. Solo se evalúa la acción por defecto del listener; las reglas del listener no. Los balanceadores de red y de gateway no aplican.",
+        "pass_when_text": "Every ALB HTTP listener has as its default action a redirect to HTTPS, port 443, with 301 or 302 (Drata 299). An ALB without HTTP listeners passes. Only the listener's default action is evaluated; the listener's rules are not. Network and gateway load balancers do not apply.",
         "needs": [
           "elasticloadbalancing:DescribeListeners",
           "elasticloadbalancing:DescribeLoadBalancers"
@@ -795,7 +823,11 @@
         "listener HTTP",
         "HTTPS obligatorio",
         "cifrado en tránsito",
-        "balanceador"
+        "balanceador",
+        "HTTP to HTTPS redirect",
+        "HTTPS required",
+        "encryption in transit",
+        "load balancer"
       ],
       "mappings": {
         "drata": [
@@ -818,15 +850,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Confirmar que el balanceador {resource_id} ya tiene un listener HTTPS:443 con certificado y que su security group permite el puerto 443 (el comando se detiene con DETENIDO si no hay un listener HTTPS:443).",
-          "Cambiar la acción por defecto de los listeners HTTP a una redirección permanente (301) a HTTPS:443.",
-          "Verificar que http://dominio responde 301 hacia https://dominio."
+          "Confirm that load balancer {resource_id} already has an HTTPS:443 listener with a certificate and that its security group allows port 443 (the command stops with STOPPED if there is no HTTPS:443 listener).",
+          "Change the default action of the HTTP listeners to a permanent (301) redirect to HTTPS:443.",
+          "Verify that http://domain answers 301 to https://domain."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nLB_NAME=\"{resource_id}\"\n# solo redirige si el balanceador tiene un listener HTTPS en el puerto 443; si no (o si no se pudo leer), se detiene sin cambiar nada\nLB_ARN=$(aws elbv2 describe-load-balancers --names \"$LB_NAME\" --region \"$REGION\" --query 'LoadBalancers[0].LoadBalancerArn' --output text)\nHTTPS_443=$(aws elbv2 describe-listeners --load-balancer-arn \"$LB_ARN\" --region \"$REGION\" --query 'length(Listeners[?Protocol==`HTTPS` && Port==`443`])' --output text)\ncase \"$HTTPS_443\" in\n  \"\"|0|None) echo \"DETENIDO: el balanceador no tiene un listener HTTPS:443 (o no se pudo leer): la redirección dejaría el sitio inaccesible; crearlo antes (certificado de ACM, ver TLS-005)\";;\n  *) for LISTENER_ARN in $(aws elbv2 describe-listeners --load-balancer-arn \"$LB_ARN\" --region \"$REGION\" --query 'Listeners[?Protocol==`HTTP`].ListenerArn' --output text); do aws elbv2 modify-listener --listener-arn \"$LISTENER_ARN\" --default-actions 'Type=redirect,RedirectConfig={Protocol=HTTPS,Port=443,StatusCode=HTTP_301}' --region \"$REGION\"; done;;\nesac"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nLB_NAME=\"{resource_id}\"\n# it only redirects if the load balancer has an HTTPS listener on port 443; if not (or if it could not be read), it stops without changing anything\nLB_ARN=$(aws elbv2 describe-load-balancers --names \"$LB_NAME\" --region \"$REGION\" --query 'LoadBalancers[0].LoadBalancerArn' --output text)\nHTTPS_443=$(aws elbv2 describe-listeners --load-balancer-arn \"$LB_ARN\" --region \"$REGION\" --query 'length(Listeners[?Protocol==`HTTPS` && Port==`443`])' --output text)\ncase \"$HTTPS_443\" in\n  \"\"|0|None) echo \"STOPPED: the load balancer has no HTTPS:443 listener (or it could not be read): the redirect would leave the site inaccessible; create it first (ACM certificate, see TLS-005)\";;\n  *) for LISTENER_ARN in $(aws elbv2 describe-listeners --load-balancer-arn \"$LB_ARN\" --region \"$REGION\" --query 'Listeners[?Protocol==`HTTP`].ListenerArn' --output text); do aws elbv2 modify-listener --listener-arn \"$LISTENER_ARN\" --default-actions 'Type=redirect,RedirectConfig={Protocol=HTTPS,Port=443,StatusCode=HTTP_301}' --region \"$REGION\"; done;;\nesac"
         ],
         "verify_after": "aws elbv2 describe-listeners --load-balancer-arn \"$(aws elbv2 describe-load-balancers --names \"{resource_id}\" --region \"{region}\" --query 'LoadBalancers[0].LoadBalancerArn' --output text)\" --region \"{region}\" --query 'Listeners[?Protocol==`HTTP`].DefaultActions[].RedirectConfig'",
-        "notes": "Riesgo: sin un listener HTTPS:443 la redirección dejaría el sitio inaccesible, por eso el comando lo comprueba primero y se detiene con DETENIDO (sin cambiar nada) si no existe o no se pudo leer; crearlo antes (certificado de ACM, ver TLS-005). Con el listener presente no hay downtime. El bucle cambia todos los listeners HTTP; si uno atiende tráfico interno que debe seguir en HTTP, aplicar modify-listener solo al ARN del listener elegido. Los clientes que usan HTTP reciben un 301 y deben seguirlo; los health checks de los target groups no se ven afectados. Solo se evalúa y se cambia la acción por defecto del listener: las reglas del listener no se tocan ni se revisan."
+        "notes": "Risk: without an HTTPS:443 listener the redirect would leave the site inaccessible, so the command checks it first and stops with STOPPED (changing nothing) if it does not exist or could not be read; create it first (ACM certificate, see TLS-005). With the listener present there is no downtime. The loop changes all HTTP listeners; if one serves internal traffic that must stay on HTTP, apply modify-listener only to the chosen listener's ARN. Clients that use HTTP receive a 301 and must follow it; the target groups' health checks are not affected. Only the listener's default action is evaluated and changed: the listener's rules are neither touched nor reviewed."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828823",
@@ -836,7 +868,7 @@
     },
     {
       "id": "TLS-003",
-      "title": "Los listeners HTTPS de los Application Load Balancers usan una política TLS 1.2 o superior",
+      "title": "HTTPS listeners of Application Load Balancers use a TLS 1.2 or higher policy",
       "scope": "resource",
       "resource_types": [
         "elbv2"
@@ -860,7 +892,7 @@
           }
         ],
         "evaluator": "python:alb_tls_policy",
-        "pass_when_text": "Todo listener HTTPS del ALB usa una política que rechaza TLS 1.0 y 1.1: ELBSecurityPolicy-TLS13-1-2-* (recomendada: ELBSecurityPolicy-TLS13-1-2-2021-06), TLS13-1-3-*, FS-1-2-* o TLS-1-2-*. Fallan TLS13-1-1 y TLS13-1-0, FS-1-1, FS-2018-06, TLS-1-1 y TLS-1-0, 2016-08 (permite TLS 1.0), 2015-05 y cualquier nombre que no se reconozca.",
+        "pass_when_text": "Every ALB HTTPS listener uses a policy that rejects TLS 1.0 and 1.1: ELBSecurityPolicy-TLS13-1-2-* (recommended: ELBSecurityPolicy-TLS13-1-2-2021-06), TLS13-1-3-*, FS-1-2-* or TLS-1-2-*. TLS13-1-1 and TLS13-1-0, FS-1-1, FS-2018-06, TLS-1-1 and TLS-1-0, 2016-08 (allows TLS 1.0), 2015-05 and any name that is not recognized fail.",
         "needs": [
           "elasticloadbalancing:DescribeListeners",
           "elasticloadbalancing:DescribeLoadBalancers"
@@ -872,7 +904,10 @@
         "ELBSecurityPolicy",
         "ALB",
         "protocolo mínimo",
-        "cifrado en tránsito"
+        "cifrado en tránsito",
+        "TLS policy",
+        "minimum protocol",
+        "encryption in transit"
       ],
       "mappings": {
         "drata": [],
@@ -893,14 +928,14 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Cambiar la política de los listeners HTTPS del balanceador {resource_id} a ELBSecurityPolicy-TLS13-1-2-2021-06.",
-          "Verificar con describe-listeners que SslPolicy quedó con la política nueva y probar los clientes más antiguos."
+          "Change the policy of the HTTPS listeners of load balancer {resource_id} to ELBSecurityPolicy-TLS13-1-2-2021-06.",
+          "Verify with describe-listeners that SslPolicy has the new policy and test the oldest clients."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nLB_NAME=\"{resource_id}\"\nPOLICY=\"ELBSecurityPolicy-TLS13-1-2-2021-06\"\nLB_ARN=$(aws elbv2 describe-load-balancers --names \"$LB_NAME\" --region \"$REGION\" --query 'LoadBalancers[0].LoadBalancerArn' --output text) && for LISTENER_ARN in $(aws elbv2 describe-listeners --load-balancer-arn \"$LB_ARN\" --region \"$REGION\" --query 'Listeners[?Protocol==`HTTPS`].ListenerArn' --output text); do aws elbv2 modify-listener --listener-arn \"$LISTENER_ARN\" --ssl-policy \"$POLICY\" --region \"$REGION\"; done"
         ],
         "verify_after": "aws elbv2 describe-listeners --load-balancer-arn \"$(aws elbv2 describe-load-balancers --names \"{resource_id}\" --region \"{region}\" --query 'LoadBalancers[0].LoadBalancerArn' --output text)\" --region \"{region}\" --query 'Listeners[?Protocol==`HTTPS`].[Port,SslPolicy]'",
-        "notes": "Riesgo: sin downtime, pero los clientes que solo hablan TLS 1.0 o 1.1 (navegadores y SDK muy viejos, algunos dispositivos) dejan de conectarse: revisar los logs de acceso del ALB (campo ssl_protocol) antes de cambiar. ELBSecurityPolicy-TLS13-1-2-2021-06 acepta TLS 1.2 y 1.3; las variantes -Res- o -Ext- ajustan los cifrados. El comando cambia todos los listeners HTTPS del balanceador."
+        "notes": "Risk: no downtime, but clients that only speak TLS 1.0 or 1.1 (very old browsers and SDKs, some devices) can no longer connect: check the ALB access logs (ssl_protocol field) before changing. ELBSecurityPolicy-TLS13-1-2-2021-06 accepts TLS 1.2 and 1.3; the -Res- or -Ext- variants adjust the ciphers. The command changes all HTTPS listeners of the load balancer."
       },
       "sources": [
         "https://docs.aws.amazon.com/securityhub/latest/userguide/elb-controls.html",
@@ -910,7 +945,7 @@
     },
     {
       "id": "TLS-004",
-      "title": "Las bases RDS obligan a usar SSL/TLS (rds.force_ssl=1 o require_secure_transport=ON)",
+      "title": "RDS databases force the use of SSL/TLS (rds.force_ssl=1 or require_secure_transport=ON)",
       "scope": "resource",
       "resource_types": [
         "rds_instance",
@@ -981,7 +1016,7 @@
           }
         ],
         "evaluator": "python:rds_force_ssl",
-        "pass_when_text": "El parameter group de la instancia (o del cluster, para Aurora y Multi-AZ DB cluster) tiene rds.force_ssl=1 (PostgreSQL, Aurora PostgreSQL, SQL Server) o require_secure_transport=ON (MySQL, MariaDB, Aurora MySQL). Los motores sin ese parámetro (Oracle, Db2) no aplican. Los parameter groups default.* no se pueden modificar, así que una base que los usa solo pasa si el valor por defecto ya obliga a SSL.",
+        "pass_when_text": "The instance's parameter group (or the cluster's, for Aurora and Multi-AZ DB cluster) has rds.force_ssl=1 (PostgreSQL, Aurora PostgreSQL, SQL Server) or require_secure_transport=ON (MySQL, MariaDB, Aurora MySQL). Engines without that parameter (Oracle, Db2) do not apply. default.* parameter groups cannot be modified, so a database that uses them only passes if the default value already forces SSL.",
         "needs": [
           "rds:DescribeDBInstances",
           "rds:DescribeDBClusters",
@@ -997,7 +1032,10 @@
         "require_secure_transport",
         "TLS en base de datos",
         "cifrado en tránsito",
-        "parameter group"
+        "parameter group",
+        "SSL on RDS",
+        "TLS on database",
+        "encryption in transit"
       ],
       "mappings": {
         "drata": [],
@@ -1016,18 +1054,18 @@
         "risk": "medium",
         "downtime": true,
         "steps": [
-          "Identificar el parameter group de {resource_id} (detalle del hallazgo): los default.* no se pueden modificar, hay que crear uno propio de la misma familia (o editar el propio si ya lo tiene).",
-          "Crear el parameter group con rds.force_ssl=1 (PostgreSQL, SQL Server) o require_secure_transport=ON (MySQL, MariaDB) y asociarlo a la base o al cluster.",
-          "Confirmar que todas las aplicaciones ya se conectan con SSL/TLS (por ejemplo sslmode=require) antes de reiniciar, porque después las conexiones sin SSL se rechazan.",
-          "Reiniciar la base en la ventana de mantenimiento para que el grupo nuevo se aplique y comprobar que las conexiones siguen funcionando."
+          "Identify the parameter group of {resource_id} (finding detail): default.* ones cannot be modified, you must create your own of the same family (or edit your own if it already has one).",
+          "Create the parameter group with rds.force_ssl=1 (PostgreSQL, SQL Server) or require_secure_transport=ON (MySQL, MariaDB) and associate it with the database or cluster.",
+          "Confirm that all applications already connect with SSL/TLS (for example sslmode=require) before rebooting, because afterwards connections without SSL are rejected.",
+          "Reboot the database in the maintenance window so that the new group is applied and check that connections keep working."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\nPG_NAME=\"__COMPLETAR_NOMBRE_PARAMETER_GROUP__\"\nPG_FAMILY=\"__COMPLETAR_FAMILIA_PARAMETER_GROUP__\"\n# PostgreSQL y SQL Server: rds.force_ssl=1. MySQL y MariaDB: SSL_PARAM=\"require_secure_transport\" y SSL_VALUE=\"ON\"\nSSL_PARAM=\"rds.force_ssl\"\nSSL_VALUE=\"1\"\n# instancia que no pertenece a un cluster; si ya usa un grupo propio, basta el modify-db-parameter-group sobre ese grupo\naws rds create-db-parameter-group --db-parameter-group-name \"$PG_NAME\" --db-parameter-group-family \"$PG_FAMILY\" --description \"SSL obligatorio\" --region \"$REGION\" && aws rds modify-db-parameter-group --db-parameter-group-name \"$PG_NAME\" --parameters \"ParameterName=$SSL_PARAM,ParameterValue=$SSL_VALUE,ApplyMethod=pending-reboot\" --region \"$REGION\" && aws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --db-parameter-group-name \"$PG_NAME\" --apply-immediately --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCLUSTER_ID=\"{resource_id}\"\nPG_NAME=\"__COMPLETAR_NOMBRE_PARAMETER_GROUP_CLUSTER__\"\nPG_FAMILY=\"__COMPLETAR_FAMILIA_PARAMETER_GROUP_CLUSTER__\"\n# PostgreSQL y SQL Server: rds.force_ssl=1. MySQL y MariaDB: SSL_PARAM=\"require_secure_transport\" y SSL_VALUE=\"ON\"\nSSL_PARAM=\"rds.force_ssl\"\nSSL_VALUE=\"1\"\n# cluster (Aurora o Multi-AZ DB cluster): el parámetro vive en el cluster parameter group\naws rds create-db-cluster-parameter-group --db-cluster-parameter-group-name \"$PG_NAME\" --db-parameter-group-family \"$PG_FAMILY\" --description \"SSL obligatorio\" --region \"$REGION\" && aws rds modify-db-cluster-parameter-group --db-cluster-parameter-group-name \"$PG_NAME\" --parameters \"ParameterName=$SSL_PARAM,ParameterValue=$SSL_VALUE,ApplyMethod=pending-reboot\" --region \"$REGION\" && aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --db-cluster-parameter-group-name \"$PG_NAME\" --apply-immediately --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# en la ventana de mantenimiento: interrumpe las conexiones; en un cluster, reiniciar cada instancia miembro\naws rds reboot-db-instance --db-instance-identifier \"$DB_ID\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\nPG_NAME=\"__FILL_IN_PARAMETER_GROUP_NAME__\"\nPG_FAMILY=\"__FILL_IN_PARAMETER_GROUP_FAMILY__\"\n# PostgreSQL and SQL Server: rds.force_ssl=1. MySQL and MariaDB: SSL_PARAM=\"require_secure_transport\" and SSL_VALUE=\"ON\"\nSSL_PARAM=\"rds.force_ssl\"\nSSL_VALUE=\"1\"\n# instance that does not belong to a cluster; if it already uses its own group, modify-db-parameter-group on that group is enough\naws rds create-db-parameter-group --db-parameter-group-name \"$PG_NAME\" --db-parameter-group-family \"$PG_FAMILY\" --description \"SSL obligatorio\" --region \"$REGION\" && aws rds modify-db-parameter-group --db-parameter-group-name \"$PG_NAME\" --parameters \"ParameterName=$SSL_PARAM,ParameterValue=$SSL_VALUE,ApplyMethod=pending-reboot\" --region \"$REGION\" && aws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --db-parameter-group-name \"$PG_NAME\" --apply-immediately --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCLUSTER_ID=\"{resource_id}\"\nPG_NAME=\"__FILL_IN_CLUSTER_PARAMETER_GROUP_NAME__\"\nPG_FAMILY=\"__FILL_IN_CLUSTER_PARAMETER_GROUP_FAMILY__\"\n# PostgreSQL and SQL Server: rds.force_ssl=1. MySQL and MariaDB: SSL_PARAM=\"require_secure_transport\" and SSL_VALUE=\"ON\"\nSSL_PARAM=\"rds.force_ssl\"\nSSL_VALUE=\"1\"\n# cluster (Aurora or Multi-AZ DB cluster): the parameter lives in the cluster parameter group\naws rds create-db-cluster-parameter-group --db-cluster-parameter-group-name \"$PG_NAME\" --db-parameter-group-family \"$PG_FAMILY\" --description \"SSL obligatorio\" --region \"$REGION\" && aws rds modify-db-cluster-parameter-group --db-cluster-parameter-group-name \"$PG_NAME\" --parameters \"ParameterName=$SSL_PARAM,ParameterValue=$SSL_VALUE,ApplyMethod=pending-reboot\" --region \"$REGION\" && aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --db-cluster-parameter-group-name \"$PG_NAME\" --apply-immediately --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# in the maintenance window: it interrupts connections; on a cluster, reboot each member instance\naws rds reboot-db-instance --db-instance-identifier \"$DB_ID\" --region \"$REGION\""
         ],
-        "verify_after": "aws rds describe-db-parameters --db-parameter-group-name \"__COMPLETAR_NOMBRE_PARAMETER_GROUP__\" --region \"{region}\" --query 'Parameters[?ParameterName==`rds.force_ssl` || ParameterName==`require_secure_transport`].[ParameterName,ParameterValue]'",
-        "notes": "Hay downtime: el reinicio corta las conexiones (en Multi-AZ, un failover). Obligar a SSL rechaza a toda aplicación, herramienta o job que se conecte sin SSL: relevar las conexiones antes y probar en staging. ApplyMethod=pending-reboot funciona para parámetros estáticos y dinámicos. En motores sin soporte de rds.force_ssl (Oracle) el cifrado en tránsito se configura con opciones del option group, que este chequeo no evalúa. En una base nueva conviene crear el parameter group propio desde el principio."
+        "verify_after": "aws rds describe-db-parameters --db-parameter-group-name \"__FILL_IN_PARAMETER_GROUP_NAME__\" --region \"{region}\" --query 'Parameters[?ParameterName==`rds.force_ssl` || ParameterName==`require_secure_transport`].[ParameterName,ParameterValue]'",
+        "notes": "There is downtime: the reboot cuts connections (in Multi-AZ, a failover). Forcing SSL rejects any application, tool or job that connects without SSL: survey the connections beforehand and test in staging. ApplyMethod=pending-reboot works for static and dynamic parameters. On engines without rds.force_ssl support (Oracle), encryption in transit is configured with option group options, which this check does not evaluate. On a new database it is advisable to create the own parameter group from the start."
       },
       "sources": [
         "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html",
@@ -1037,7 +1075,7 @@
     },
     {
       "id": "TLS-005",
-      "title": "Los certificados de ACM tienen más de 30 días de vigencia",
+      "title": "ACM certificates have more than 30 days of validity left",
       "scope": "resource",
       "resource_types": [
         "acm_certificate"
@@ -1067,7 +1105,7 @@
         "params": {
           "min_days": 30
         },
-        "pass_when_text": "Cada certificado emitido tiene MÁS de 30 días hasta su NotAfter; con 30 días justos o menos falla (la comparación es en segundos exactos). Los certificados que nunca se emitieron (pendientes de validación o fallidos) no aplican. No cubre los certificados de servidor guardados en IAM, que es lo que mide el test de Vanta citado: revisarlos con aws iam list-server-certificates.",
+        "pass_when_text": "Each issued certificate has MORE than 30 days until its NotAfter; with exactly 30 days or fewer it fails (the comparison is in exact seconds). Certificates that were never issued (pending validation or failed) do not apply. It does not cover the server certificates stored in IAM, which is what the cited Vanta test measures: check them with aws iam list-server-certificates.",
         "needs": [
           "acm:ListCertificates",
           "acm:DescribeCertificate"
@@ -1079,7 +1117,11 @@
         "ACM",
         "vencimiento de certificados",
         "renovación de certificados",
-        "HTTPS"
+        "HTTPS",
+        "SSL certificate",
+        "TLS certificate",
+        "certificate expiry",
+        "certificate renewal"
       ],
       "mappings": {
         "drata": [],
@@ -1100,18 +1142,18 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Consultar el estado y el tipo del certificado {resource_id}: los emitidos por ACM con validación DNS se renuevan solos mientras el registro CNAME de validación siga en el DNS.",
-          "Si es un certificado de ACM que no se renueva, restaurar el registro CNAME de validación o solicitar un certificado nuevo con validación DNS.",
-          "Si es un certificado importado, conseguir el certificado renovado y volver a importarlo sobre el mismo ARN: los listeners y recursos que lo usan no cambian.",
-          "Si se pidió un certificado nuevo, asociarlo a los listeners y recursos que usaban el viejo y verificar el vencimiento nuevo con describe-certificate."
+          "Check the status and type of certificate {resource_id}: those issued by ACM with DNS validation renew themselves as long as the validation CNAME record remains in DNS.",
+          "If it is an ACM certificate that is not renewing, restore the validation CNAME record or request a new certificate with DNS validation.",
+          "If it is an imported certificate, obtain the renewed certificate and re-import it over the same ARN: the listeners and resources that use it do not change.",
+          "If a new certificate was requested, associate it with the listeners and resources that used the old one and verify the new expiry with describe-certificate."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws acm describe-certificate --certificate-arn \"{resource_id}\" --region \"$REGION\" --query 'Certificate.[Status,Type,RenewalEligibility,RenewalSummary.RenewalStatus,NotAfter,InUseBy]'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCERT_ARN=\"{resource_id}\"\nCERT_FILE=\"__COMPLETAR_ARCHIVO_CERTIFICADO__\"\nKEY_FILE=\"__COMPLETAR_ARCHIVO_CLAVE_PRIVADA__\"\nCHAIN_FILE=\"__COMPLETAR_ARCHIVO_CADENA__\"\n# solo para certificados importados: vuelve a importar sobre el mismo ARN\naws acm import-certificate --certificate-arn \"$CERT_ARN\" --certificate \"fileb://$CERT_FILE\" --private-key \"fileb://$KEY_FILE\" --certificate-chain \"fileb://$CHAIN_FILE\" --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDOMAIN=\"__COMPLETAR_DOMINIO__\"\n# solo para certificados de ACM que no se renuevan: pide uno nuevo; luego crear el CNAME que muestra describe-certificate\naws acm request-certificate --domain-name \"$DOMAIN\" --validation-method DNS --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCERT_ARN=\"{resource_id}\"\nCERT_FILE=\"__FILL_IN_CERTIFICATE_FILE__\"\nKEY_FILE=\"__FILL_IN_PRIVATE_KEY_FILE__\"\nCHAIN_FILE=\"__FILL_IN_CHAIN_FILE__\"\n# only for imported certificates: re-imports over the same ARN\naws acm import-certificate --certificate-arn \"$CERT_ARN\" --certificate \"fileb://$CERT_FILE\" --private-key \"fileb://$KEY_FILE\" --certificate-chain \"fileb://$CHAIN_FILE\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDOMAIN=\"__FILL_IN_DOMAIN__\"\n# only for ACM certificates that are not renewing: requests a new one; then create the CNAME shown by describe-certificate\naws acm request-certificate --domain-name \"$DOMAIN\" --validation-method DNS --region \"$REGION\""
         ],
         "verify_after": "aws acm describe-certificate --certificate-arn \"{resource_id}\" --region \"{region}\" --query 'Certificate.[Status,NotAfter,RenewalSummary.RenewalStatus]'",
-        "notes": "Sin downtime si se reimporta sobre el mismo ARN o si se cambia el certificado en los listeners con el nuevo ya emitido. ACM renueva los certificados propios aproximadamente 60 días antes del vencimiento: un certificado de ACM con menos de 30 días suele tener la validación rota. Los certificados importados no se renuevan solos. Una clave privada nunca se pega en la consola ni en un ticket: se lee desde el archivo en CloudShell. Los certificados de servidor guardados en IAM (Vanta: Expired SSL/TLS certificates are removed from IAM) no los evalúa este chequeo: listarlos con aws iam list-server-certificates y borrar los vencidos con delete-server-certificate."
+        "notes": "No downtime if it is re-imported over the same ARN or if the certificate is switched on the listeners with the new one already issued. ACM renews its own certificates roughly 60 days before expiry: an ACM certificate with fewer than 30 days left usually has broken validation. Imported certificates do not renew themselves. A private key is never pasted into the console or a ticket: it is read from the file in CloudShell. Server certificates stored in IAM (Vanta: Expired SSL/TLS certificates are removed from IAM) are not evaluated by this check: list them with aws iam list-server-certificates and delete expired ones with delete-server-certificate."
       },
       "sources": [
         "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",

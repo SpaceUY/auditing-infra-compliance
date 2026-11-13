@@ -1,267 +1,267 @@
-# Skill `auditing-infra-compliance`: plan de implementación
+# Skill `auditing-infra-compliance`: implementation plan
 
-> **Cambios posteriores a la aprobación:** este plan se ejecutó con desvíos (veredicto por fuente, regla solo-informa, allowlist `REVIEWED_OPERATIONS`, remediaciones, evaluadores, `aws_runner.py`, entre otros). La lista con sus motivos está en la sección 16 de `docs/specs/2026-11-12-infra-compliance-audit-design.md`; donde difieran, manda el spec.
+> **Changes after approval:** this plan was executed with deviations (per-source verdict, report-only rule, `REVIEWED_OPERATIONS` allowlist, remediations, evaluators, `aws_runner.py`, among others). The list with their reasons is in section 16 of `docs/specs/2026-11-12-infra-compliance-audit-design.md`; where they differ, the spec governs.
 
-> **Para agentes que lo ejecuten:** SUB-SKILL OBLIGATORIO. Usar `superpowers:subagent-driven-development`
-> (recomendado) o `superpowers:executing-plans` para implementar este plan tarea por tarea. Los pasos usan
-> casillas (`- [ ]`) para el seguimiento.
+> **For agents executing it:** REQUIRED SUB-SKILL. Use `superpowers:subagent-driven-development`
+> (recommended) or `superpowers:executing-plans` to implement this plan task by task. The steps use
+> checkboxes (`- [ ]`) for tracking.
 
-**Objetivo:** construir un skill de Claude Code. A partir de un vault de Obsidian y/o credenciales AWS de
-solo lectura, el skill audita infraestructura AWS contra SOC 2 e ISO 27001:2022 y produce un `.html`
-autocontenido con comandos de CloudShell copiables para arreglar cada hallazgo.
+**Goal:** build a Claude Code skill. From an Obsidian vault and/or read-only AWS credentials, the skill
+audits AWS infrastructure against SOC 2 and ISO 27001:2022 and produces a self-contained `.html` with
+copyable CloudShell commands to fix each finding.
 
-**Arquitectura:**
-- Los scripts Python determinísticos hacen todo lo verificable:
-  - `vault_index.py` lee el vault;
-  - `collect.py` ejecuta chequeos AWS de solo lectura con allowlist;
-  - `assemble_findings.py` combina y mapea;
-  - `render_report.py` genera el HTML.
-- Claude orquesta y aporta el juicio:
-  - resuelve el alcance y la feature;
-  - compara vault contra realidad, en `vault-claims.json`;
-  - evalúa los pocos chequeos `evaluator: "claude"`.
-- El catálogo de chequeos es JSON por dominio. Los mapeos SOC 2/ISO de los tests de Drata salen del archivo
-  DCF embebido.
+**Architecture:**
+- Deterministic Python scripts do everything that can be verified:
+  - `vault_index.py` reads the vault;
+  - `collect.py` runs read-only AWS checks with an allowlist;
+  - `assemble_findings.py` combines and maps;
+  - `render_report.py` generates the HTML.
+- Claude orchestrates and supplies judgment:
+  - resolves the scope and the feature;
+  - compares the vault against reality, in `vault-claims.json`;
+  - evaluates the few `evaluator: "claude"` checks.
+- The check catalog is JSON per domain. The SOC 2/ISO mappings of the Drata tests come from the embedded
+  DCF file.
 
-**Stack:** Python ≥ 3.10, solo stdlib en runtime. AWS CLI v2. `unittest` para las pruebas. HTML, CSS y JS
-inline. Markdown para el SKILL y las referencias.
+**Stack:** Python ≥ 3.10, stdlib only at runtime. AWS CLI v2. `unittest` for the tests. Inline HTML, CSS and
+JS. Markdown for the SKILL and the references.
 
-**Spec:** `docs/specs/2026-11-12-infra-compliance-audit-design.md`. Investigación de soporte en
+**Spec:** `docs/specs/2026-11-12-infra-compliance-audit-design.md`. Supporting research in
 `docs/research/`: `vanta-drata-tests.md`, `frameworks-aws-mapping.md`, `drata-dcf-mapping.json`,
 `soc2-reference-infrastructures.md`, `github-skill-review.md`.
 
-## Restricciones globales
+## Global constraints
 
-**Seguridad y ejecución**
-- **Nunca se ejecuta una operación AWS de escritura.**
-  - `awscli.assert_read_only` admite solo operaciones que empiecen con `describe-`, `list-` o `get-`, o
-    que sean exactamente `lookup-events` o `generate-credential-report`.
-  - Todo par de la denylist (Tarea 3) se rechaza aunque cumpla el prefijo.
-- `subprocess` siempre con lista de argumentos y `shell=False`.
-- **Nunca** se leen archivos `.env*`, `~/.aws/credentials`, `*.pem` ni `*.key`.
-  - `vault_index.py` ignora todo archivo que no sea `.md` y todo archivo o carpeta que empiece con `.`,
-    salvo `.obsidian/` (solo se lista).
-- Los comandos de remediación **nunca** se ejecutan; solo se escriben en `findings.json` y en el HTML.
-- **Enmascarado en todo lo que se escribe a disco o al HTML:**
-  - claves `AKIA`/`ASIA` → `AKIA…WXYZ` (4 últimos caracteres);
-  - emails → `u***@dominio`, salvo valores del tag `VantaOwner`;
-  - `aws_secret_access_key=...` y similares → `[REDACTED]`.
-- **Ningún archivo del repo contiene un literal con forma de access key.** Hay un hook que lo bloquea.
-  Las claves ficticias de las pruebas se arman en tiempo de ejecución concatenando partes, por ejemplo
-  `"AKIA" + "TESTKEYABCDEMNOP"`. Las notas de vault que las contienen se generan en un directorio temporal
-  con `tests/helpers.make_secret_note(dir)`.
+**Security and execution**
+- **An AWS write operation is never executed.**
+  - `awscli.assert_read_only` admits only operations that start with `describe-`, `list-` or `get-`, or
+    that are exactly `lookup-events` or `generate-credential-report`.
+  - Every pair in the denylist (Task 3) is rejected even if it matches the prefix.
+- `subprocess` always with an argument list and `shell=False`.
+- `.env*` files, `~/.aws/credentials`, `*.pem` and `*.key` are **never** read.
+  - `vault_index.py` ignores every file that is not `.md` and every file or folder that starts with `.`,
+    except `.obsidian/` (only listed).
+- Remediation commands are **never** executed; they are only written to `findings.json` and to the HTML.
+- **Masking in everything written to disk or to the HTML:**
+  - `AKIA`/`ASIA` keys → `AKIA…WXYZ` (last 4 characters);
+  - emails → `u***@domain`, except values of the `VantaOwner` tag;
+  - `aws_secret_access_key=...` and similar → `[REDACTED]`.
+- **No file in the repo contains an access-key-shaped literal.** A hook blocks it.
+  The fake keys in the tests are built at runtime by concatenating parts, for example
+  `"AKIA" + "TESTKEYABCDEMNOP"`. Vault notes that contain them are generated in a temporary directory
+  with `tests/helpers.make_secret_note(dir)`.
 
-**Entorno**
-- Runtime: Python ≥ 3.10, sin dependencias fuera de la stdlib.
-- Pruebas: `python3 -m unittest discover -s tests -v`.
-- Plataformas: Linux y macOS. Windows queda fuera.
+**Environment**
+- Runtime: Python ≥ 3.10, no dependencies outside the stdlib.
+- Tests: `python3 -m unittest discover -s tests -v`.
+- Platforms: Linux and macOS. Windows is out of scope.
 
-**Reporte**
-- Salida: `./compliance-reports/<plataforma>-<alcance>-<YYYY-MM-DD-HHMM>/` con `report.html`,
-  `findings.json`, `checks-result.json`, `inventory.json` y `raw/`. Nunca dentro del vault.
-- El HTML no carga recursos externos: ningún `<script src>`, `<link href>` ni `<img src>` con `http`.
-  Los links `<a href>` a fuentes sí están permitidos.
-- Idioma por defecto del HTML: castellano. IDs, comandos y nombres de tests quedan en su idioma original.
-- Sin porcentaje ni nota global de cumplimiento en ningún lugar.
+**Report**
+- Output: `./compliance-reports/<platform>-<scope>-<YYYY-MM-DD-HHMM>/` with `report.html`,
+  `findings.json`, `checks-result.json`, `inventory.json` and `raw/`. Never inside the vault.
+- The HTML loads no external resources: no `<script src>`, `<link href>` or `<img src>` with `http`.
+  `<a href>` links to sources are allowed.
+- Default HTML language: English. IDs, commands and test names stay in their original language.
+- No percentage or overall compliance grade anywhere.
 
-**Modelo de datos**
-- Severidades: `critical` | `high` | `medium` | `low`.
+**Data model**
+- Severities: `critical` | `high` | `medium` | `low`.
 
-| Severidad | Cuándo |
+| Severity | When |
 |---|---|
-| `critical` | Exposición pública de datos o de credenciales; root sin MFA o con access keys |
-| `high` | Falla un test automático de Drata o Vanta |
-| `medium` | Control de Security Hub, CIS o FSBP relevante, sin test de Drata/Vanta |
-| `low` | Higiene |
+| `critical` | Public exposure of data or credentials; root without MFA or with access keys |
+| `high` | An automated Drata or Vanta test fails |
+| `medium` | Relevant Security Hub, CIS or FSBP control, with no Drata/Vanta test |
+| `low` | Hygiene |
 
-- Estados: `FAIL`, `PASS`, `DRIFT`, `DOCUMENTED_ONLY`, `DOCUMENTED_GAP`, `UNDOCUMENTED`, `NO_VERIFICADO`,
+- Statuses: `FAIL`, `PASS`, `DRIFT`, `DOCUMENTED_ONLY`, `DOCUMENTED_GAP`, `UNDOCUMENTED`, `NOT_VERIFIED`,
   `N/A`.
 - `remediation.kind`: `cli` | `cli_with_decision` | `planned_change` | `console_only`.
 - `remediation.risk`: `low` | `medium` | `high`.
-- **Mapeos:**
-  - todo ID TSC o ISO debe existir en `references/frameworks/`;
-  - los mapeos SOC 2/ISO de chequeos con test de Drata presente en `drata-dcf.json` se resuelven desde
-    ese archivo (`sourced: "drata-dcf-2026-11-12"`);
-  - el resto lleva `sourced: false` y se muestra como "inferido".
-- **Pase vacío:** si no hay recursos del tipo del chequeo en el alcance, el estado es `N/A` con
-  `vacuous: true`. Nunca `PASS`.
+- **Mappings:**
+  - every TSC or ISO ID must exist in `references/frameworks/`;
+  - the SOC 2/ISO mappings of checks with a Drata test present in `drata-dcf.json` are resolved from
+    that file (`sourced: "drata-dcf-2026-11-12"`);
+  - the rest carry `sourced: false` and are shown as "inferred".
+- **Vacuous pass:** if there are no resources of the check's type in scope, the status is `N/A` with
+  `vacuous: true`. Never `PASS`.
 
-**Contenido del repositorio**
-- El repo no contiene referencias a proyectos, cuentas, buckets ni personas reales.
-- Los fixtures usan la plataforma ficticia **"Acme Notes"**, la cuenta `111122223333`, la región
-  `us-east-1` y el dominio `acme-notes.example`.
-- Texto de AICPA e ISO: solo IDs y nombres cortos parafraseados.
+**Repository content**
+- The repo contains no references to real projects, accounts, buckets or people.
+- Fixtures use the fictional platform **"Acme Notes"**, account `111122223333`, region
+  `us-east-1` and domain `acme-notes.example`.
+- AICPA and ISO text: only IDs and short paraphrased names.
 
-**Placeholders en comandos de CloudShell**
-- Formato `__COMPLETAR_<NOMBRE>__`, por ejemplo `__COMPLETAR_OWNER_EMAIL__`.
-- **Desviación de la spec:** la spec decía `<<COMPLETAR: …>>`, pero en bash `<<` abre un heredoc, y pegarlo
-  deja CloudShell colgado esperando el terminador.
-- Variables al inicio de cada bloque: `REGION="…"` y `ACCOUNT_ID="…"`. Sin `set -e`, porque cerraría la
-  sesión de CloudShell ante el primer error.
+**Placeholders in CloudShell commands**
+- Format `__FILL_IN_<NAME>__`, for example `__FILL_IN_OWNER_EMAIL__`.
+- **Deviation from the spec:** the spec said `<<FILL_IN: …>>`, but in bash `<<` opens a heredoc, and pasting
+  it leaves CloudShell hanging waiting for the terminator.
+- Variables at the start of each block: `REGION="…"` and `ACCOUNT_ID="…"`. No `set -e`, because it would
+  close the CloudShell session at the first error.
 
 **Git**
-- Repo local nuevo, rama `feature/auditing-infra-compliance`, commits convencionales (`feat:`, `test:`,
+- New local repo, branch `feature/auditing-infra-compliance`, conventional commits (`feat:`, `test:`,
   `chore:`, `docs:`).
-- Sin push.
-- Cada commit termina con la línea de co-autoría:
+- No push.
+- Each commit ends with the co-author line:
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 
-## Foco de revisión
+## Review focus
 
-1. **Permisos parciales.** Una llamada con `AccessDenied` debe producir `NO_VERIFICADO` con el permiso
-   faltante, nunca `PASS` ni `FAIL`. Se fija en la Tarea 4 con `test_access_denied_is_not_verified`.
-2. **Servicio no habilitado.** GuardDuty, Security Hub, Config o Inspector apagados devuelven
-   `NOT_ENABLED`, y para los chequeos de habilitación eso es `FAIL`, no `NO_VERIFICADO`. Se fija en la
-   Tarea 4 con `test_not_enabled_means_fail_when_declared`.
-3. **Secretos en el vault.** Una nota con una access key o un `aws_secret_access_key` no debe aparecer en
-   claro en `vault-index.json`, `findings.json` ni el HTML. Se fija en las Tareas 12 y 13 con
-   `test_masks_keys_in_index` y `test_findings_are_masked`.
-4. **Nombres hostiles.** Nombres de recurso o valores de tag con `<script>`, `"`, `</script>` o backticks
-   deben quedar escapados en el HTML y en los bloques copiables. Se fija en la Tarea 14 con
+1. **Partial permissions.** A call with `AccessDenied` must produce `NOT_VERIFIED` with the missing
+   permission, never `PASS` or `FAIL`. Pinned in Task 4 with `test_access_denied_is_not_verified`.
+2. **Service not enabled.** GuardDuty, Security Hub, Config or Inspector turned off return
+   `NOT_ENABLED`, and for the enablement checks that is `FAIL`, not `NOT_VERIFIED`. Pinned in
+   Task 4 with `test_not_enabled_means_fail_when_declared`.
+3. **Secrets in the vault.** A note with an access key or an `aws_secret_access_key` must not appear in
+   the clear in `vault-index.json`, `findings.json` or the HTML. Pinned in Tasks 12 and 13 with
+   `test_masks_keys_in_index` and `test_findings_are_masked`.
+4. **Hostile names.** Resource names or tag values with `<script>`, `"`, `</script>` or backticks
+   must be escaped in the HTML and in the copyable blocks. Pinned in Task 14 with
    `test_hostile_names_escaped`.
-5. **Cuenta grande.** Con muchas regiones y cientos de recursos, la salida de `collect.py` al terminal
-   tiene que ser un resumen de ≤ 40 líneas para no llenar el contexto de Claude; el detalle va a disco. Se
-   fija en la Tarea 4 con `test_stdout_summary_is_bounded`.
+5. **Large account.** With many regions and hundreds of resources, the terminal output of `collect.py`
+   must be a summary of ≤ 40 lines so as not to fill Claude's context; the detail goes to disk. Pinned in
+   Task 4 with `test_stdout_summary_is_bounded`.
 
 ---
 
-## Estructura de archivos
+## File structure
 
 ```
 infra-compliance-audit/
-  README.md                                   qué es, instalación (symlink a ~/.claude/skills), uso, pruebas
+  README.md                                   what it is, installation (symlink to ~/.claude/skills), usage, tests
   .gitignore                                  compliance-reports/, __pycache__/, *.pyc
-  docs/specs/… docs/research/… docs/plans/…   (existentes)
+  docs/specs/… docs/research/… docs/plans/…   (existing)
   auditing-infra-compliance/
-    SKILL.md                                  flujo procedural (Tarea 16)
+    SKILL.md                                  procedural flow (Task 16)
     references/
-      vault-reading.md                        contrato tipado, heurísticas libres, feature/recurso (T16)
-      remediation-guidelines.md               reglas CloudShell, placeholders, planned_change (T16)
-      report-format.md                        esquemas scope.json, vault-claims.json, findings.json (T16)
-      drata-vanta.md                          roles, permisos, tags, pase vacío, fase 2 (T16)
-      inventory.json                          tipos de recurso → llamada de listado (T4)
-      conflict-rules.json                     reglas de conflicto entre arreglos (T15)
+      vault-reading.md                        typed contract, free heuristics, feature/resource (T16)
+      remediation-guidelines.md               CloudShell rules, placeholders, planned_change (T16)
+      report-format.md                        scope.json, vault-claims.json, findings.json schemas (T16)
+      drata-vanta.md                          roles, permissions, tags, vacuous pass, phase 2 (T16)
+      inventory.json                          resource types → listing call (T4)
+      conflict-rules.json                     conflict rules between fixes (T15)
       checks/{iam,logging,detection,compute,encryption,network,data,monitoring,inventory,
-              integration,email}.json         catálogo (T5–T11)
-      frameworks/iso27001-2022.json           93 controles Anexo A + cláusulas 4–10 (T1)
-      frameworks/tsc-2017.json                61 criterios (T1)
-      mappings/drata-dcf.json                 copia de docs/research/drata-dcf-mapping.json (T1)
+              integration,email}.json         catalog (T5–T11)
+      frameworks/iso27001-2022.json           93 Annex A controls + clauses 4–10 (T1)
+      frameworks/tsc-2017.json                61 criteria (T1)
+      mappings/drata-dcf.json                 copy of docs/research/drata-dcf-mapping.json (T1)
     scripts/
-      catalog.py                              constantes, carga y validación del catálogo, mapeos (T2)
-      validate_catalog.py                     CLI del validador (T2)
-      awscli.py                               runner de solo lectura, errores, reintentos, dns (T3)
-      paths.py                                extract(data, path) con mini-lenguaje de rutas (T4)
-      collect.py                              inventario + ejecución de chequeos (T4)
-      evaluators.py                           registro de evaluadores python:<nombre> (T4, T5–T11)
-      vault_index.py                          índice del vault + resolución de feature (T12)
-      redact.py                               enmascarado (T12 mínimo, T13 completo)
+      catalog.py                              constants, catalog loading and validation, mappings (T2)
+      validate_catalog.py                     validator CLI (T2)
+      awscli.py                               read-only runner, errors, retries, dns (T3)
+      paths.py                                extract(data, path) with a path mini-language (T4)
+      collect.py                              inventory + check execution (T4)
+      evaluators.py                           registry of python:<name> evaluators (T4, T5–T11)
+      vault_index.py                          vault index + feature resolution (T12)
+      redact.py                               masking (T12 minimal, T13 complete)
       assemble_findings.py                    findings.json (T13)
-      render_report.py                        HTML (T14; sección Verificación en T15)
-      verify_remediation.py                   etapa de verificación de arreglos (T15)
-    assets/report-template.html               plantilla (T14)
+      render_report.py                        HTML (T14; Verification section in T15)
+      verify_remediation.py                   fix verification stage (T15)
+    assets/report-template.html               template (T14)
   tests/
     helpers.py                                FakeRunner, load_fixture, make_secret_note
-    fixtures/aws/<dominio>/*.json             respuestas AWS ficticias (Acme Notes)
+    fixtures/aws/<domain>/*.json              fake AWS responses (Acme Notes)
     fixtures/typed-vault/ fixtures/free-vault/
     fixtures/scope-*.json fixtures/vault-claims.json fixtures/findings-sample.json
     test_frameworks.py test_catalog.py test_awscli.py test_paths.py test_collect.py
-    test_eval_<dominio>.py test_vault_index.py test_redact.py test_assemble.py test_render.py test_e2e.py
+    test_eval_<domain>.py test_vault_index.py test_redact.py test_assemble.py test_render.py test_e2e.py
     skill-scenarios.md
 ```
 
-Rutas de los scripts en los comandos: relativas a `infra-compliance-audit/`. `SKILL_DIR` =
+Script paths in commands: relative to `infra-compliance-audit/`. `SKILL_DIR` =
 `auditing-infra-compliance`.
 
 ---
 
-### Tarea 1: bootstrap del repo y catálogos de normas
+### Task 1: repo bootstrap and framework catalogs
 
-**Archivos:**
-- Crear: `.gitignore`, `README.md` (esqueleto: título, una línea de propósito; se completa en la T17)
-- Crear: `auditing-infra-compliance/references/frameworks/iso27001-2022.json`
-- Crear: `auditing-infra-compliance/references/frameworks/tsc-2017.json`
-- Crear: `auditing-infra-compliance/references/mappings/drata-dcf.json` (copia exacta de
+**Files:**
+- Create: `.gitignore`, `README.md` (skeleton: title, one line of purpose; completed in T17)
+- Create: `auditing-infra-compliance/references/frameworks/iso27001-2022.json`
+- Create: `auditing-infra-compliance/references/frameworks/tsc-2017.json`
+- Create: `auditing-infra-compliance/references/mappings/drata-dcf.json` (exact copy of
   `docs/research/drata-dcf-mapping.json`)
-- Prueba: `tests/test_frameworks.py`
+- Test: `tests/test_frameworks.py`
 
 **Interfaces:**
-- **Produce `iso27001-2022.json`:**
+- **Produces `iso27001-2022.json`:**
   ```
   {"version": "ISO/IEC 27001:2022",
    "clauses": [{"id": "4.1", "name": …}, …],                    // 4.1 … 10.2
    "controls": [{"id": "A.5.1", "theme": "organizational|people|physical|technological",
-                 "name": "<paráfrasis corta>",
+                 "name": "<short paraphrase>",
                  "responsibility": "customer|shared|inherited",
                  "technical": bool}, …]}
   ```
-  - `technical: true` = el skill puede aportar evidencia técnica: 5.9, 5.15–5.18, 5.23, 5.33, 8.x salvo
-    8.1, 8.4, 8.7, 8.25–8.31 y 8.33.
-  - `responsibility` según `frameworks-aws-mapping.md` §5: 7.x en lo que se aloja en AWS → `inherited`; 7.x
-    de oficinas o equipos propios → `shared`.
-- **Produce `tsc-2017.json`:**
+  - `technical: true` = the skill can provide technical evidence: 5.9, 5.15–5.18, 5.23, 5.33, 8.x except
+    8.1, 8.4, 8.7, 8.25–8.31 and 8.33.
+  - `responsibility` per `frameworks-aws-mapping.md` §5: 7.x for what is hosted on AWS → `inherited`; 7.x
+    for own offices or equipment → `shared`.
+- **Produces `tsc-2017.json`:**
   ```
   {"version": "TSC 2017 (rev. 2022 PoF)",
    "criteria": [{"id": "CC6.1", "category": "security|availability|confidentiality|processing_integrity|privacy",
                  "name": …, "technical": bool}, …]}
   ```
-- La fuente de la lista y los nombres es `docs/research/frameworks-aws-mapping.md` §1.1, §1.3, §2.1 y §2.2.
+- The source of the list and the names is `docs/research/frameworks-aws-mapping.md` §1.1, §1.3, §2.1 and §2.2.
 
-- [ ] **Paso 1:** `git init`, crear la rama `feature/auditing-infra-compliance`, crear `.gitignore` con
-  `compliance-reports/`, `__pycache__/` y `*.pyc`, crear `README.md` esqueleto.
-- [ ] **Paso 2: escribir las pruebas que fallan** en `tests/test_frameworks.py`:
-  - `test_iso_has_93_controls_by_theme`: conteo total 93; por tema: organizational 37, people 8,
+- [ ] **Step 1:** `git init`, create the branch `feature/auditing-infra-compliance`, create `.gitignore` with
+  `compliance-reports/`, `__pycache__/` and `*.pyc`, create the skeleton `README.md`.
+- [ ] **Step 2: write the failing tests** in `tests/test_frameworks.py`:
+  - `test_iso_has_93_controls_by_theme`: total count 93; by theme: organizational 37, people 8,
     physical 14, technological 34;
-  - `test_iso_new_2022_controls_present`: existen A.5.7, A.5.23, A.5.30, A.7.4, A.8.9, A.8.10, A.8.11,
-    A.8.12, A.8.16, A.8.23 y A.8.28;
-  - `test_iso_clauses_cover_4_to_10`: existen 4.1 y 10.2, y ningún ID repetido;
-  - `test_tsc_has_61_criteria`: 61 en total, 33 `CC*`, IDs únicos; existen `A1.3`, `C1.2`, `PI1.5` y
-    `P8.1`; **no** existe `C1.3`;
-  - `test_physical_controls_not_customer_only`: todo `A.7.*` tiene `responsibility` en {`inherited`,
+  - `test_iso_new_2022_controls_present`: A.5.7, A.5.23, A.5.30, A.7.4, A.8.9, A.8.10, A.8.11,
+    A.8.12, A.8.16, A.8.23 and A.8.28 exist;
+  - `test_iso_clauses_cover_4_to_10`: 4.1 and 10.2 exist, and no ID is repeated;
+  - `test_tsc_has_61_criteria`: 61 in total, 33 `CC*`, unique IDs; `A1.3`, `C1.2`, `PI1.5` and
+    `P8.1` exist; `C1.3` does **not** exist;
+  - `test_physical_controls_not_customer_only`: every `A.7.*` has `responsibility` in {`inherited`,
     `shared`};
-  - `test_drata_dcf_copied`: `mappings/drata-dcf.json` es idéntico a `docs/research/drata-dcf-mapping.json`
-    y tiene 130 tests.
-- [ ] **Paso 3:** correr `python3 -m unittest tests.test_frameworks -v`. Esperado: FAIL (archivos
-  inexistentes).
-- [ ] **Paso 4:** crear los tres JSON con nombres parafraseados.
-- [ ] **Paso 5:** correr las pruebas. Esperado: 6 OK.
-- [ ] **Paso 6:** hacer commit con `chore: bootstrap repo and framework catalogs`.
+  - `test_drata_dcf_copied`: `mappings/drata-dcf.json` is identical to `docs/research/drata-dcf-mapping.json`
+    and has 130 tests.
+- [ ] **Step 3:** run `python3 -m unittest tests.test_frameworks -v`. Expected: FAIL (files
+  do not exist).
+- [ ] **Step 4:** create the three JSON files with paraphrased names.
+- [ ] **Step 5:** run the tests. Expected: 6 OK.
+- [ ] **Step 6:** commit with `chore: bootstrap repo and framework catalogs`.
 
 ---
 
-### Tarea 2: esquema del catálogo, resolución de mapeos y validador
+### Task 2: catalog schema, mapping resolution and validator
 
-**Archivos:**
-- Crear: `auditing-infra-compliance/scripts/catalog.py`
-- Crear: `auditing-infra-compliance/scripts/validate_catalog.py`
-- Prueba: `tests/test_catalog.py`, `tests/fixtures/catalog-min/test.json`
+**Files:**
+- Create: `auditing-infra-compliance/scripts/catalog.py`
+- Create: `auditing-infra-compliance/scripts/validate_catalog.py`
+- Test: `tests/test_catalog.py`, `tests/fixtures/catalog-min/test.json`
 
 **Interfaces:**
-- **Produce, en `catalog.py`:**
-  - Constantes `SEVERITIES`, `STATUSES`, `REMEDIATION_KINDS`, `RISKS`, `EVALUATOR_KINDS = ("jmespath",
-    "python", "claude", "dns")` y `DCF_SOURCE = "drata-dcf-2026-11-12"`.
-  - `load_checks(checks_dir: Path) -> list[dict]`: une todos los `*.json` de la carpeta; cada archivo es
+- **Produces, in `catalog.py`:**
+  - Constants `SEVERITIES`, `STATUSES`, `REMEDIATION_KINDS`, `RISKS`, `EVALUATOR_KINDS = ("jmespath",
+    "python", "claude", "dns")` and `DCF_SOURCE = "drata-dcf-2026-11-12"`.
+  - `load_checks(checks_dir: Path) -> list[dict]`: merges all the `*.json` files in the folder; each file is
     `{"domain": str, "checks": [...]}`.
-  - `load_frameworks(frameworks_dir: Path) -> tuple[set[str], set[str]]`: devuelve los IDs TSC y los IDs
-    ISO; en estos últimos, Anexo A y cláusulas.
-  - `load_drata_map(path: Path) -> dict[int, dict]`: indexado por `test_id`.
-  - `resolve_mappings(check: dict, drata: dict[int, dict]) -> dict`: devuelve
+  - `load_frameworks(frameworks_dir: Path) -> tuple[set[str], set[str]]`: returns the TSC IDs and the ISO
+    IDs; for the latter, Annex A and clauses.
+  - `load_drata_map(path: Path) -> dict[int, dict]`: indexed by `test_id`.
+  - `resolve_mappings(check: dict, drata: dict[int, dict]) -> dict`: returns
     `{"drata": [...], "vanta": [...], "tsc": [{"id", "sourced"}], "iso27001_2022": [...], "security_hub": [...], "cis_aws": [...]}`.
-    - Si algún test de `check["mappings"]["drata"]` está en `drata`, toma la unión de `soc2` e
-      `iso27001_2022` de sus controles con `sourced = DCF_SOURCE`.
-    - Si no, usa `check["mappings"]["tsc_inferred"]` e `iso_inferred` con `sourced: false`.
-  - `validate(checks, tsc_ids, iso_ids, drata) -> list[str]`: devuelve los mensajes de error; lista vacía
-    significa válido.
-- **Esquema de un chequeo** (todos los campos son obligatorios salvo los marcados como opcionales):
+    - If any test in `check["mappings"]["drata"]` is in `drata`, it takes the union of `soc2` and
+      `iso27001_2022` of its controls with `sourced = DCF_SOURCE`.
+    - Otherwise, it uses `check["mappings"]["tsc_inferred"]` and `iso_inferred` with `sourced: false`.
+  - `validate(checks, tsc_ids, iso_ids, drata) -> list[str]`: returns the error messages; an empty list
+    means valid.
+- **Schema of a check** (all fields are required except those marked optional):
   ```
-  {"id": "IAM-001", "title": str (castellano), "domain": str,
+  {"id": "IAM-001", "title": str (English), "domain": str,
    "scope": "account|resource",
-   "resource_types": [str],                      // claves de inventory.json; [] para scope account
-   "account_context_for": [str],                 // opcional: tipos para los que este chequeo de cuenta aplica en modo feature/resource
-   "all_regions": bool,                          // corre en todas las regiones habilitadas
+   "resource_types": [str],                      // keys of inventory.json; [] for account scope
+   "account_context_for": [str],                 // optional: types for which this account check applies in feature/resource mode
+   "all_regions": bool,                          // runs in all enabled regions
    "severity": …, "not_enabled_means": "fail|not_verified",
-   "verify": {"calls": [Call], "evaluator": "jmespath|python:<nombre>|claude|dns",
-              "offenders": str,                  // expresión JMESPath (solo si evaluator == jmespath y 1 call)
-              "params": {…},                     // opcional, para evaluadores python
+   "verify": {"calls": [Call], "evaluator": "jmespath|python:<name>|claude|dns",
+              "offenders": str,                  // JMESPath expression (only if evaluator == jmespath and 1 call)
+              "params": {…},                     // optional, for python evaluators
               "pass_when_text": str, "needs": ["svc:Action", …]},
    "vault_signals": [str],
    "mappings": {"drata": [{"test": int, "name": str, "source": url}],
@@ -273,56 +273,56 @@ Rutas de los scripts en los comandos: relativas a `infra-compliance-audit/`. `SK
    "sources": [url]}
   ```
   - `Call = {"name": str, "service": str, "operation": str, "args": [str], "region": "global|each",
-    "for_each": {"from": <call name>, "path": <ruta paths.py>, "arg": "--flag"}}`. El `for_each` es
-    opcional.
-- **Reglas de `validate`**, una prueba por regla:
-  1. IDs únicos con formato `^[A-Z]{3}-\d{3}$`.
-  2. Severidad, kind, risk y evaluador válidos.
-  3. Cada `(service, operation)` de `calls` pasa `awscli.assert_read_only` (se importa en la Tarea 3; en
-     esta tarea se usa un stub local `_is_read_only` con las mismas reglas de prefijo, que la Tarea 3
-     reemplaza por el import).
-  4. Todo `tsc_inferred` existe en TSC y todo `iso_inferred` en ISO.
-  5. Todo `mappings.drata[].test` es int.
-  6. Si `evaluator == "jmespath"`: hay exactamente 1 call y `offenders` no está vacío.
-  7. `remediation.verify_after` no vacío, salvo `console_only`.
-  8. `planned_change` tiene ≥ 2 `steps` y `notes` no vacío (la advertencia).
-  9. `commands` no contiene `<<`.
-  10. Si un chequeo no tiene test de Drata resoluble en el DCF, tiene ≥ 1 `tsc_inferred` y ≥ 1
+    "for_each": {"from": <call name>, "path": <paths.py path>, "arg": "--flag"}}`. The `for_each` is
+    optional.
+- **`validate` rules**, one test per rule:
+  1. Unique IDs with format `^[A-Z]{3}-\d{3}$`.
+  2. Valid severity, kind, risk and evaluator.
+  3. Every `(service, operation)` in `calls` passes `awscli.assert_read_only` (imported in Task 3; in
+     this task a local stub `_is_read_only` with the same prefix rules is used, which Task 3
+     replaces with the import).
+  4. Every `tsc_inferred` exists in TSC and every `iso_inferred` in ISO.
+  5. Every `mappings.drata[].test` is an int.
+  6. If `evaluator == "jmespath"`: there is exactly 1 call and `offenders` is not empty.
+  7. `remediation.verify_after` is not empty, except for `console_only`.
+  8. `planned_change` has ≥ 2 `steps` and `notes` is not empty (the warning).
+  9. `commands` does not contain `<<`.
+  10. If a check has no Drata test resolvable in the DCF, it has ≥ 1 `tsc_inferred` and ≥ 1
       `iso_inferred`.
-  11. `scope == "resource"` implica `resource_types` no vacío.
-- **`validate_catalog.py`:** CLI sin argumentos. Carga desde `SKILL_DIR/references`, imprime los errores y
-  sale con código 1 si hay errores, 0 si no. Última línea: `OK: <n> checks`.
+  11. `scope == "resource"` implies non-empty `resource_types`.
+- **`validate_catalog.py`:** CLI with no arguments. Loads from `SKILL_DIR/references`, prints the errors and
+  exits with code 1 if there are errors, 0 if not. Last line: `OK: <n> checks`.
 
-- [ ] **Paso 1: escribir las pruebas que fallan** en `tests/test_catalog.py` con el fixture
-  `catalog-min/test.json`, que tiene 2 chequeos válidos: uno con Drata 214 y otro sin Drata.
+- [ ] **Step 1: write the failing tests** in `tests/test_catalog.py` with the fixture
+  `catalog-min/test.json`, which has 2 valid checks: one with Drata 214 and one without Drata.
   - `test_valid_catalog_has_no_errors`.
-  - `test_resolve_mappings_from_dcf`: el chequeo con Drata 214 resuelve TSC {CC6.1, CC7.2} e ISO
-    {A.8.2, A.8.16} con `sourced == DCF_SOURCE`.
+  - `test_resolve_mappings_from_dcf`: the check with Drata 214 resolves TSC {CC6.1, CC7.2} and ISO
+    {A.8.2, A.8.16} with `sourced == DCF_SOURCE`.
   - `test_resolve_mappings_inferred`: sourced `False`.
-  - Una prueba `test_rule_<n>_…` por cada regla del 1 al 11. Cada una muta el fixture y espera ≥ 1 error
-    que contenga el ID del chequeo. Ejemplos:
-    - `test_rule_3_rejects_write_operation` con `ec2 modify-instance-attribute`;
+  - One test `test_rule_<n>_…` for each rule from 1 to 11. Each one mutates the fixture and expects ≥ 1 error
+    containing the check ID. Examples:
+    - `test_rule_3_rejects_write_operation` with `ec2 modify-instance-attribute`;
     - `test_rule_9_rejects_heredoc_placeholder`.
-- [ ] **Paso 2:** correr `python3 -m unittest tests.test_catalog -v`. Esperado: FAIL (import error).
-- [ ] **Paso 3:** implementar `catalog.py` y `validate_catalog.py`.
-- [ ] **Paso 4:** correr las pruebas. Esperado: todas OK.
-- [ ] **Paso 5:** hacer commit con `feat: catalog schema, mapping resolution and validator`.
+- [ ] **Step 2:** run `python3 -m unittest tests.test_catalog -v`. Expected: FAIL (import error).
+- [ ] **Step 3:** implement `catalog.py` and `validate_catalog.py`.
+- [ ] **Step 4:** run the tests. Expected: all OK.
+- [ ] **Step 5:** commit with `feat: catalog schema, mapping resolution and validator`.
 
 ---
 
-### Tarea 3: runner AWS de solo lectura
+### Task 3: read-only AWS runner
 
-**Archivos:**
-- Crear: `auditing-infra-compliance/scripts/awscli.py`
-- Modificar: `scripts/catalog.py` (reemplazar el stub `_is_read_only` por `awscli.assert_read_only`)
-- Prueba: `tests/test_awscli.py`, `tests/helpers.py`
+**Files:**
+- Create: `auditing-infra-compliance/scripts/awscli.py`
+- Modify: `scripts/catalog.py` (replace the `_is_read_only` stub with `awscli.assert_read_only`)
+- Test: `tests/test_awscli.py`, `tests/helpers.py`
 
 **Interfaces:**
-- **Produce:**
+- **Produces:**
   - `class ReadOnlyViolation(Exception)`.
   - `ALLOWED_PREFIXES = ("describe-", "list-", "get-")`.
   - `ALLOWED_EXACT = frozenset({"lookup-events", "generate-credential-report"})`.
-  - `DENYLIST` (frozenset de pares `(service, operation)`; `"*"` como operación bloquea todo el servicio):
+  - `DENYLIST` (frozenset of `(service, operation)` pairs; `"*"` as the operation blocks the whole service):
     - `("secretsmanager","get-secret-value")`;
     - `("ssm","get-parameter")`, `("ssm","get-parameters")`, `("ssm","get-parameters-by-path")`;
     - `("lambda","get-function")`;
@@ -336,155 +336,155 @@ Rutas de los scripts en los comandos: relativas a `infra-compliance-audit/`. `SK
     - `("ec2","get-password-data")`;
     - `("rds-data","*")`, `("s3","*")`.
   - `FORBIDDEN_ARGS = frozenset({"--with-decryption"})`.
-  - `assert_read_only(service: str, operation: str, args: list[str]) -> None`: lanza `ReadOnlyViolation`
-    con el motivo.
+  - `assert_read_only(service: str, operation: str, args: list[str]) -> None`: raises `ReadOnlyViolation`
+    with the reason.
   - `@dataclass(frozen=True) class CallResult`: `ok: bool`, `data: object | None`, `error_kind: str |
     None` (`ACCESS_DENIED`, `NOT_ENABLED`, `NO_CREDENTIALS`, `THROTTLED`, `ERROR`), `error_message: str |
     None`, `argv: tuple[str, ...]`.
   - `run_aws(service, operation, args, *, region: str | None, profile: str | None, query: str | None =
     None, runner=subprocess.run, sleep=time.sleep) -> CallResult`.
-    - argv = `["aws", service, operation, *args, "--output", "json"]`, más `--region`, `--profile` y
-      `--query` si están dados.
-    - `assert_read_only` antes de ejecutar.
-    - Timeout de 120 s.
-    - Throttling: 4 reintentos con backoff de 1, 2, 4 y 8 s.
+    - argv = `["aws", service, operation, *args, "--output", "json"]`, plus `--region`, `--profile` and
+      `--query` if given.
+    - `assert_read_only` before executing.
+    - Timeout of 120 s.
+    - Throttling: 4 retries with backoff of 1, 2, 4 and 8 s.
   - `classify_error(stderr: str) -> str`:
 
-| Patrón en stderr | Resultado |
+| Pattern in stderr | Result |
 |---|---|
 | `AccessDenied`, `UnauthorizedOperation`, `AccessDeniedException`, `not authorized to perform` | `ACCESS_DENIED` |
-| `OptInRequired`, `SubscriptionRequiredException`, `InvalidAccessException` (Security Hub), `is not subscribed`, `NoSuchConfigurationRecorder`, `BadRequestException` con "not enabled" | `NOT_ENABLED` |
-| `Unable to locate credentials`, `ExpiredToken`, `InvalidClientTokenId`, `could not be found` (perfil inexistente) | `NO_CREDENTIALS` |
+| `OptInRequired`, `SubscriptionRequiredException`, `InvalidAccessException` (Security Hub), `is not subscribed`, `NoSuchConfigurationRecorder`, `BadRequestException` with "not enabled" | `NOT_ENABLED` |
+| `Unable to locate credentials`, `ExpiredToken`, `InvalidClientTokenId`, `could not be found` (nonexistent profile) | `NO_CREDENTIALS` |
 | `Throttling`, `Rate exceeded`, `TooManyRequests` | `THROTTLED` |
-| cualquier otro | `ERROR` |
+| anything else | `ERROR` |
 
-  - `run_dns(name: str, rrtype: str, runner=subprocess.run, which=shutil.which) -> CallResult`: usa
-    `["dig", "+short", rrtype, name]` o, si no está, `["nslookup", "-type=" + rrtype, name]`. `data` es la
-    lista de líneas de respuesta. Si no hay ninguno de los dos: `error_kind="ERROR"`, mensaje
-    `"dig/nslookup no disponibles"`.
-- **Produce, en `tests/helpers.py`:**
-  - `class FakeRunner`: callable que imita `subprocess.run`. Se inicializa con
-    `{(service, operation, region|None): {"stdout": str, "stderr": str, "returncode": int}}` y registra
-    cada argv en `self.calls`. Una entrada puede ser una lista de respuestas, que se consumen en orden.
+  - `run_dns(name: str, rrtype: str, runner=subprocess.run, which=shutil.which) -> CallResult`: uses
+    `["dig", "+short", rrtype, name]` or, if that is not available, `["nslookup", "-type=" + rrtype, name]`. `data` is the
+    list of response lines. If neither is available: `error_kind="ERROR"`, message
+    `"dig/nslookup not available"`.
+- **Produces, in `tests/helpers.py`:**
+  - `class FakeRunner`: callable that imitates `subprocess.run`. It is initialized with
+    `{(service, operation, region|None): {"stdout": str, "stderr": str, "returncode": int}}` and records
+    each argv in `self.calls`. An entry can be a list of responses, which are consumed in order.
   - `load_fixture(rel: str) -> object`.
-  - `make_secret_note(dir: Path) -> Path`: escribe una nota `.md` con `aws_access_key_id = ` seguido de
-    una clave armada en runtime (`"AKIA" + "TESTKEYABCDEMNOP"`). Devuelve la ruta.
+  - `make_secret_note(dir: Path) -> Path`: writes a `.md` note with `aws_access_key_id = ` followed by
+    a key built at runtime (`"AKIA" + "TESTKEYABCDEMNOP"`). Returns the path.
 
-- [ ] **Paso 1: escribir las pruebas que fallan:**
-  - `test_allows_describe_list_get` (3 casos) y `test_allows_exact_exceptions`;
+- [ ] **Step 1: write the failing tests:**
+  - `test_allows_describe_list_get` (3 cases) and `test_allows_exact_exceptions`;
   - `test_rejects_write_ops`: `ec2 modify-instance-metadata-options`, `iam create-user`,
     `s3api put-bucket-policy`, `iam delete-access-key`, `cloudtrail start-logging`;
-  - `test_rejects_denylist`: cada par de `DENYLIST`, incluido `rds-data execute-statement` y
-    `s3 ls` (por el comodín `*`);
+  - `test_rejects_denylist`: each pair in `DENYLIST`, including `rds-data execute-statement` and
+    `s3 ls` (because of the `*` wildcard);
   - `test_rejects_with_decryption`;
-  - `test_never_uses_shell`: `FakeRunner` verifica que el kwarg `shell` no sea `True` y que argv sea una
-    lista;
-  - `test_classify_error_table`: una aserción por fila de la tabla;
-  - `test_throttling_retries_then_succeeds`: 2 respuestas de throttling y luego OK; `sleep` falso
-    registra `[1, 2]`;
+  - `test_never_uses_shell`: `FakeRunner` verifies that the `shell` kwarg is not `True` and that argv is a
+    list;
+  - `test_classify_error_table`: one assertion per table row;
+  - `test_throttling_retries_then_succeeds`: 2 throttling responses and then OK; fake `sleep`
+    records `[1, 2]`;
   - `test_access_denied_not_retried`;
   - `test_query_and_region_in_argv`;
   - `test_dns_falls_back_to_nslookup`;
   - `test_dns_missing_tools`.
-- [ ] **Paso 2:** correr `python3 -m unittest tests.test_awscli -v`. Esperado: FAIL.
-- [ ] **Paso 3:** implementar `awscli.py` y `tests/helpers.py`, y reemplazar el stub en `catalog.py`.
-- [ ] **Paso 4:** correr `python3 -m unittest discover -s tests -v`. Esperado: todo OK.
-- [ ] **Paso 5:** hacer commit con `feat: read-only aws cli runner with allowlist and denylist`.
+- [ ] **Step 2:** run `python3 -m unittest tests.test_awscli -v`. Expected: FAIL.
+- [ ] **Step 3:** implement `awscli.py` and `tests/helpers.py`, and replace the stub in `catalog.py`.
+- [ ] **Step 4:** run `python3 -m unittest discover -s tests -v`. Expected: all OK.
+- [ ] **Step 5:** commit with `feat: read-only aws cli runner with allowlist and denylist`.
 
 ---
 
-### Tarea 4: inventario y motor de `collect.py`
+### Task 4: inventory and the `collect.py` engine
 
-**Archivos:**
-- Crear: `scripts/paths.py`, `scripts/collect.py`, `scripts/evaluators.py` (solo el registro y un
-  evaluador de ejemplo)
-- Crear: `references/inventory.json`
-- Prueba: `tests/test_paths.py`, `tests/test_collect.py`, `tests/fixtures/aws/core/*.json`,
+**Files:**
+- Create: `scripts/paths.py`, `scripts/collect.py`, `scripts/evaluators.py` (only the registry and an
+  example evaluator)
+- Create: `references/inventory.json`
+- Test: `tests/test_paths.py`, `tests/test_collect.py`, `tests/fixtures/aws/core/*.json`,
   `tests/fixtures/scope-full.json`, `tests/fixtures/scope-resource.json`,
-  `tests/fixtures/catalog-engine/engine.json` (4 chequeos sintéticos: jmespath de cuenta, jmespath de
-  recurso con `for_each`, python, y uno con `not_enabled_means: fail`)
+  `tests/fixtures/catalog-engine/engine.json` (4 synthetic checks: account jmespath, resource jmespath
+  with `for_each`, python, and one with `not_enabled_means: fail`)
 
 **Interfaces:**
-- **Consume:** `awscli.run_aws`, `awscli.run_dns`, `catalog.load_checks` y `catalog.resolve_mappings`.
-- **Produce, en `paths.py`:** `extract(data: object, path: str) -> list`.
-  - Mini-lenguaje: claves separadas por `.`; `[]` aplana una lista; `[*]` es sinónimo de `[]`.
-  - Una ruta inexistente devuelve `[]`.
-  - Ejemplo: `extract({"Buckets":[{"Name":"a"}]}, "Buckets[].Name") == ["a"]`.
-- **Produce `inventory.json`:**
+- **Consumes:** `awscli.run_aws`, `awscli.run_dns`, `catalog.load_checks` and `catalog.resolve_mappings`.
+- **Produces, in `paths.py`:** `extract(data: object, path: str) -> list`.
+  - Mini-language: keys separated by `.`; `[]` flattens a list; `[*]` is a synonym for `[]`.
+  - A nonexistent path returns `[]`.
+  - Example: `extract({"Buckets":[{"Name":"a"}]}, "Buckets[].Name") == ["a"]`.
+- **Produces `inventory.json`:**
   ```
-  {"<tipo>": {"service", "operation", "args", "region": "global|each",
+  {"<type>": {"service", "operation", "args", "region": "global|each",
               "items_path", "id_path", "name_path", "tags_path", "arn_path"}}
   ```
-  Las `*_path` se resuelven con `paths.extract`, relativas a cada ítem. Tipos mínimos: `ec2_instance`,
+  The `*_path` values are resolved with `paths.extract`, relative to each item. Minimum types: `ec2_instance`,
   `ebs_volume`, `security_group`, `nacl`, `vpc`, `subnet`, `rds_instance`, `rds_cluster`, `s3_bucket`,
   `dynamodb_table`, `efs`, `elbv2`, `asg`, `launch_template`, `lambda_function`, `sqs_queue`,
   `sns_topic`, `kms_key`, `log_group`, `cloudtrail_trail`, `iam_user`, `iam_role`, `eks_cluster`,
-  `elasticache_group`, `ses_identity`, `wafv2_web_acl`, `acm_certificate` y `secret` (este último solo
-  vía `secretsmanager list-secrets`, sin valores).
-- **Produce `scope.json`** (lo escribe Claude o el fixture):
+  `elasticache_group`, `ses_identity`, `wafv2_web_acl`, `acm_certificate` and `secret` (the latter only
+  via `secretsmanager list-secrets`, without values).
+- **Produces `scope.json`** (written by Claude or the fixture):
   ```
   {"platform": str, "mode": "full|feature|resource", "target": str|null,
    "regions": [str] | "auto", "profile": str|null,
-   "resources": [{"type", "id", "region"}],       // vacío en full
-   "domains": [str] | null}                       // null = todos
+   "resources": [{"type", "id", "region"}],       // empty in full
+   "domains": [str] | null}                       // null = all
   ```
-- **Produce, en `evaluators.py`:**
+- **Produces, in `evaluators.py`:**
   - `EVALUATORS: dict[str, Callable[[dict[str, list[tuple[str, object]]], dict], list[dict]]]`;
-  - decorador `@register(name)`.
-  - Firma de cada evaluador: `fn(responses, params) -> offenders`.
-    - `responses[call_name]` = lista de `(region, data)`.
-    - `responses["__inventory__"]` = lista del inventario.
+  - decorator `@register(name)`.
+  - Signature of each evaluator: `fn(responses, params) -> offenders`.
+    - `responses[call_name]` = list of `(region, data)`.
+    - `responses["__inventory__"]` = the inventory list.
     - Offender = `{"resource_id": str, "region": str, "detail": dict}`.
-  - Evaluador de ejemplo: `always_empty`.
-- **Produce, en `collect.py`:** `main(argv) -> int` con argumentos
+  - Example evaluator: `always_empty`.
+- **Produces, in `collect.py`:** `main(argv) -> int` with arguments
   `--scope FILE --out DIR [--checks-dir DIR] [--inventory FILE]`.
-  1. `sts get-caller-identity` → `account_id` e `identity_arn`. Si es `NO_CREDENTIALS`: escribe
-     `checks-result.json` con `{"aws": null}` y sale con 2.
-  2. Regiones habilitadas: `ec2 describe-regions --filters Name=opt-in-status,Values=opt-in-not-required,opted-in`.
-     `scope.regions == "auto"` → regiones habilitadas que tengan algún recurso del inventario, más
+  1. `sts get-caller-identity` → `account_id` and `identity_arn`. If it is `NO_CREDENTIALS`: writes
+     `checks-result.json` with `{"aws": null}` and exits with 2.
+  2. Enabled regions: `ec2 describe-regions --filters Name=opt-in-status,Values=opt-in-not-required,opted-in`.
+     `scope.regions == "auto"` → enabled regions that have any inventory resource, plus
      `us-east-1`.
-  3. Inventario: por tipo y región, en paralelo con `ThreadPoolExecutor(max_workers=8)` por región. Se
-     escribe `inventory.json` como lista de `{"type", "id", "arn", "name", "region", "tags": {k: v}}`.
-  4. Selección de chequeos:
-     - `mode == full`: todos los de `domains`.
-     - `feature/resource`: los de `scope == "resource"` cuyo `resource_types` intersecta los tipos de
-       `scope.resources`, más los de `scope == "account"` cuyo `account_context_for` intersecta esos
-       tipos.
-  5. Ejecución:
-     - `region "global"` → `us-east-1`; `"each"` → regiones del alcance, o todas las habilitadas si
+  3. Inventory: per type and region, in parallel with `ThreadPoolExecutor(max_workers=8)` per region.
+     `inventory.json` is written as a list of `{"type", "id", "arn", "name", "region", "tags": {k: v}}`.
+  4. Check selection:
+     - `mode == full`: all those in `domains`.
+     - `feature/resource`: those with `scope == "resource"` whose `resource_types` intersects the types of
+       `scope.resources`, plus those with `scope == "account"` whose `account_context_for` intersects those
+       types.
+  5. Execution:
+     - `region "global"` → `us-east-1`; `"each"` → regions of the scope, or all enabled ones if
        `all_regions`.
-     - `for_each` expande una llamada por cada valor extraído.
-     - `jmespath` pasa `offenders` como `--query`, y el resultado (una lista) son los ofensores. Las
-       expresiones deben proyectar `{resource_id: …, detail: {…}}`. Se documenta en `report-format.md`.
-     - `python:<n>` llama a `EVALUATORS[n]`. `claude` no ejecuta evaluación: guarda las respuestas y
-       marca `status: "PENDING_CLAUDE"`. `dns` usa `run_dns`.
-  6. Estado por chequeo y recurso:
+     - `for_each` expands one call for each extracted value.
+     - `jmespath` passes `offenders` as `--query`, and the result (a list) is the offenders. The
+       expressions must project `{resource_id: …, detail: {…}}`. This is documented in `report-format.md`.
+     - `python:<n>` calls `EVALUATORS[n]`. `claude` runs no evaluation: it saves the responses and
+       marks `status: "PENDING_CLAUDE"`. `dns` uses `run_dns`.
+  6. Status per check and resource:
 
-| Situación | Estado |
+| Situation | Status |
 |---|---|
-| Cualquier call `ACCESS_DENIED` | `NO_VERIFICADO`, con `missing: needs` |
-| `NOT_ENABLED` y `not_enabled_means == "fail"` | `FAIL`, con `detail.reason = "servicio no habilitado"` |
-| `NOT_ENABLED` en otro caso | `NO_VERIFICADO` |
-| Sin recursos de `resource_types` en el alcance | `N/A`, con `vacuous: true` |
-| Hay ofensores | un `FAIL` por ofensor |
-| Sin ofensores | un `PASS` con `resource_id` = `"account"` o la lista de IDs evaluados |
+| Any call `ACCESS_DENIED` | `NOT_VERIFIED`, with `missing: needs` |
+| `NOT_ENABLED` and `not_enabled_means == "fail"` | `FAIL`, with `detail.reason = "service not enabled"` |
+| `NOT_ENABLED` otherwise | `NOT_VERIFIED` |
+| No resources of `resource_types` in scope | `N/A`, with `vacuous: true` |
+| There are offenders | one `FAIL` per offender |
+| No offenders | one `PASS` with `resource_id` = `"account"` or the list of evaluated IDs |
 
-     - En modo feature/resource, los ofensores y los PASS de chequeos `resource` se filtran a los IDs de
+     - In feature/resource mode, the offenders and PASSes of `resource` checks are filtered to the IDs in
        `scope.resources`.
-  7. Escribe `raw/<check_id>/<call>-<region>[-<n>].json`, `checks-result.json` e `inventory.json`.
+  7. Writes `raw/<check_id>/<call>-<region>[-<n>].json`, `checks-result.json` and `inventory.json`.
      - `checks-result.json` = `{"aws": {"account_id", "identity_arn", "regions": [...],
        "enabled_regions": [...]}, "results": [{"check_id", "status", "resource_id", "region", "detail",
        "missing", "vacuous"}], "warnings": [str]}`.
-     - Permisos amplios: si la identidad tiene `AdministratorAccess` adjunto (verificado con
-       `iam list-attached-role-policies` o `list-attached-user-policies` sobre la identidad), se agrega un
-       warning. Un `AccessDenied` aquí se ignora.
-  8. stdout: resumen de ≤ 40 líneas con conteos por estado, top 10 de `FAIL` por severidad, cantidad de
-     `NO_VERIFICADO` y la ruta del directorio.
+     - Broad permissions: if the identity has `AdministratorAccess` attached (verified with
+       `iam list-attached-role-policies` or `list-attached-user-policies` on the identity), a
+       warning is added. An `AccessDenied` here is ignored.
+  8. stdout: summary of ≤ 40 lines with counts per status, top 10 `FAIL` by severity, number of
+     `NOT_VERIFIED` and the directory path.
 
-- [ ] **Paso 1: escribir las pruebas que fallan:**
+- [ ] **Step 1: write the failing tests:**
   - `test_paths.py`: `test_flatten`, `test_missing_key_returns_empty`, `test_nested_lists`,
     `test_star_alias`;
-  - `test_collect.py`, todas con `FakeRunner` y el catálogo `catalog-engine`:
+  - `test_collect.py`, all with `FakeRunner` and the `catalog-engine` catalog:
     - `test_full_mode_runs_account_and_resource_checks`;
     - `test_resource_mode_filters_to_scope_ids`;
     - `test_feature_mode_includes_account_context_checks`;
@@ -495,89 +495,89 @@ Rutas de los scripts en los comandos: relativas a `infra-compliance-audit/`. `SK
     - `test_all_regions_flag_uses_enabled_regions`;
     - `test_no_credentials_exits_2`;
     - `test_raw_outputs_written`;
-    - `test_stdout_summary_is_bounded`: 300 ofensores, ≤ 40 líneas;
+    - `test_stdout_summary_is_bounded`: 300 offenders, ≤ 40 lines;
     - `test_admin_identity_warning`;
     - `test_claude_evaluator_marks_pending`;
     - `test_inventory_available_to_evaluators`.
-- [ ] **Paso 2:** correr. Esperado: FAIL.
-- [ ] **Paso 3:** implementar `paths.py`, `inventory.json`, `evaluators.py` (registro) y `collect.py`.
-- [ ] **Paso 4:** correr `python3 -m unittest discover -s tests -v`. Esperado: todo OK.
-- [ ] **Paso 5:** hacer commit con `feat: inventory and read-only check collection engine`.
+- [ ] **Step 2:** run. Expected: FAIL.
+- [ ] **Step 3:** implement `paths.py`, `inventory.json`, `evaluators.py` (registry) and `collect.py`.
+- [ ] **Step 4:** run `python3 -m unittest discover -s tests -v`. Expected: all OK.
+- [ ] **Step 5:** commit with `feat: inventory and read-only check collection engine`.
 
 ---
 
-## Tareas 5 a 11: catálogo por dominio
+## Tasks 5 to 11: catalog per domain
 
-**Patrón común a cada tarea de dominio:**
+**Common pattern for each domain task:**
 
-**Archivos:**
-- Crear: `references/checks/<dominio>.json`
-- Modificar: `scripts/evaluators.py` (agregar los evaluadores del dominio)
-- Prueba: `tests/test_eval_<dominio>.py`, `tests/fixtures/aws/<dominio>/*.json`
+**Files:**
+- Create: `references/checks/<domain>.json`
+- Modify: `scripts/evaluators.py` (add the domain's evaluators)
+- Test: `tests/test_eval_<domain>.py`, `tests/fixtures/aws/<domain>/*.json`
 
-**Contenido de cada chequeo:**
-- llamadas reales de AWS CLI v2;
-- `pass_when_text` en castellano;
-- `needs` con las acciones IAM;
-- mapeos según la tabla de la tarea;
-- `remediation.commands` para CloudShell siguiendo las Restricciones globales. Cada comando de remediación
-  lleva su variante de verificación en `verify_after`.
+**Content of each check:**
+- real AWS CLI v2 calls;
+- `pass_when_text` in English;
+- `needs` with the IAM actions;
+- mappings per the task's table;
+- `remediation.commands` for CloudShell following the Global constraints. Each remediation command
+  carries its verification variant in `verify_after`.
 
-**Fuentes del contenido:**
-- umbrales, nombres de tests y URLs: `docs/research/vanta-drata-tests.md` (§1, §2 y §3) y
+**Sources of the content:**
+- thresholds, test names and URLs: `docs/research/vanta-drata-tests.md` (§1, §2 and §3) and
   `soc2-reference-infrastructures.md`;
-- TSC e ISO inferidos de los chequeos sin Drata ✓: `vanta-drata-tests.md` §5 y `frameworks-aws-mapping.md`
+- inferred TSC and ISO for checks without Drata ✓: `vanta-drata-tests.md` §5 and `frameworks-aws-mapping.md`
   §4.3.
 
-**Pasos de cada tarea de dominio:**
-- [ ] **Paso 1: escribir las pruebas que fallan** del dominio. Por cada evaluador `python:` hay dos
-  pruebas, con un fixture que pasa y otro que falla:
-  - `test_<evaluador>_pass`;
-  - `test_<evaluador>_fail_reports_offenders`, que verifica el `resource_id` exacto del fixture.
+**Steps of each domain task:**
+- [ ] **Step 1: write the failing tests** for the domain. For each `python:` evaluator there are two
+  tests, with one passing fixture and one failing fixture:
+  - `test_<evaluator>_pass`;
+  - `test_<evaluator>_fail_reports_offenders`, which verifies the exact `resource_id` from the fixture.
 
-  Además, `test_<dominio>_catalog_valid` corre `catalog.validate` solo sobre ese archivo y espera `[]`.
-- [ ] **Paso 2:** correr `python3 -m unittest tests.test_eval_<dominio> -v`. Esperado: FAIL.
-- [ ] **Paso 3:** escribir el JSON del dominio y los evaluadores.
-- [ ] **Paso 4:** correr el dominio y `python3 auditing-infra-compliance/scripts/validate_catalog.py`.
-  Esperado: OK, sin errores.
-- [ ] **Paso 5:** hacer commit con `feat: <dominio> checks`.
+  In addition, `test_<domain>_catalog_valid` runs `catalog.validate` only on that file and expects `[]`.
+- [ ] **Step 2:** run `python3 -m unittest tests.test_eval_<domain> -v`. Expected: FAIL.
+- [ ] **Step 3:** write the domain JSON and the evaluators.
+- [ ] **Step 4:** run the domain and `python3 auditing-infra-compliance/scripts/validate_catalog.py`.
+  Expected: OK, no errors.
+- [ ] **Step 5:** commit with `feat: <domain> checks`.
 
-**Leyenda de las tablas de chequeos:**
-- **Eval:** `jq` = jmespath con `--query`; `py:<n>` = evaluador python; `cl` = Claude; `dns`.
+**Legend of the check tables:**
+- **Eval:** `jq` = jmespath with `--query`; `py:<n>` = python evaluator; `cl` = Claude; `dns`.
 - **Rem:** `cli` | `dec` (cli_with_decision) | `plan` (planned_change) | `con` (console_only).
-- **Drata:** número de test; con ✓ si está en `drata-dcf.json` (mapeo autoritativo).
-- **Vanta:** número de la tabla CIS de `vanta-drata-tests.md` §2.1, o nombre corto.
+- **Drata:** test number; with ✓ if it is in `drata-dcf.json` (authoritative mapping).
+- **Vanta:** number from the CIS table of `vanta-drata-tests.md` §2.1, or short name.
 
-### Tarea 5: dominio IAM (`iam.json`)
+### Task 5: IAM domain (`iam.json`)
 
-| ID | Chequeo | Eval | Sev | Rem | Drata | Vanta | SH/CIS |
+| ID | Check | Eval | Sev | Rem | Drata | Vanta | SH/CIS |
 |---|---|---|---|---|---|---|---|
-| IAM-001 | MFA en root | jq `get-account-summary` | critical | con | 214 ✓ | #2 | IAM.9 / 1.4 |
-| IAM-002 | MFA de hardware en root | py:`root_hardware_mfa` (`list-virtual-mfa-devices` + summary) | high | con | 225 ✓ | — | IAM.6 / 1.5 |
-| IAM-003 | Root sin access keys | jq (`AccountAccessKeysPresent`) | critical | con | — | #1 | IAM.4 / 1.3 |
-| IAM-004 | Root sin uso: 2+ `ConsoleLogin` de root en 7 días = falla | py:`root_usage` (`cloudtrail lookup-events`, `params.days=7`, `params.max=1`) | high | con | 124 ✓ | — | — |
-| IAM-005 | MFA en usuarios con consola | py:`cred_report_console_mfa` | high | con | 88 ✓ | #5 | IAM.5 / 1.9 |
-| IAM-006 | Contraseña ≥ 14 | jq `get-account-password-policy` | high | cli | 215 ✓ | #3 | IAM.15 / 1.7 |
-| IAM-007 | Reuso de contraseñas = 24 | jq | high | cli | 216 ✓ | #4 | IAM.16 / 1.8 |
-| IAM-008 | Access keys ≤ 90 días | py:`cred_report_key_age` (`params.max_days=90`) | high | plan | 232 ✓ | #8 | IAM.3 / 1.13 |
-| IAM-009 | Credenciales sin uso ≤ 45 días | py:`cred_report_unused` (`params.max_days=45`) | high | cli | 229 | #6 | IAM.22 / 1.11 |
-| IAM-010 | ≤ 1 access key activa por usuario | py:`cred_report_multi_keys` | medium | plan | — | #7 | — |
-| IAM-011 | Permisos solo vía grupos | py:`user_direct_policies` | high | plan | 217 ✓ | #9 | IAM.2 / 1.14 |
-| IAM-012 | Sin políticas propias `*:*` adjuntas | py:`admin_policies` | high | plan | 230 ✓ | #10 | IAM.1 |
-| IAM-013 | Wildcards amplios en políticas propias (revisión) | cl | medium | plan | 230 ✓ | — | — |
-| IAM-014 | Rol con `AWSSupportAccess` | jq `list-entities-for-policy` | low | dec | — | #11 | IAM.18 / 1.16 |
-| IAM-015 | Access Analyzer en todas las regiones (`all_regions`) | jq `accessanalyzer list-analyzers` | high | cli | — | #14 | IAM.28 / 1.19 |
-| IAM-016 | Contacto alternativo SECURITY | jq `account get-alternate-contact`; `ResourceNotFound` = falla | low | dec | — | — | Account.1 |
-| IAM-017 | Usuarios IAM humanos en lugar de Identity Center (informativo) | py:`iam_human_users` | low | plan | — | — | — |
+| IAM-001 | MFA on root | jq `get-account-summary` | critical | con | 214 ✓ | #2 | IAM.9 / 1.4 |
+| IAM-002 | Hardware MFA on root | py:`root_hardware_mfa` (`list-virtual-mfa-devices` + summary) | high | con | 225 ✓ | — | IAM.6 / 1.5 |
+| IAM-003 | Root without access keys | jq (`AccountAccessKeysPresent`) | critical | con | — | #1 | IAM.4 / 1.3 |
+| IAM-004 | Root not in use: 2+ root `ConsoleLogin` in 7 days = fail | py:`root_usage` (`cloudtrail lookup-events`, `params.days=7`, `params.max=1`) | high | con | 124 ✓ | — | — |
+| IAM-005 | MFA on users with console access | py:`cred_report_console_mfa` | high | con | 88 ✓ | #5 | IAM.5 / 1.9 |
+| IAM-006 | Password ≥ 14 | jq `get-account-password-policy` | high | cli | 215 ✓ | #3 | IAM.15 / 1.7 |
+| IAM-007 | Password reuse = 24 | jq | high | cli | 216 ✓ | #4 | IAM.16 / 1.8 |
+| IAM-008 | Access keys ≤ 90 days | py:`cred_report_key_age` (`params.max_days=90`) | high | plan | 232 ✓ | #8 | IAM.3 / 1.13 |
+| IAM-009 | Credentials unused ≤ 45 days | py:`cred_report_unused` (`params.max_days=45`) | high | cli | 229 | #6 | IAM.22 / 1.11 |
+| IAM-010 | ≤ 1 active access key per user | py:`cred_report_multi_keys` | medium | plan | — | #7 | — |
+| IAM-011 | Permissions only via groups | py:`user_direct_policies` | high | plan | 217 ✓ | #9 | IAM.2 / 1.14 |
+| IAM-012 | No own `*:*` policies attached | py:`admin_policies` | high | plan | 230 ✓ | #10 | IAM.1 |
+| IAM-013 | Broad wildcards in own policies (review) | cl | medium | plan | 230 ✓ | — | — |
+| IAM-014 | Role with `AWSSupportAccess` | jq `list-entities-for-policy` | low | dec | — | #11 | IAM.18 / 1.16 |
+| IAM-015 | Access Analyzer in all regions (`all_regions`) | jq `accessanalyzer list-analyzers` | high | cli | — | #14 | IAM.28 / 1.19 |
+| IAM-016 | SECURITY alternate contact | jq `account get-alternate-contact`; `ResourceNotFound` = fail | low | dec | — | — | Account.1 |
+| IAM-017 | Human IAM users instead of Identity Center (informational) | py:`iam_human_users` | low | plan | — | — | — |
 
-**Notas de la tarea:**
-- **Credential report:** los evaluadores `cred_report_*` comparten la llamada
-  `iam generate-credential-report` seguida de `iam get-credential-report`. El campo `Content` viene en
-  base64 CSV: se decodifica con `base64` y `csv` de la stdlib.
-- **Root, IAM-001 y IAM-003:** la remediación es `console_only` con pasos de consola numerados; CLI no puede
-  habilitar MFA de root.
-- **Contraseñas, IAM-006 e IAM-007:** un único comando `update-account-password-policy` con el set
-  completo:
+**Task notes:**
+- **Credential report:** the `cred_report_*` evaluators share the call
+  `iam generate-credential-report` followed by `iam get-credential-report`. The `Content` field comes as
+  base64 CSV: it is decoded with the stdlib `base64` and `csv`.
+- **Root, IAM-001 and IAM-003:** the remediation is `console_only` with numbered console steps; the CLI cannot
+  enable root MFA.
+- **Passwords, IAM-006 and IAM-007:** a single `update-account-password-policy` command with the
+  complete set:
 
   ```
   --minimum-password-length 14 --password-reuse-prevention 24 --require-symbols
@@ -585,303 +585,305 @@ Rutas de los scripts en los comandos: relativas a `infra-compliance-audit/`. `SK
   --allow-users-to-change-password
   ```
 
-  `notes` advierte que reemplaza la política entera.
+  `notes` warns that it replaces the entire policy.
 
-### Tarea 6: dominio logging (`logging.json`)
+### Task 6: logging domain (`logging.json`)
 
-| ID | Chequeo | Eval | Sev | Rem | Drata | Vanta | SH/CIS |
+| ID | Check | Eval | Sev | Rem | Drata | Vanta | SH/CIS |
 |---|---|---|---|---|---|---|---|
-| LOG-001 | Trail multi-región existe e `IsLogging=true` | py:`cloudtrail_active` (`describe-trails` + `get-trail-status` for_each) | high | dec | — | #25 | CloudTrail.1 / 3.1 |
-| LOG-002 | Validación de archivos de log | jq `describe-trails` | high | cli | 205 ✓ | #26 | CloudTrail.4 / 3.2 |
-| LOG-003 | Trail cifrado con CMK (`KmsKeyId` presente) | jq | high | plan | 222 ✓ | #28 | CloudTrail.2 / 3.5 |
-| LOG-004 | Data events de S3, lectura y escritura | py:`trail_s3_data_events` (`get-event-selectors` for_each) | high | dec | 226 ✓ | #17, #18 | S3.22 / S3.23 |
-| LOG-005 | Access logging en el bucket de CloudTrail | py:`trail_bucket_logging` (`s3api get-bucket-logging`) | high | dec | 221 ✓ | #19 | CloudTrail.7 / 3.4 |
-| LOG-006 | Bucket de CloudTrail: versionado y política con `aws:SourceArn` | py:`trail_bucket_hardening` | medium | dec | — | — | — |
-| LOG-007 | CloudTrail → CloudWatch Logs con metric filters CIS (root, IAM, no autorizadas) | py:`trail_cw_metric_filters` | medium | plan | — | — | CloudWatch.1–.14 (CIS 1.4) |
-| LOG-008 | Flow Logs en todas las VPC de todas las regiones (`all_regions`, `resource_types: [vpc]`) | py:`vpc_flow_logs` | high | dec | 224 ✓ | #30 | EC2.6 / 3.7 |
-| LOG-009 | Retención de log groups ≥ 365 días (sin retención = pasa) | jq `logs describe-log-groups` | high | cli | 111 | "AWS Server Logs" | — |
-| LOG-010 | Buckets de logs: lifecycle no expira antes de 365 días | py:`log_bucket_lifecycle` | medium | dec | — | — | — |
-| LOG-011 | Access logs del ALB | py:`alb_access_logs` (`describe-load-balancer-attributes` for_each) | medium | dec | — | — | ELB.5 |
-| LOG-012 | Logging del WAF | py:`waf_logging` (`wafv2 get-logging-configuration` for_each) | medium | dec | — | — | WAF.11 |
-| LOG-013 | Audit logs de EKS | jq `eks describe-cluster` for_each | high | cli | 310 ✓ | — | EKS.8 |
+| LOG-001 | Multi-region trail exists and `IsLogging=true` | py:`cloudtrail_active` (`describe-trails` + `get-trail-status` for_each) | high | dec | — | #25 | CloudTrail.1 / 3.1 |
+| LOG-002 | Log file validation | jq `describe-trails` | high | cli | 205 ✓ | #26 | CloudTrail.4 / 3.2 |
+| LOG-003 | Trail encrypted with CMK (`KmsKeyId` present) | jq | high | plan | 222 ✓ | #28 | CloudTrail.2 / 3.5 |
+| LOG-004 | S3 data events, read and write | py:`trail_s3_data_events` (`get-event-selectors` for_each) | high | dec | 226 ✓ | #17, #18 | S3.22 / S3.23 |
+| LOG-005 | Access logging on the CloudTrail bucket | py:`trail_bucket_logging` (`s3api get-bucket-logging`) | high | dec | 221 ✓ | #19 | CloudTrail.7 / 3.4 |
+| LOG-006 | CloudTrail bucket: versioning and policy with `aws:SourceArn` | py:`trail_bucket_hardening` | medium | dec | — | — | — |
+| LOG-007 | CloudTrail → CloudWatch Logs with CIS metric filters (root, IAM, unauthorized) | py:`trail_cw_metric_filters` | medium | plan | — | — | CloudWatch.1–.14 (CIS 1.4) |
+| LOG-008 | Flow Logs on all VPCs in all regions (`all_regions`, `resource_types: [vpc]`) | py:`vpc_flow_logs` | high | dec | 224 ✓ | #30 | EC2.6 / 3.7 |
+| LOG-009 | Log group retention ≥ 365 days (no retention = pass) | jq `logs describe-log-groups` | high | cli | 111 | "AWS Server Logs" | — |
+| LOG-010 | Log buckets: lifecycle does not expire before 365 days | py:`log_bucket_lifecycle` | medium | dec | — | — | — |
+| LOG-011 | ALB access logs | py:`alb_access_logs` (`describe-load-balancer-attributes` for_each) | medium | dec | — | — | ELB.5 |
+| LOG-012 | WAF logging | py:`waf_logging` (`wafv2 get-logging-configuration` for_each) | medium | dec | — | — | WAF.11 |
+| LOG-013 | EKS audit logs | jq `eks describe-cluster` for_each | high | cli | 310 ✓ | — | EKS.8 |
 
-**Notas de la tarea:**
-- **Retención (LOG-009):** el comando es `aws logs put-retention-policy --log-group-name "{resource_id}"
-  --retention-in-days 365`. `notes` advierte el costo.
-- **Bucket de logs (LOG-010):** se identifica como el destino de trails y access logs, o por tag/nombre
-  que contenga `log`.
+**Task notes:**
+- **Retention (LOG-009):** the command is `aws logs put-retention-policy --log-group-name "{resource_id}"
+  --retention-in-days 365`. `notes` warns about the cost.
+- **Log bucket (LOG-010):** identified as the destination of trails and access logs, or by a tag/name
+  that contains `log`.
 
-### Tarea 7: dominios detection y compute (`detection.json`, `compute.json`)
+### Task 7: detection and compute domains (`detection.json`, `compute.json`)
 
-| ID | Chequeo | Eval | Sev | Rem | Drata | Vanta | SH/CIS |
+| ID | Check | Eval | Sev | Rem | Drata | Vanta | SH/CIS |
 |---|---|---|---|---|---|---|---|
-| DET-001 | GuardDuty activo en cada región con recursos (`all_regions`; región sin recursos sin detector = `low`, vía `detail.severity_override`) | py:`guardduty_regions` | high | cli | 105 ✓ | — | GuardDuty.1 |
+| DET-001 | GuardDuty active in every region with resources (`all_regions`; region without resources and without a detector = `low`, via `detail.severity_override`) | py:`guardduty_regions` | high | cli | 105 ✓ | — | GuardDuty.1 |
 | DET-002 | GuardDuty S3 Protection | py:`guardduty_s3_protection` (`get-detector`) | high | cli | 105 ✓ | — | — |
-| DET-003 | Regla de EventBridge para findings de GuardDuty con destino | py:`guardduty_eventbridge` (`events list-rules` + `list-targets-by-rule`) | medium | dec | — | — | — |
-| DET-004 | Security Hub habilitado con FSBP o CIS (`not_enabled_means: fail`) | py:`securityhub_standards` | high | cli | — | #31 | — |
-| DET-005 | AWS Config en todas las regiones: grabando, todos los tipos, IAM diario, delivery channel | py:`config_recorder` (`describe-configuration-recorders` + `...-status` + `describe-delivery-channels`) | high | dec | — | #27, "Config enabled correctly" | Config.1 / 3.3 |
-| DET-006 | Inspector activo para EC2, ECR y Lambda (`not_enabled_means: fail`) | py:`inspector_status` (`inspector2 batch-get-account-status`) | high | cli | 21 | "Critical vulnerabilities… (Inspector)" | Inspector.1–.4 |
-| DET-007 | Sin findings CRITICAL ni HIGH abiertos en Inspector | jq `inspector2 list-findings --filter-criteria …` | high | plan | 21 | ídem | — |
-| CMP-001 | IMDSv2 obligatorio en instancias | jq `ec2 describe-instances` | high | cli | 292 ✓ | #36 | EC2.8 / 5.7 |
-| CMP-002 | Launch templates de ASG con IMDSv2 | py:`lt_imdsv2` | high | plan | 292 ✓ | "IMDSv1 disabled (ASG)" | — |
-| CMP-003 | Instancias con instance profile | jq | medium | dec | — | #12 | — |
-| CMP-004 | LB en ≥ 2 AZ en regiones con EC2 | py:`lb_multi_az` | high | plan | 130 ✓ | — | ELB.10/.13 |
-| CMP-005 | Cómputo en ASG | py:`asg_present` | high | plan | 131 ✓ | — | — |
-| CMP-006 | Instancias gestionadas por SSM, con asociación de parches | py:`ssm_managed` (`ssm describe-instance-information` + `describe-instance-patch-states`) | medium | plan | — | — | SSM.1 |
+| DET-003 | EventBridge rule for GuardDuty findings with a target | py:`guardduty_eventbridge` (`events list-rules` + `list-targets-by-rule`) | medium | dec | — | — | — |
+| DET-004 | Security Hub enabled with FSBP or CIS (`not_enabled_means: fail`) | py:`securityhub_standards` | high | cli | — | #31 | — |
+| DET-005 | AWS Config in all regions: recording, all types, daily IAM, delivery channel | py:`config_recorder` (`describe-configuration-recorders` + `...-status` + `describe-delivery-channels`) | high | dec | — | #27, "Config enabled correctly" | Config.1 / 3.3 |
+| DET-006 | Inspector active for EC2, ECR and Lambda (`not_enabled_means: fail`) | py:`inspector_status` (`inspector2 batch-get-account-status`) | high | cli | 21 | "Critical vulnerabilities… (Inspector)" | Inspector.1–.4 |
+| DET-007 | No open CRITICAL or HIGH findings in Inspector | jq `inspector2 list-findings --filter-criteria …` | high | plan | 21 | same | — |
+| CMP-001 | IMDSv2 required on instances | jq `ec2 describe-instances` | high | cli | 292 ✓ | #36 | EC2.8 / 5.7 |
+| CMP-002 | ASG launch templates with IMDSv2 | py:`lt_imdsv2` | high | plan | 292 ✓ | "IMDSv1 disabled (ASG)" | — |
+| CMP-003 | Instances with an instance profile | jq | medium | dec | — | #12 | — |
+| CMP-004 | LB in ≥ 2 AZs in regions with EC2 | py:`lb_multi_az` | high | plan | 130 ✓ | — | ELB.10/.13 |
+| CMP-005 | Compute in an ASG | py:`asg_present` | high | plan | 131 ✓ | — | — |
+| CMP-006 | Instances managed by SSM, with a patch association | py:`ssm_managed` (`ssm describe-instance-information` + `describe-instance-patch-states`) | medium | plan | — | — | SSM.1 |
 
-**Notas de la tarea:**
-- **Remediación de DET-001:** se genera un comando por región ofensora.
+**Task notes:**
+- **DET-001 remediation:** one command is generated per offending region.
 
   ```
   aws guardduty create-detector --enable --region "{region}" --features '[{"Name":"S3_DATA_EVENTS","Status":"ENABLED"}]'
   ```
-- **Remediación de CMP-002:** pasos para crear una nueva versión del launch template con
-  `MetadataOptions.HttpTokens=required`, ponerla por defecto y hacer `start-instance-refresh`. `notes`
-  advierte que reemplaza las instancias.
+- **CMP-002 remediation:** steps to create a new version of the launch template with
+  `MetadataOptions.HttpTokens=required`, set it as the default and run `start-instance-refresh`. `notes`
+  warns that it replaces the instances.
 
-### Tarea 8: dominio encryption, en reposo y en tránsito (`encryption.json`)
+### Task 8: encryption domain, at rest and in transit (`encryption.json`)
 
-| ID | Chequeo | Eval | Sev | Rem | Drata | Vanta | SH/CIS |
+| ID | Check | Eval | Sev | Rem | Drata | Vanta | SH/CIS |
 |---|---|---|---|---|---|---|---|
-| ENC-001 | Cifrado EBS por defecto en cada región con EC2 | jq `ec2 get-ebs-encryption-by-default` | high | cli | 218 ✓ | #20 | EC2.7 / 5.1.1 |
-| ENC-002 | Volúmenes EBS cifrados | jq `describe-volumes` | high | plan | 218 ✓ | — | EC2.3 |
-| ENC-003 | RDS (instancias y clusters) cifrados | jq | high | plan | 68 ✓ | #21 | RDS.3 / 2.2.1 |
-| ENC-004 | EFS cifrado | jq | high | plan | 231 ✓ | #24 | EFS.1 |
-| ENC-005 | Cifrado por defecto en S3 | py:`s3_default_encryption` | high | cli | 69 ✓ | — | — |
-| ENC-006 | Rotación de CMK propias simétricas | py:`kms_rotation` (`list-keys` + `describe-key` + `get-key-rotation-status`) | high | cli | 223 ✓ | #29 | KMS.4 / 3.6 |
-| ENC-007 | CMK no programadas para borrado | jq `describe-key` for_each | medium | dec | — | — | KMS.3 |
-| ENC-008 | Rotación habilitada en Secrets Manager | jq `secretsmanager list-secrets` | medium | dec | — | — | SecretsManager.1 |
-| TLS-001 | Buckets S3 niegan `aws:SecureTransport=false` | py:`s3_tls_only` (`get-bucket-policy` for_each; `NoSuchBucketPolicy` = falla) | high | dec | 234 ✓ | #15 | S3.5 / 2.1.1 |
-| TLS-002 | Listeners HTTP del ALB redirigen a HTTPS | py:`alb_http_redirect` | high | cli | 299 ✓ | — | ELB.1 |
-| TLS-003 | Política TLS del ALB ≥ 1.2 (`ELBSecurityPolicy-TLS13-1-2-2021-06` recomendada) | py:`alb_tls_policy` | medium | cli | — | — | ELB.17 |
-| TLS-004 | RDS fuerza SSL (`rds.force_ssl=1` / `require_secure_transport=ON`) | py:`rds_force_ssl` | medium | plan | — | — | — |
-| TLS-005 | Certificados ACM con > 30 días de vigencia | py:`acm_expiry` (`params.min_days=30`) | medium | plan | — | #13 (certs IAM) | ACM.1 |
+| ENC-001 | EBS encryption by default in every region with EC2 | jq `ec2 get-ebs-encryption-by-default` | high | cli | 218 ✓ | #20 | EC2.7 / 5.1.1 |
+| ENC-002 | Encrypted EBS volumes | jq `describe-volumes` | high | plan | 218 ✓ | — | EC2.3 |
+| ENC-003 | Encrypted RDS (instances and clusters) | jq | high | plan | 68 ✓ | #21 | RDS.3 / 2.2.1 |
+| ENC-004 | Encrypted EFS | jq | high | plan | 231 ✓ | #24 | EFS.1 |
+| ENC-005 | Default encryption on S3 | py:`s3_default_encryption` | high | cli | 69 ✓ | — | — |
+| ENC-006 | Rotation of own symmetric CMKs | py:`kms_rotation` (`list-keys` + `describe-key` + `get-key-rotation-status`) | high | cli | 223 ✓ | #29 | KMS.4 / 3.6 |
+| ENC-007 | CMKs not scheduled for deletion | jq `describe-key` for_each | medium | dec | — | — | KMS.3 |
+| ENC-008 | Rotation enabled in Secrets Manager | jq `secretsmanager list-secrets` | medium | dec | — | — | SecretsManager.1 |
+| TLS-001 | S3 buckets deny `aws:SecureTransport=false` | py:`s3_tls_only` (`get-bucket-policy` for_each; `NoSuchBucketPolicy` = fail) | high | dec | 234 ✓ | #15 | S3.5 / 2.1.1 |
+| TLS-002 | ALB HTTP listeners redirect to HTTPS | py:`alb_http_redirect` | high | cli | 299 ✓ | — | ELB.1 |
+| TLS-003 | ALB TLS policy ≥ 1.2 (`ELBSecurityPolicy-TLS13-1-2-2021-06` recommended) | py:`alb_tls_policy` | medium | cli | — | — | ELB.17 |
+| TLS-004 | RDS forces SSL (`rds.force_ssl=1` / `require_secure_transport=ON`) | py:`rds_force_ssl` | medium | plan | — | — | — |
+| TLS-005 | ACM certificates with > 30 days of validity | py:`acm_expiry` (`params.min_days=30`) | medium | plan | — | #13 (IAM certs) | ACM.1 |
 
-**Notas de la tarea:**
-- **ENC-003:** `planned_change` con los pasos snapshot → `copy-db-snapshot --kms-key-id` → restore →
-  cambio de endpoint. `downtime: true`.
-- **TLS-001:** el comando trae la política actual a un archivo, agrega el statement Deny con
-  `python3 -c` (CloudShell tiene python3) y hace `put-bucket-policy`. `kind: cli_with_decision`, porque hay
-  que revisar la política resultante antes de aplicarla.
-- **TLS-004:** sin control de Security Hub verificado; usa solo `tsc_inferred` CC6.7 e `iso_inferred`
+**Task notes:**
+- **ENC-003:** `planned_change` with the steps snapshot → `copy-db-snapshot --kms-key-id` → restore →
+  endpoint switch. `downtime: true`.
+- **TLS-001:** the command fetches the current policy into a file, adds the Deny statement with
+  `python3 -c` (CloudShell has python3) and runs `put-bucket-policy`. `kind: cli_with_decision`, because the
+  resulting policy has to be reviewed before applying it.
+- **TLS-004:** no verified Security Hub control; uses only `tsc_inferred` CC6.7 and `iso_inferred`
   A.8.24.
 
-### Tarea 9: dominios network y data (`network.json`, `data.json`)
+### Task 9: network and data domains (`network.json`, `data.json`)
 
-| ID | Chequeo | Eval | Sev | Rem | Drata | Vanta | SH/CIS |
+| ID | Check | Eval | Sev | Rem | Drata | Vanta | SH/CIS |
 |---|---|---|---|---|---|---|---|
-| NET-001 | Sin 0.0.0.0/0 ni ::/0 a 22 en SG de regiones con ENIs activas | py:`sg_open_port` (`params.port=22`) | high | cli | 102 ✓ | #33, #34 | EC2.53/.54 |
-| NET-002 | Ídem para 3389 | py:`sg_open_port` (`port=3389`) | high | cli | 228 ✓ | #33, #34 | EC2.53/.54 |
-| NET-003 | Ídem para 80 | py:`sg_open_port` (`port=80`) | high | dec | 291 ✓ | — | — |
-| NET-004 | Sin regla "ALL traffic" desde CIDR | py:`sg_all_traffic` | high | cli | 119 ✓ | — | — |
-| NET-005 | NACL sin 0.0.0.0/0 ni ::/0 a 22/3389 | py:`nacl_admin_ports` | high | dec | 227 ✓ | #32 | EC2.21 |
-| NET-006 | SG por defecto sin reglas, en todas las VPC de todas las regiones (`all_regions`) | py:`default_sg_empty` | high | cli | 233 ✓ | #35 | EC2.2 / 5.5 |
-| NET-007 | RDS no público ni en subnet con ruta a IGW | py:`rds_not_public` (`describe-db-instances` + `describe-route-tables`) | critical | plan | 220 ✓ | #23 | RDS.2 |
-| NET-008 | WAF asociado a ALB, API GW y CloudFront públicos | py:`waf_associated` (`wafv2 list-resources-for-web-acl`) | high | dec | 122 ✓ | — | — |
-| DAT-001 | Backups automáticos de RDS: retención > 0 (FAIL); < 7 → ofensor con `severity_override: low` | py:`rds_backups` | high | cli | 107 ✓ | — | RDS.11 |
-| DAT-002 | RDS Multi-AZ en prod (tag `Environment` en {prod, production}, o sin tag) | jq | high | plan | 30 ✓ | — | RDS.5 |
-| DAT-003 | RDS con auto minor upgrade | jq | high | cli | 219 ✓ | #22 | RDS.13 |
-| DAT-004 | RDS con deletion protection | jq | medium | cli | — | — | RDS.8 |
+| NET-001 | No 0.0.0.0/0 or ::/0 to 22 in SGs of regions with active ENIs | py:`sg_open_port` (`params.port=22`) | high | cli | 102 ✓ | #33, #34 | EC2.53/.54 |
+| NET-002 | Same for 3389 | py:`sg_open_port` (`port=3389`) | high | cli | 228 ✓ | #33, #34 | EC2.53/.54 |
+| NET-003 | Same for 80 | py:`sg_open_port` (`port=80`) | high | dec | 291 ✓ | — | — |
+| NET-004 | No "ALL traffic" rule from a CIDR | py:`sg_all_traffic` | high | cli | 119 ✓ | — | — |
+| NET-005 | NACL without 0.0.0.0/0 or ::/0 to 22/3389 | py:`nacl_admin_ports` | high | dec | 227 ✓ | #32 | EC2.21 |
+| NET-006 | Default SG with no rules, in all VPCs in all regions (`all_regions`) | py:`default_sg_empty` | high | cli | 233 ✓ | #35 | EC2.2 / 5.5 |
+| NET-007 | RDS not public and not in a subnet with a route to an IGW | py:`rds_not_public` (`describe-db-instances` + `describe-route-tables`) | critical | plan | 220 ✓ | #23 | RDS.2 |
+| NET-008 | WAF associated with public ALB, API GW and CloudFront | py:`waf_associated` (`wafv2 list-resources-for-web-acl`) | high | dec | 122 ✓ | — | — |
+| DAT-001 | RDS automated backups: retention > 0 (FAIL); < 7 → offender with `severity_override: low` | py:`rds_backups` | high | cli | 107 ✓ | — | RDS.11 |
+| DAT-002 | RDS Multi-AZ in prod (tag `Environment` in {prod, production}, or no tag) | jq | high | plan | 30 ✓ | — | RDS.5 |
+| DAT-003 | RDS with auto minor upgrade | jq | high | cli | 219 ✓ | #22 | RDS.13 |
+| DAT-004 | RDS with deletion protection | jq | medium | cli | — | — | RDS.8 |
 | DAT-005 | DynamoDB PITR | jq `describe-continuous-backups` for_each | high | cli | 301 ✓ | — | DynamoDB.2 |
-| DAT-006 | Versionado S3 | jq `get-bucket-versioning` for_each | high | cli | 108 ✓ | — | — |
-| DAT-007 | Block Public Access por bucket (los 4 flags) | py:`s3_bpa` | critical | cli | 104 ✓ | #16 | S3.8 |
-| DAT-008 | Jobs de AWS Backup del día anterior OK | py:`backup_jobs_recent` | high | plan | 132 ✓ | — | — |
-| DAT-009 | Alertas de fallo de backup (notificaciones del vault a SNS) | py:`backup_vault_notifications` | high | dec | 133 ✓ | — | — |
-| DAT-010 | Plan de AWS Backup con regla diaria y retención ≥ 7 | py:`backup_plan_rules` | medium | dec | — | — | — |
+| DAT-006 | S3 versioning | jq `get-bucket-versioning` for_each | high | cli | 108 ✓ | — | — |
+| DAT-007 | Block Public Access per bucket (all 4 flags) | py:`s3_bpa` | critical | cli | 104 ✓ | #16 | S3.8 |
+| DAT-008 | AWS Backup jobs from the previous day OK | py:`backup_jobs_recent` | high | plan | 132 ✓ | — | — |
+| DAT-009 | Backup failure alerts (vault notifications to SNS) | py:`backup_vault_notifications` | high | dec | 133 ✓ | — | — |
+| DAT-010 | AWS Backup plan with a daily rule and retention ≥ 7 | py:`backup_plan_rules` | medium | dec | — | — | — |
 | DAT-011 | ElastiCache Multi-AZ | jq | high | plan | 30 ✓ | — | ElastiCache.3 |
 
-**Notas de la tarea:**
-- **NET-003 (puerto 80):** `notes` explica que un ALB con redirect sigue fallando el test 291 de Drata. La
-  opción es exponer solo 443, o excluir el recurso en Drata con justificación.
-- **Severidad:** `severity_override` en `detail` se respeta en la Tarea 13.
+**Task notes:**
+- **NET-003 (port 80):** `notes` explains that an ALB with a redirect still fails Drata test 291. The
+  option is to expose only 443, or to exclude the resource in Drata with a justification.
+- **Severity:** `severity_override` in `detail` is honored in Task 13.
 
-### Tarea 10: dominio monitoring (`monitoring.json`)
+### Task 10: monitoring domain (`monitoring.json`)
 
-Todos usan `py:alarm_coverage` con `params = {"namespace", "metric", "resource_dimension"}`.
+All use `py:alarm_coverage` with `params = {"namespace", "metric", "resource_dimension"}`.
 
-**Lógica de `alarm_coverage`:**
-1. Por cada recurso del tipo, existe una alarma (`cloudwatch describe-alarms`) con esa métrica y esa
-   dimensión.
-2. Esa alarma tiene `AlarmActions` hacia un topic SNS.
-3. Ese topic tiene ≥ 1 suscripción confirmada: `sns list-subscriptions-by-topic`, con `SubscriptionArn`
-   distinto de `PendingConfirmation`.
+**Logic of `alarm_coverage`:**
+1. For each resource of the type, there is an alarm (`cloudwatch describe-alarms`) with that metric and that
+   dimension.
+2. That alarm has `AlarmActions` to an SNS topic.
+3. That topic has ≥ 1 confirmed subscription: `sns list-subscriptions-by-topic`, with `SubscriptionArn`
+   other than `PendingConfirmation`.
 
-`detail.missing_part` dice cuál de las tres partes falta: `alarm`, `action` o `confirmed_subscription`.
+`detail.missing_part` says which of the three parts is missing: `alarm`, `action` or `confirmed_subscription`.
 
-| ID | Recurso | Métrica | Sev | Drata | Vanta |
+| ID | Resource | Metric | Sev | Drata | Vanta |
 |---|---|---|---|---|---|
-| MON-001 | RDS | `AWS/RDS CPUUtilization` | high | 112 ✓ | Tests de alarmas |
-| MON-002 | RDS | `FreeStorageSpace` | high | 113 ✓ | ídem |
-| MON-003 | RDS | `ReadIOPS` / `WriteIOPS` (2 offenders posibles) | high | 114 ✓, 290 ✓ | ídem |
-| MON-004 | RDS | `FreeableMemory` | high | 206 ✓ | ídem |
-| MON-005 | EC2/ASG | `AWS/EC2 CPUUtilization` (dimensión `InstanceId` o `AutoScalingGroupName`) | high | 118 ✓ | ídem |
-| MON-006 | ALB | `HTTPCode_Target_5XX_Count`, `UnHealthyHostCount` y `TargetResponseTime` | high | 296 ✓, 298 ✓, 294 ✓ | ídem |
-| MON-007 | SQS | `ApproximateAgeOfOldestMessage` | high | 115 ✓ | ídem |
-| MON-008 | Lambda | `Errors` | high | 300 ✓ | ídem |
-| MON-009 | DynamoDB/ElastiCache | storage o CPU según tipo | high | 117 ✓ | ídem |
+| MON-001 | RDS | `AWS/RDS CPUUtilization` | high | 112 ✓ | Alarm tests |
+| MON-002 | RDS | `FreeStorageSpace` | high | 113 ✓ | same |
+| MON-003 | RDS | `ReadIOPS` / `WriteIOPS` (2 possible offenders) | high | 114 ✓, 290 ✓ | same |
+| MON-004 | RDS | `FreeableMemory` | high | 206 ✓ | same |
+| MON-005 | EC2/ASG | `AWS/EC2 CPUUtilization` (dimension `InstanceId` or `AutoScalingGroupName`) | high | 118 ✓ | same |
+| MON-006 | ALB | `HTTPCode_Target_5XX_Count`, `UnHealthyHostCount` and `TargetResponseTime` | high | 296 ✓, 298 ✓, 294 ✓ | same |
+| MON-007 | SQS | `ApproximateAgeOfOldestMessage` | high | 115 ✓ | same |
+| MON-008 | Lambda | `Errors` | high | 300 ✓ | same |
+| MON-009 | DynamoDB/ElastiCache | storage or CPU depending on type | high | 117 ✓ | same |
 
-**Remediación:** todos los chequeos usan `cli_with_decision`. El comando es `put-metric-alarm`, con el
-umbral como placeholder `__COMPLETAR_UMBRAL__` y `--alarm-actions` con `__COMPLETAR_SNS_TOPIC_ARN__`, más
-el paso de suscribir y confirmar el email.
+**Remediation:** all the checks use `cli_with_decision`. The command is `put-metric-alarm`, with the
+threshold as the placeholder `__FILL_IN_THRESHOLD__` and `--alarm-actions` with `__FILL_IN_SNS_TOPIC_ARN__`, plus
+the step to subscribe and confirm the email.
 
-### Tarea 11: dominios inventory, integration y email (`inventory.json` en checks, `integration.json`, `email.json`)
+### Task 11: inventory, integration and email domains (`inventory.json` in checks, `integration.json`, `email.json`)
 
-| ID | Chequeo | Eval | Sev | Rem | Drata | Vanta |
+| ID | Check | Eval | Sev | Rem | Drata | Vanta |
 |---|---|---|---|---|---|---|
-| INV-001 | Tag `VantaOwner` con formato email en recursos de tipos soportados por Vanta | py:`tag_present` (`params.key=VantaOwner`, `params.pattern=email`) sobre `__inventory__` | high | dec | — | "Inventory items have active owners" |
-| INV-002 | `VantaContainsUserData` en S3, RDS, DynamoDB y SQS | py:`tag_present` | medium | dec | — | "…contain user data" |
-| INV-003 | `VantaNonProd=true` no está en recursos con `Environment` prod | py:`nonprod_on_prod` | high | cli | — | (scoping) |
-| INV-004 | Tags organizacionales configurables (`params.keys`, por defecto `Project`, `Environment`, `Owner`) | py:`tags_present` | low | dec | — | — |
-| INT-001 | Si existe `DrataAutopilotRole`: tiene `SecurityAudit`; si no existe → `N/A` | py:`drata_role` | high | cli | 123 ✓ | — |
-| INT-002 | `DrataAutopilotRole` con `backup:ListRecoveryPointsByResource` y `backup:ListBackupJobs` | py:`drata_backup_perms` | medium | cli | 132 ✓, 133 ✓ | — |
-| INT-003 | Si existe `vanta-auditor`: `SecurityAudit` + `VantaAdditionalPermissions` administrada (no inline) | py:`vanta_role` | high | dec | — | doc. de permisos |
-| INT-004 | Key policies de CMK permiten a los roles auditores las acciones de lectura | py:`kms_auditor_access` | medium | dec | 223 ✓ | KMS doc |
-| EML-001 | Identidad SES verificada con Easy DKIM `SUCCESS` | jq `sesv2 get-email-identity` for_each | medium | dec | — | — |
-| EML-002 | Configuration set con `TlsPolicy=REQUIRE` | jq `sesv2 get-configuration-set` | medium | cli | — | — |
-| EML-003 | Configuration set con event destination | jq `get-configuration-set-event-destinations` | medium | dec | — | — |
-| EML-004 | SPF en el dominio de envío | dns TXT (`v=spf1`) | medium | dec | — | — |
-| EML-005 | DMARC `_dmarc.<dominio>` con `p=quarantine` o `reject` (ausente → `high`) | dns TXT | high | dec | — | — |
-| EML-006 | Cuenta SES con production access y suppression list | jq `sesv2 get-account` | low | con | — | — |
+| INV-001 | `VantaOwner` tag with email format on resources of types supported by Vanta | py:`tag_present` (`params.key=VantaOwner`, `params.pattern=email`) over `__inventory__` | high | dec | — | "Inventory items have active owners" |
+| INV-002 | `VantaContainsUserData` on S3, RDS, DynamoDB and SQS | py:`tag_present` | medium | dec | — | "…contain user data" |
+| INV-003 | `VantaNonProd=true` is not on resources with `Environment` prod | py:`nonprod_on_prod` | high | cli | — | (scoping) |
+| INV-004 | Configurable organizational tags (`params.keys`, by default `Project`, `Environment`, `Owner`) | py:`tags_present` | low | dec | — | — |
+| INT-001 | If `DrataAutopilotRole` exists: it has `SecurityAudit`; if it does not exist → `N/A` | py:`drata_role` | high | cli | 123 ✓ | — |
+| INT-002 | `DrataAutopilotRole` with `backup:ListRecoveryPointsByResource` and `backup:ListBackupJobs` | py:`drata_backup_perms` | medium | cli | 132 ✓, 133 ✓ | — |
+| INT-003 | If `vanta-auditor` exists: `SecurityAudit` + managed (not inline) `VantaAdditionalPermissions` | py:`vanta_role` | high | dec | — | permissions doc |
+| INT-004 | CMK key policies allow the auditor roles the read actions | py:`kms_auditor_access` | medium | dec | 223 ✓ | KMS doc |
+| EML-001 | Verified SES identity with Easy DKIM `SUCCESS` | jq `sesv2 get-email-identity` for_each | medium | dec | — | — |
+| EML-002 | Configuration set with `TlsPolicy=REQUIRE` | jq `sesv2 get-configuration-set` | medium | cli | — | — |
+| EML-003 | Configuration set with an event destination | jq `get-configuration-set-event-destinations` | medium | dec | — | — |
+| EML-004 | SPF on the sending domain | dns TXT (`v=spf1`) | medium | dec | — | — |
+| EML-005 | DMARC `_dmarc.<domain>` with `p=quarantine` or `reject` (absent → `high`) | dns TXT | high | dec | — | — |
+| EML-006 | SES account with production access and suppression list | jq `sesv2 get-account` | low | con | — | — |
 
-**Notas de la tarea:**
-- **Nombre del archivo:** el archivo de chequeos de inventario se llama `checks/inventory.json`, distinto de
-  `references/inventory.json` (tipos de recurso). No confundirlos en `load_checks`, que solo lee
+**Task notes:**
+- **File name:** the inventory checks file is named `checks/inventory.json`, distinct from
+  `references/inventory.json` (resource types). Do not confuse them in `load_checks`, which only reads
   `checks/`.
-- **Mapeos:** para EML-*, INV-* y los chequeos sin Drata ✓, completar `tsc_inferred` e `iso_inferred`.
+- **Mappings:** for EML-*, INV-* and the checks without Drata ✓, fill in `tsc_inferred` and `iso_inferred`.
   - INV → CC6.1/A.5.9.
   - EML → CC6.7/A.8.24, A.5.14.
-- **Cierre:** al terminar, `validate_catalog.py` imprime `OK: 98 checks` (17 + 13 + 13 + 13 + 19 + 9 + 14).
+- **Closing:** when finished, `validate_catalog.py` prints `OK: 98 checks` (17 + 13 + 13 + 13 + 19 + 9 + 14).
 
 ---
 
-### Tarea 12: índice del vault y resolución de feature
+### Task 12: vault index and feature resolution
 
-**Archivos:**
-- Crear: `auditing-infra-compliance/scripts/vault_index.py`
-- Crear: `auditing-infra-compliance/scripts/redact.py` (mínimo: `mask(text) -> str` para claves
-  `AKIA`/`ASIA` y asignaciones `aws_secret_access_key`)
-- Crear: `tests/fixtures/typed-vault/`
-  - estructura de `creating-typed-knowledge-vaults`: `_meta/relations.md`, `_meta/edges.md`,
+**Files:**
+- Create: `auditing-infra-compliance/scripts/vault_index.py`
+- Create: `auditing-infra-compliance/scripts/redact.py` (minimal: `mask(text) -> str` for
+  `AKIA`/`ASIA` keys and `aws_secret_access_key` assignments)
+- Create: `tests/fixtures/typed-vault/`
+  - structure from `creating-typed-knowledge-vaults`: `_meta/relations.md`, `_meta/edges.md`,
     `systems/`, `constraints/`, `decisions/`, `failures/`, `MOC/`;
-  - plataforma ficticia "Acme Notes" con la feature `systems/Email delivery.md`, que `depends on` →
-    SES Identity, Mailer Lambda y Mail Queue (SQS);
+  - fictional platform "Acme Notes" with the feature `systems/Email delivery.md`, which `depends on` →
+    SES Identity, Mailer Lambda and Mail Queue (SQS);
   - `Mailer Lambda` `depends on` → `Mailer Role`;
-  - un `constraints/` de PII;
-  - una nota `status: proposed` (DMARC reject);
-  - IDs ficticios dentro de las notas.
-- Crear: `tests/fixtures/free-vault/`
-  - 6 notas a mano: hub `Acme Notes.md` con `## Conectado a`, `RDS - acme-db.md` con una tabla
-    `| Campo | Valor |` que afirma "KMS: CMK propia", `S3 - uploads.md`, `VPC.md`;
-  - una nota con un link roto.
-  - La nota con secreto **no** se commitea: las pruebas la crean con `helpers.make_secret_note` en una
-    copia temporal.
-- Prueba: `tests/test_vault_index.py`
+  - a PII `constraints/` note;
+  - a `status: proposed` note (DMARC reject);
+  - fictional IDs inside the notes.
+- Create: `tests/fixtures/free-vault/`
+  - 6 handwritten notes: hub `Acme Notes.md` with `## Conectado a`, `RDS - acme-db.md` with a table
+    `| Campo | Valor |` that claims "KMS: CMK propia", `S3 - uploads.md`, `VPC.md`
+    (the Spanish headings and labels are deliberate: they stand for a user's Spanish-language vault);
+  - a note with a broken link.
+  - The note with a secret is **not** committed: the tests create it with `helpers.make_secret_note` in a
+    temporary copy.
+- Test: `tests/test_vault_index.py`
 
 **Interfaces:**
-- **Produce `vault_index.py`:**
+- **Produces `vault_index.py`:**
   - `build_index(vault: Path) -> dict`;
   - `resolve_feature(index: dict, query: str, max_depth: int = 3) -> dict`;
   - CLI:
     - `vault_index.py index <vault> -o vault-index.json`;
-    - `vault_index.py feature <vault-index.json> "<texto>"` → JSON por stdout.
-- **Formato del índice:**
+    - `vault_index.py feature <vault-index.json> "<text>"` → JSON on stdout.
+- **Index format:**
   ```
   {"kind": "typed|free", "root": str,
    "notes": [{"path", "title", "type"|null, "status"|null, "source": [str],
               "edges": [{"relation", "target", "layer": "structural|associative"}],
               "links": [str], "aws_ids": [{"kind", "value"}],
-              "kv": {campo: valor}, "headings": [str], "inferred_type": str|null}],
+              "kv": {field: value}, "headings": [str], "inferred_type": str|null}],
    "broken_links": [{"from", "target"}],
    "secrets_detected": [{"path", "pattern"}],
    "obsidian_plugins": [str]}
   ```
-- **Detección del tipo de vault:** es `typed` si existe `_meta/relations.md`, o si ≥ 50 % de las notas
-  tienen frontmatter `type:`.
-- **Lectura de las notas:**
-  - El frontmatter se parsea a mano: bloque `---` con `clave: valor` y listas `- item`. Sin PyYAML.
-  - Aristas: regex `^- (?P<rel>[a-z ]+) → \[\[(?P<target>[^\]|#]+)`.
-  - `aws_ids`, con estas regex:
+- **Vault type detection:** it is `typed` if `_meta/relations.md` exists, or if ≥ 50 % of the notes
+  have `type:` frontmatter.
+- **Reading the notes:**
+  - The frontmatter is parsed by hand: a `---` block with `key: value` and `- item` lists. No PyYAML.
+  - Edges: regex `^- (?P<rel>[a-z ]+) → \[\[(?P<target>[^\]|#]+)`.
+  - `aws_ids`, with these regexes:
     - `arn:aws[a-z-]*:[^\s)\]|]+`;
     - `\b(i|sg|vpc|subnet|vol|acl|rtb|igw|nat|eni|lt)-[0-9a-f]{8,17}\b`;
     - `\bdb-[A-Z0-9]{26}\b`.
-  - Claves de acceso: el patrón `(AKIA|ASIA)[0-9A-Z]{16}` va **solo** a `secrets_detected` (`pattern:
-    "aws_access_key_id"`), nunca a `aws_ids`.
-  - `inferred_type` (vault libre): prefijo del nombre de archivo antes de ` - ` o primer token, mapeado a
-    un tipo de `inventory.json`: `RDS`→`rds_instance`, `S3`→`s3_bucket`, `VPC`→`vpc`, `ALB`→`elbv2`,
+  - Access keys: the pattern `(AKIA|ASIA)[0-9A-Z]{16}` goes **only** to `secrets_detected` (`pattern:
+    "aws_access_key_id"`), never to `aws_ids`.
+  - `inferred_type` (free vault): file-name prefix before ` - ` or first token, mapped to
+    a type in `inventory.json`: `RDS`→`rds_instance`, `S3`→`s3_bucket`, `VPC`→`vpc`, `ALB`→`elbv2`,
     `EC2`→`ec2_instance`, `SES`→`ses_identity`, `Lambda`→`lambda_function`, `SQS`→`sqs_queue`,
     `IAM`→`iam_role`, `KMS`→`kms_key`.
-- **Contenido de las notas:** todo texto que entra al índice (`kv`, `title`, `headings`) pasa por
+- **Content of the notes:** all text that enters the index (`kv`, `title`, `headings`) goes through
   `redact.mask`.
-- **Archivos que se leen:** solo `*.md`. Se omiten dotfiles y dotdirs; `.obsidian/plugins` solo se lista.
-- **Respuesta de `resolve_feature`:**
+- **Files that are read:** only `*.md`. Dotfiles and dotdirs are skipped; `.obsidian/plugins` is only listed.
+- **`resolve_feature` response:**
   ```
   {"candidates": [path, …],
    "chosen": path|null,
-   "components": [{"path", "title", "via": [relaciones], "depth", "aws_ids", "status"}],
+   "components": [{"path", "title", "via": [relations], "depth", "aws_ids", "status"}],
    "constraints": [path], "pii": bool,
    "confidence": "typed|inferred"}
   ```
-- **Lógica de `resolve_feature`:**
-  - **Candidatas:** coincidencia exacta de título (sin mayúsculas ni acentos), luego coincidencia en H1,
-    luego en el cuerpo.
-  - **Varias candidatas:** si hay > 1 candidata del mismo nivel, `chosen = null` (Claude pregunta).
-  - **Vault tipado:** BFS por aristas estructurales salientes `depends on`, `requires` y `enables`, más
-    entrantes `is part of` (vía `_meta/edges.md` o por escaneo). Solo se recolectan notas en `systems/`;
-    las de `constraints/` alcanzadas van a `constraints`.
-  - **Vault libre:** BFS de wikilinks, con profundidad 2.
-  - **PII:** `pii` es true si un constraint o un componente contiene `PII`, `datos personales`,
-    `user data`, `personal data` o `email`.
+- **`resolve_feature` logic:**
+  - **Candidates:** exact title match (case- and accent-insensitive), then match in the H1,
+    then in the body.
+  - **Several candidates:** if there is > 1 candidate at the same level, `chosen = null` (Claude asks).
+  - **Typed vault:** BFS over outgoing structural edges `depends on`, `requires` and `enables`, plus
+    incoming `is part of` (via `_meta/edges.md` or by scanning). Only notes in `systems/` are collected;
+    the `constraints/` notes reached go to `constraints`.
+  - **Free vault:** BFS over wikilinks, with depth 2.
+  - **PII:** `pii` is true if a constraint or a component contains `PII`, `datos personales`,
+    `user data`, `personal data` or `email` (`datos personales` is a deliberate Spanish term, since vaults may
+    be written in Spanish).
 
-- [ ] **Paso 1: escribir las pruebas que fallan:**
+- [ ] **Step 1: write the failing tests:**
   - `test_detects_typed`, `test_detects_free`;
   - `test_parses_frontmatter_and_edges`;
   - `test_extracts_aws_ids`;
-  - `test_masks_keys_in_index`: copia temporal del vault libre más `make_secret_note`. La clave armada no
-    aparece en el JSON serializado del índice, y `secrets_detected` contiene el path;
-  - `test_ignores_dotfiles_and_env`: crear `.env` en una copia temporal del fixture; no se lee (se usa un
-    mock de `open` que falla si se abre);
+  - `test_masks_keys_in_index`: temporary copy of the free vault plus `make_secret_note`. The built key
+    does not appear in the index's serialized JSON, and `secrets_detected` contains the path;
+  - `test_ignores_dotfiles_and_env`: create `.env` in a temporary copy of the fixture; it is not read (a
+    mock of `open` that fails if it is opened is used);
   - `test_broken_links_reported`;
-  - `test_feature_typed_email_components`: componentes = {SES Identity, Mailer Lambda, Mail Queue, Mailer
-    Role}; `pii` es True; la nota `proposed` aparece con `status == "proposed"`;
+  - `test_feature_typed_email_components`: components = {SES Identity, Mailer Lambda, Mail Queue, Mailer
+    Role}; `pii` is True; the `proposed` note appears with `status == "proposed"`;
   - `test_feature_ambiguous_returns_candidates`;
   - `test_feature_not_found_empty`;
-  - `test_free_vault_inferred_types_and_kv`: `kv` de RDS incluye la afirmación de la CMK.
-- [ ] **Paso 2:** correr. Esperado: FAIL.
-- [ ] **Paso 3:** implementar `vault_index.py` y el `redact.py` mínimo.
-- [ ] **Paso 4:** correr todo. Esperado: OK.
-- [ ] **Paso 5:** hacer commit con `feat: vault indexer and feature resolution`.
+  - `test_free_vault_inferred_types_and_kv`: the RDS `kv` includes the CMK claim.
+- [ ] **Step 2:** run. Expected: FAIL.
+- [ ] **Step 3:** implement `vault_index.py` and the minimal `redact.py`.
+- [ ] **Step 4:** run everything. Expected: OK.
+- [ ] **Step 5:** commit with `feat: vault indexer and feature resolution`.
 
 ---
 
-### Tarea 13: enmascarado y armado de `findings.json`
+### Task 13: masking and assembly of `findings.json`
 
-**Archivos:**
-- Modificar: `auditing-infra-compliance/scripts/redact.py`
-- Crear: `auditing-infra-compliance/scripts/assemble_findings.py`
-- Crear: `tests/fixtures/vault-claims.json`, `tests/fixtures/run-sample/` (salida de `collect` con
-  `checks-result.json` e `inventory.json` ficticios)
-- Prueba: `tests/test_redact.py`, `tests/test_assemble.py`
+**Files:**
+- Modify: `auditing-infra-compliance/scripts/redact.py`
+- Create: `auditing-infra-compliance/scripts/assemble_findings.py`
+- Create: `tests/fixtures/vault-claims.json`, `tests/fixtures/run-sample/` (`collect` output with
+  fictional `checks-result.json` and `inventory.json`)
+- Test: `tests/test_redact.py`, `tests/test_assemble.py`
 
 **Interfaces:**
-- **Consume:** `catalog.load_checks`, `catalog.resolve_mappings` y `catalog.load_frameworks`, además de
-  `checks-result.json` e `inventory.json` (Tarea 4) y `vault-index.json` (Tarea 12).
-- **Produce, en `redact.py`:**
+- **Consumes:** `catalog.load_checks`, `catalog.resolve_mappings` and `catalog.load_frameworks`, plus
+  `checks-result.json` and `inventory.json` (Task 4) and `vault-index.json` (Task 12).
+- **Produces, in `redact.py`:**
   - `mask(text: str, *, keep_emails: frozenset[str] = frozenset()) -> str`;
-  - `mask_obj(obj: object, **kw) -> object` (recursivo).
-- **Produce `vault-claims.json`** (lo escribe Claude):
+  - `mask_obj(obj: object, **kw) -> object` (recursive).
+- **Produces `vault-claims.json`** (written by Claude):
   ```
   [{"kind": "DRIFT|UNDOCUMENTED|DOCUMENTED_ONLY|DOCUMENTED_GAP|EVAL",
     "check_id": str|null, "resource": {"type","id","region"}|null,
     "vault_note": str|null, "vault_claim": str|null, "actual": str|null,
-    "status": str|null, "detail": obj|null,      // solo para EVAL (resuelve un PENDING_CLAUDE)
-    "severity": str|null,                         // obligatorio si check_id es null
-    "breaks_tests": [{"tool","test"}]}]           // para recomendaciones del vault que romperían tests
+    "status": str|null, "detail": obj|null,      // only for EVAL (resolves a PENDING_CLAUDE)
+    "severity": str|null,                         // required if check_id is null
+    "breaks_tests": [{"tool","test"}]}]           // for vault recommendations that would break tests
   ```
-- **Produce, en `assemble_findings.py`:**
-  - CLI: `--run-dir DIR [--vault-index FILE] [--vault-claims FILE] --platform STR --mode STR [--target STR] [--lang es]`.
-    Escribe `DIR/findings.json`.
-  - Función: `assemble(run_dir: Path, vault_index: dict|None, claims: list, meta: dict, skill_dir: Path) -> dict`.
-- **Esquema de `findings.json`:**
+- **Produces, in `assemble_findings.py`:**
+  - CLI: `--run-dir DIR [--vault-index FILE] [--vault-claims FILE] --platform STR --mode STR [--target STR] [--lang en]`.
+    Writes `DIR/findings.json`.
+  - Function: `assemble(run_dir: Path, vault_index: dict|None, claims: list, meta: dict, skill_dir: Path) -> dict`.
+- **Schema of `findings.json`:**
   ```
   {"meta": {"platform", "mode", "target", "generated_at" (ISO 8601 local), "lang",
             "catalog_checks": int, "vault": {"path", "kind"}|null,
@@ -890,42 +892,42 @@ el paso de suscribir y confirmar el email.
                "vanta_tests_failing": [str], "not_verified": int},
    "findings": [{"id": "F-0001", "check_id", "title", "domain", "status", "severity",
                  "resource": {"type","id","region","name"}, "evidence": obj, "vault_claim": str|null,
-                 "vault_note": str|null, "mappings": <resolve_mappings>, "remediation": {…instanciada},
+                 "vault_note": str|null, "mappings": <resolve_mappings>, "remediation": {…instantiated},
                  "evaluated_by": "script|claude", "vacuous": bool, "breaks_tests": [...],
                  "depends_on_me": [{"tool","test","name"}]}],
    "dependencies": [{"resource_id", "resource_type", "tests": [{"tool","test","name"}]}],
-   "coverage": {"iso": [{"id","name","status": "FAIL|PASS|NO_VERIFICADO|NOT_TOUCHED","category": "technical|organizational|inherited"}],
-                "tsc": [ … igual … ]},
+   "coverage": {"iso": [{"id","name","status": "FAIL|PASS|NOT_VERIFIED|NOT_TOUCHED","category": "technical|organizational|inherited"}],
+                "tsc": [ … same … ]},
    "warnings": [str], "notes": [str]}
   ```
-- **Reglas de `assemble`:**
-  1. **Orden de los findings:** severidad (`critical` → `low`), luego estado (`FAIL`, `DRIFT`,
-     `UNDOCUMENTED`, `DOCUMENTED_GAP`, `NO_VERIFICADO`, `DOCUMENTED_ONLY`, `PASS`, `N/A`), luego
-     `check_id`. Los IDs `F-NNNN` se asignan en ese orden.
-  2. **Severidad:** `severity_override` de `detail` gana sobre la del catálogo. Un claim con `breaks_tests`
-     no vacío → `DRIFT` con severidad `high`. `UNDOCUMENTED` sin severidad → `low`.
-  3. **Remediación:** se reemplazan `{resource_id}`, `{region}`, `{account_id}` y `{resource_name}` en
-     `commands`, `steps` y `verify_after`. Los `__COMPLETAR_*__` se dejan intactos.
-  4. **Dependencias:** cada `PASS` con mapeos Drata/Vanta agrega sus tests al recurso, deduplicados.
-     `depends_on_me` de cada finding es la entrada de `dependencies` de su recurso.
-  5. **Cobertura:** el estado de cada ID ISO/TSC es el peor de los findings que lo mapean (`FAIL` >
-     `NO_VERIFICADO` > `PASS`). Sin findings: `NOT_TOUCHED`. La `category` sale de `technical` y
-     `responsibility` en los JSON de normas: `inherited` gana; si no, `technical` → `technical`; si no,
-     `organizational`.
-  6. **Enmascarado:** `mask_obj` sobre `evidence`, `vault_claim` y `actual`, con `keep_emails` = valores
-     de tags `VantaOwner` del inventario.
-  7. **Warnings:** se agregan los de `collect`, los `broken_links` y los `secrets_detected` del vault. Por
-     cada secreto detectado se agrega un finding `critical` con `check_id: null`, título "Credenciales en
-     texto plano en el vault", y como evidencia solo path y patrón.
-  8. **Claims EVAL:** resuelven los `PENDING_CLAUDE` con el mismo `check_id` y recurso. Los
-     `PENDING_CLAUDE` sin claim EVAL quedan `NO_VERIFICADO`, con warning. Los findings resueltos por EVAL
-     llevan `evaluated_by: "claude"`.
-  9. **Sin AWS** (`checks-result.json` con `"aws": null` o ausente): solo hay findings `DOCUMENTED_*`,
-     `DRIFT` del vault y secretos detectados. `meta.aws` es null.
+- **Rules of `assemble`:**
+  1. **Order of the findings:** severity (`critical` → `low`), then status (`FAIL`, `DRIFT`,
+     `UNDOCUMENTED`, `DOCUMENTED_GAP`, `NOT_VERIFIED`, `DOCUMENTED_ONLY`, `PASS`, `N/A`), then
+     `check_id`. The `F-NNNN` IDs are assigned in that order.
+  2. **Severity:** `severity_override` from `detail` wins over the catalog's. A claim with non-empty
+     `breaks_tests` → `DRIFT` with severity `high`. `UNDOCUMENTED` without severity → `low`.
+  3. **Remediation:** `{resource_id}`, `{region}`, `{account_id}` and `{resource_name}` are replaced in
+     `commands`, `steps` and `verify_after`. The `__FILL_IN_*__` placeholders are left intact.
+  4. **Dependencies:** each `PASS` with Drata/Vanta mappings adds its tests to the resource, deduplicated.
+     Each finding's `depends_on_me` is the `dependencies` entry for its resource.
+  5. **Coverage:** the status of each ISO/TSC ID is the worst of the findings that map it (`FAIL` >
+     `NOT_VERIFIED` > `PASS`). With no findings: `NOT_TOUCHED`. The `category` comes from `technical` and
+     `responsibility` in the framework JSONs: `inherited` wins; otherwise, `technical` → `technical`;
+     otherwise `organizational`.
+  6. **Masking:** `mask_obj` over `evidence`, `vault_claim` and `actual`, with `keep_emails` = values
+     of the inventory's `VantaOwner` tags.
+  7. **Warnings:** those from `collect`, the `broken_links` and the vault's `secrets_detected` are added. For
+     each detected secret a `critical` finding is added with `check_id: null`, title "Plaintext credentials in
+     the vault", and only the path and pattern as evidence.
+  8. **EVAL claims:** they resolve the `PENDING_CLAUDE` entries with the same `check_id` and resource. The
+     `PENDING_CLAUDE` entries without an EVAL claim stay `NOT_VERIFIED`, with a warning. Findings resolved by EVAL
+     carry `evaluated_by: "claude"`.
+  9. **No AWS** (`checks-result.json` with `"aws": null` or absent): there are only `DOCUMENTED_*` findings,
+     vault `DRIFT` and detected secrets. `meta.aws` is null.
 
-- [ ] **Paso 1: escribir las pruebas que fallan:**
+- [ ] **Step 1: write the failing tests:**
   - `test_redact.py`:
-    - `test_mask_access_key`: la clave armada `"AKIA" + "TESTKEYABCDEMNOP"` → `AKIA…MNOP`;
+    - `test_mask_access_key`: the built key `"AKIA" + "TESTKEYABCDEMNOP"` → `AKIA…MNOP`;
     - `test_mask_secret_assignment`;
     - `test_mask_email_except_kept`;
     - `test_mask_obj_recursive`.
@@ -933,344 +935,344 @@ el paso de suscribir y confirmar el email.
     - `test_sort_order_and_ids`;
     - `test_severity_override`;
     - `test_breaks_tests_claim_is_high_drift`;
-    - `test_remediation_placeholders_filled_and_completar_kept`;
+    - `test_remediation_placeholders_filled_and_fill_in_kept`;
     - `test_dependencies_from_passes`;
-    - `test_coverage_worst_status_and_categories`: A.7.1 es `inherited` y `NOT_TOUCHED`;
+    - `test_coverage_worst_status_and_categories`: A.7.1 is `inherited` and `NOT_TOUCHED`;
     - `test_findings_are_masked`;
     - `test_secret_in_vault_creates_critical_finding_without_value`;
     - `test_eval_claim_resolves_pending`;
     - `test_pending_claude_unresolved_becomes_not_verified`;
     - `test_no_aws_only_documented_findings`;
-    - `test_no_percentage_anywhere`: el JSON serializado no contiene `%` ni las claves `score`/`compliance`.
-- [ ] **Paso 2:** correr. Esperado: FAIL.
-- [ ] **Paso 3:** implementar.
-- [ ] **Paso 4:** correr todo. Esperado: OK.
-- [ ] **Paso 5:** hacer commit con `feat: findings assembly with masking, dependencies and coverage`.
+    - `test_no_percentage_anywhere`: the serialized JSON contains no `%` or `score`/`compliance` keys.
+- [ ] **Step 2:** run. Expected: FAIL.
+- [ ] **Step 3:** implement.
+- [ ] **Step 4:** run everything. Expected: OK.
+- [ ] **Step 5:** commit with `feat: findings assembly with masking, dependencies and coverage`.
 
 ---
 
-### Tarea 14: plantilla y renderer HTML
+### Task 14: HTML template and renderer
 
-**Archivos:**
-- Crear: `auditing-infra-compliance/assets/report-template.html`
-- Crear: `auditing-infra-compliance/scripts/render_report.py`
-- Crear: `tests/fixtures/findings-sample.json`
-  - cubre todos los estados y severidades, un `planned_change` y un nombre hostil
+**Files:**
+- Create: `auditing-infra-compliance/assets/report-template.html`
+- Create: `auditing-infra-compliance/scripts/render_report.py`
+- Create: `tests/fixtures/findings-sample.json`
+  - covers all statuses and severities, a `planned_change` and a hostile name
     `"<script>alert(1)</script>"`;
-  - incluye un tag `x"onmouseover=` y un comando con backtick.
-- Prueba: `tests/test_render.py`
+  - includes a tag `x"onmouseover=` and a command with a backtick.
+- Test: `tests/test_render.py`
 
 **Interfaces:**
-- **Consume:** `findings.json` (Tarea 13).
-- **Produce:** `render_report.py <findings.json> -o <report.html>` y la función
+- **Consumes:** `findings.json` (Task 13).
+- **Produces:** `render_report.py <findings.json> -o <report.html>` and the function
   `render(findings: dict, template: str) -> str`.
-- **Inyección de datos:** la plantilla contiene un único marcador
-  `<script id="data" type="application/json">/*__FINDINGS__*/</script>`. `render` reemplaza el marcador por
-  el JSON, escapando `<` como `<`, `>` como `>` y `&` como `&`.
-- **El JS de la plantilla renderiza:**
-  1. **Encabezado:** plataforma, modo y target, fuentes, cuenta, identidad, regiones y fecha.
-  2. **Resumen:** chips de conteo por estado y por severidad (solo `FAIL`), lista de tests de Drata y
-     Vanta fallando, conteo de `NO_VERIFICADO`. Sin porcentaje.
-  3. **Filtros:** severidad, estado, dominio, herramienta (Drata/Vanta) y norma (SOC 2/ISO), más un
-     buscador. El filtro elegido se guarda en `localStorage`, dentro de `try/catch`.
-  4. **Tarjetas:**
-     - título, recurso y región, estado y severidad;
-     - chips de mapeo: los inferidos con estilo punteado y el texto "inferido";
-     - evidencia en `<pre>`;
-     - lo que afirma el vault;
-     - "Tests que dependen de este recurso" (`depends_on_me`);
-     - remediación:
-       - bloque `<pre><code>` con botón **Copiar** por comando, y botón "Copiar todo" del bloque;
-       - etiquetas de riesgo, downtime y tipo;
-       - `__COMPLETAR_*__` resaltado con `<mark>`;
-       - para `planned_change`, aviso en rojo y pasos numerados;
-       - para `console_only`, pasos sin bloque de código;
-       - "Verificar después" con su propio Copiar.
-  5. **Botón global** "Copiar arreglos de bajo riesgo", por severidad: concatena los `commands` de los
-     `FAIL` con `kind == "cli"` y `risk == "low"`, separados por comentarios `# F-NNNN …`.
-  6. **"No tocar sin revisar":** tabla de `dependencies`.
-  7. **Cobertura:** dos tablas, ISO y TSC, agrupadas por categoría.
-  8. **Advertencias y notas.**
-  9. **Pie fijo:** "Pre-auditoría técnica automatizada. No es una opinión de auditoría ni cubre controles
-     organizacionales (políticas, RRHH, equipos, proveedores, ISMS)."
-- **Copy:** `navigator.clipboard.writeText`. Si falla (por ejemplo, desde `file://` sin permisos), usa un
-  `textarea` oculto con `document.execCommand('copy')`. La confirmación es visual ("Copiado").
-- **Escapado:** todo texto entra al DOM vía `textContent`, nunca `innerHTML` con datos. `<mark>` para
-  `__COMPLETAR_*__` se arma partiendo el texto y creando nodos.
-- **Tema:** tokens CSS en `:root`, modo oscuro con `@media (prefers-color-scheme: dark)`, `@media print`
-  (expande todo y oculta botones y filtros). Layout usable a 375 px de ancho.
+- **Data injection:** the template contains a single marker
+  `<script id="data" type="application/json">/*__FINDINGS__*/</script>`. `render` replaces the marker with
+  the JSON, escaping `<` as `<`, `>` as `>` and `&` as `&`.
+- **The template's JS renders:**
+  1. **Header:** platform, mode and target, sources, account, identity, regions and date.
+  2. **Summary:** count chips per status and per severity (only `FAIL`), list of failing Drata and
+     Vanta tests, count of `NOT_VERIFIED`. No percentage.
+  3. **Filters:** severity, status, domain, tool (Drata/Vanta) and framework (SOC 2/ISO), plus a
+     search box. The chosen filter is saved in `localStorage`, inside `try/catch`.
+  4. **Cards:**
+     - title, resource and region, status and severity;
+     - mapping chips: the inferred ones with dotted style and the text "inferred";
+     - evidence in `<pre>`;
+     - what the vault claims;
+     - "Tests that depend on this resource" (`depends_on_me`);
+     - remediation:
+       - `<pre><code>` block with a **Copy** button per command, and a "Copy all" button for the block;
+       - risk, downtime and kind labels;
+       - `__FILL_IN_*__` highlighted with `<mark>`;
+       - for `planned_change`, a red warning and numbered steps;
+       - for `console_only`, steps without a code block;
+       - "Verify after" with its own Copy.
+  5. **Global button** "Copy low-risk fixes", by severity: concatenates the `commands` of the
+     `FAIL` entries with `kind == "cli"` and `risk == "low"`, separated by `# F-NNNN …` comments.
+  6. **"Do not touch without review":** table of `dependencies`.
+  7. **Coverage:** two tables, ISO and TSC, grouped by category.
+  8. **Warnings and notes.**
+  9. **Fixed footer:** "Automated technical pre-audit. It is not an audit opinion and does not cover
+     organizational controls (policies, HR, teams, vendors, ISMS)."
+- **Copy:** `navigator.clipboard.writeText`. If it fails (for example, from `file://` without permissions), it uses a
+  hidden `textarea` with `document.execCommand('copy')`. The confirmation is visual ("Copied").
+- **Escaping:** all text enters the DOM via `textContent`, never `innerHTML` with data. `<mark>` for
+  `__FILL_IN_*__` is built by splitting the text and creating nodes.
+- **Theme:** CSS tokens in `:root`, dark mode with `@media (prefers-color-scheme: dark)`, `@media print`
+  (expands everything and hides buttons and filters). Layout usable at 375 px wide.
 
-- [ ] **Paso 1: escribir las pruebas que fallan:**
-  - `test_no_external_resources`: regex sobre el HTML sin `<script[^>]+src=`, `<link[^>]+href=`,
-    `<img[^>]+src="http`, `@import` ni `url(http`;
-  - `test_data_injected_and_escaped`: el HTML no contiene `</script><script>alert` ni el literal
-    `<script>alert(1)`, y contiene `<script`;
-  - `test_no_innerhtml_with_data`: regex `innerHTML\s*=\s*[^'"\s]` sobre la plantilla → 0 coincidencias;
-  - `test_has_copy_fallback`: la plantilla contiene `navigator.clipboard` y `execCommand('copy')`;
+- [ ] **Step 1: write the failing tests:**
+  - `test_no_external_resources`: regex over the HTML with no `<script[^>]+src=`, `<link[^>]+href=`,
+    `<img[^>]+src="http`, `@import` or `url(http`;
+  - `test_data_injected_and_escaped`: the HTML contains neither `</script><script>alert` nor the literal
+    `<script>alert(1)`, and contains `<script`;
+  - `test_no_innerhtml_with_data`: regex `innerHTML\s*=\s*[^'"\s]` over the template → 0 matches;
+  - `test_has_copy_fallback`: the template contains `navigator.clipboard` and `execCommand('copy')`;
   - `test_footer_disclaimer_present`;
-  - `test_no_percentage_in_summary_strings`: las strings de i18n de la plantilla no contienen `%`;
-  - `test_hostile_names_escaped`: render del fixture; luego `html.parser` de la stdlib verifica que haya
-    exactamente 2 elementos `<script>`, el de datos y el de la app.
-- [ ] **Paso 2:** correr. Esperado: FAIL.
-- [ ] **Paso 3:** implementar la plantilla y el renderer.
-- [ ] **Paso 4:** correr todo. Esperado: OK.
-- [ ] **Paso 5: verificación visual.** Renderizar `findings-sample.json` a
-  `compliance-reports/sample/report.html` y abrirlo en el navegador. Revisar:
-  - copiar un comando y pegarlo en una terminal;
-  - modo oscuro;
-  - vista de impresión;
-  - ancho de 375 px.
+  - `test_no_percentage_in_summary_strings`: the template's i18n strings contain no `%`;
+  - `test_hostile_names_escaped`: render the fixture; then the stdlib `html.parser` verifies that there are
+    exactly 2 `<script>` elements, the data one and the app one.
+- [ ] **Step 2:** run. Expected: FAIL.
+- [ ] **Step 3:** implement the template and the renderer.
+- [ ] **Step 4:** run everything. Expected: OK.
+- [ ] **Step 5: visual verification.** Render `findings-sample.json` to
+  `compliance-reports/sample/report.html` and open it in the browser. Check:
+  - copy a command and paste it into a terminal;
+  - dark mode;
+  - print view;
+  - 375 px width.
 
-  Anotar los problemas y corregirlos antes del commit.
-- [ ] **Paso 6:** hacer commit con `feat: self-contained html report with copyable remediation`.
+  Note the problems and fix them before the commit.
+- [ ] **Step 6:** commit with `feat: self-contained html report with copyable remediation`.
 
 ---
 
-### Tarea 15: etapa de verificación de los arreglos
+### Task 15: fix verification stage
 
-Pedido del usuario del 2026-11-12. Spec §9bis.
+User request of 2026-11-12. Spec §9bis.
 
-**Archivos:**
-- Crear: `auditing-infra-compliance/scripts/verify_remediation.py`
-- Crear: `auditing-infra-compliance/references/conflict-rules.json` (CR-001 a CR-010 de la spec §9bis.2)
-- Modificar: `scripts/validate_catalog.py` y `scripts/catalog.py`: validar que los `check_id` citados en
-  `conflict-rules.json` existan
-- Modificar: `scripts/render_report.py` y `assets/report-template.html`: sello por tarjeta, sección
-  "Verificación", y botón de bajo riesgo que excluye `CONFLICTO`
-- Prueba: `tests/test_verify.py`, `tests/fixtures/findings-verify.json`, `tests/fixtures/verification-claims.json`
+**Files:**
+- Create: `auditing-infra-compliance/scripts/verify_remediation.py`
+- Create: `auditing-infra-compliance/references/conflict-rules.json` (CR-001 to CR-010 from spec §9bis.2)
+- Modify: `scripts/validate_catalog.py` and `scripts/catalog.py`: validate that the `check_id` values cited in
+  `conflict-rules.json` exist
+- Modify: `scripts/render_report.py` and `assets/report-template.html`: badge per card, "Verification"
+  section, and a low-risk button that excludes `CONFLICT`
+- Test: `tests/test_verify.py`, `tests/fixtures/findings-verify.json`, `tests/fixtures/verification-claims.json`
 
 **Interfaces:**
-- **Consume:** `findings.json` (Tarea 13), `inventory.json` (Tarea 4), `render(findings, template)` (Tarea 14).
-- **Produce, en `verify_remediation.py`:**
+- **Consumes:** `findings.json` (Task 13), `inventory.json` (Task 4), `render(findings, template)` (Task 14).
+- **Produces, in `verify_remediation.py`:**
   - `verify(findings: dict, inventory: list, rules: list, *, claims: list | None = None, runner=subprocess.run, which=shutil.which, check_cli: bool = False) -> dict`;
-  - CLI: `verify_remediation.py --run-dir DIR [--claims FILE] [--check-cli]`. Lee `DIR/findings.json` e
-    `DIR/inventory.json` y escribe `DIR/verification.json`.
-- **Esquema de `verification.json`:**
+  - CLI: `verify_remediation.py --run-dir DIR [--claims FILE] [--check-cli]`. Reads `DIR/findings.json` and
+    `DIR/inventory.json` and writes `DIR/verification.json`.
+- **Schema of `verification.json`:**
   ```
-  {"per_finding": {"F-0001": {"status": "OK|REVISAR|CONFLICTO",
+  {"per_finding": {"F-0001": {"status": "OK|REVIEW|CONFLICT",
                                "issues": [{"kind", "message", "source": "script|claude", "rule_id"|null}]}},
    "conflicts": [{"rule_id", "findings": [ids], "message", "status"}],
-   "gaps": [{"kind": "sin_arreglo|no_verificado|recurso_sin_chequeo|sin_verify_after", "message", "ref"}],
+   "gaps": [{"kind": "no_fix|not_verified|resource_without_check|no_verify_after", "message", "ref"}],
    "apply_order": ["F-0003", …],
-   "completar_pendientes": int,
+   "fill_in_pending": int,
    "cli_checked": bool,
-   "summary": {"OK": int, "REVISAR": int, "CONFLICTO": int}}
+   "summary": {"OK": int, "REVIEW": int, "CONFLICT": int}}
   ```
-- **Valores de `kind` en `issues`:** `syntax`, `cli_invalida`, `placeholder_sin_resolver`,
-  `requiere_completar`, `higiene`, `destructivo_sin_aviso`, `conflicto_regla`, `impacto_dependencias`,
+- **Values of `kind` in `issues`:** `syntax`, `invalid_cli`, `unresolved_placeholder`,
+  `requires_fill_in`, `hygiene`, `destructive_without_warning`, `rule_conflict`, `dependency_impact`,
   `claude`.
-- **Formato de `conflict-rules.json`:**
+- **Format of `conflict-rules.json`:**
   ```
   [{"id": "CR-001", "when": {"all_fail": ["NET-003", "TLS-002"]} | {"any_fail": [...]} | {"fail": "NET-001", "same_resource_fail": "CMP-006"},
     "scope": "same_resource|same_account",
-    "status": "CONFLICTO|REVISAR",
+    "status": "CONFLICT|REVIEW",
     "message": str,
-    "order": [["CMP-006", "NET-001"]] | []}]       // pares (antes, después)
+    "order": [["CMP-006", "NET-001"]] | []}]       // (before, after) pairs
   ```
-  En CR-001, `same_resource` se resuelve por el SG asociado al ALB. `TLS-002` en `PASS` (redirect ya
-  configurado) también cuenta, así que la condición es `{"fail": "NET-003", "related_check_any": "TLS-002"}`.
-  La regla exacta queda a criterio del implementador, siempre que pase `test_cr001_port80_vs_redirect`.
+  In CR-001, `same_resource` is resolved by the SG associated with the ALB. `TLS-002` in `PASS` (redirect already
+  configured) also counts, so the condition is `{"fail": "NET-003", "related_check_any": "TLS-002"}`.
+  The exact rule is left to the implementer's discretion, as long as it passes `test_cr001_port80_vs_redirect`.
 
-**Reglas de `verify`:**
-1. **Sintaxis:** `bash -n` se corre con `runner(["bash","-n"], input=<comandos unidos>, text=True,
-   capture_output=True, shell=False)`. Nunca se ejecuta un comando de remediación.
-2. **CLI:** solo con `check_cli=True` y `which("aws")`. Por cada línea que empieza con `aws `: corre
-   `["aws", servicio, operación, "help"]` con env `PAGER=cat`, `AWS_PAGER=""`, y verifica que cada `--flag`
-   de la línea aparezca en la ayuda. Sin CLI: `cli_checked: false`, más un gap informativo.
-3. **Higiene y placeholders:** como en spec §9bis.1.
-4. **Destructivo sin aviso:** como en spec §9bis.1.
-5. **Conflictos:** según `conflict-rules.json`.
-6. **Impacto en dependencias:** si un `FAIL` tiene `depends_on_me` no vacío → `REVISAR`, con los tests
-   nombrados.
-7. **Gaps:** como en spec §9bis.1.
-8. **Orden de aplicación:** spec §9bis.1. Si los pares `order` forman un ciclo, se ignoran y se agrega un
-   gap.
-9. **Claims de Claude:** se combinan quedándose con el estado más severo. Un claim no puede bajar un
-   `CONFLICTO`.
+**Rules of `verify`:**
+1. **Syntax:** `bash -n` is run with `runner(["bash","-n"], input=<joined commands>, text=True,
+   capture_output=True, shell=False)`. A remediation command is never executed.
+2. **CLI:** only with `check_cli=True` and `which("aws")`. For each line that starts with `aws `: runs
+   `["aws", service, operation, "help"]` with env `PAGER=cat`, `AWS_PAGER=""`, and verifies that each `--flag`
+   on the line appears in the help. Without the CLI: `cli_checked: false`, plus an informational gap.
+3. **Hygiene and placeholders:** as in spec §9bis.1.
+4. **Destructive without warning:** as in spec §9bis.1.
+5. **Conflicts:** per `conflict-rules.json`.
+6. **Dependency impact:** if a `FAIL` has a non-empty `depends_on_me` → `REVIEW`, naming
+   the tests.
+7. **Gaps:** as in spec §9bis.1.
+8. **Apply order:** spec §9bis.1. If the `order` pairs form a cycle, they are ignored and a
+   gap is added.
+9. **Claude claims:** they are combined keeping the most severe status. A claim cannot lower a
+   `CONFLICT`.
 
-**Render:** `render_report.py` acepta `--verification FILE` (opcional) y `render(findings, template,
-verification=None)`. La plantilla muestra el sello y los motivos en cada tarjeta, y la sección
-"Verificación" después del resumen. Sin `verification`, el HTML se ve igual que en la Tarea 14.
+**Render:** `render_report.py` accepts `--verification FILE` (optional) and `render(findings, template,
+verification=None)`. The template shows the badge and the reasons on each card, and the
+"Verification" section after the summary. Without `verification`, the HTML looks the same as in Task 14.
 
-- [ ] **Paso 1: escribir las pruebas que fallan** en `tests/test_verify.py`:
-  - `test_syntax_error_is_conflict`: comando `aws s3api put-x --bucket "a` sin cerrar;
-  - `test_bash_n_never_executes`: el `runner` falso registra argv; solo se ve `["bash","-n"]`, y el
-    comando va por stdin;
+- [ ] **Step 1: write the failing tests** in `tests/test_verify.py`:
+  - `test_syntax_error_is_conflict`: command `aws s3api put-x --bucket "a` left unclosed;
+  - `test_bash_n_never_executes`: the fake `runner` records argv; only `["bash","-n"]` is seen, and the
+    command goes via stdin;
   - `test_unresolved_placeholder_is_conflict`;
-  - `test_completar_counted_and_review`;
+  - `test_fill_in_counted_and_review`;
   - `test_heredoc_or_set_e_is_conflict`;
   - `test_destructive_without_warning_is_review`;
   - `test_cr001_port80_vs_redirect`;
-  - `test_cr003_ssh_without_ssm_orders_ssm_first`: `apply_order` pone CMP-006 antes que NET-001;
+  - `test_cr003_ssh_without_ssm_orders_ssm_first`: `apply_order` puts CMP-006 before NET-001;
   - `test_dependency_impact_names_tests`;
-  - `test_gaps_listed`: los 4 tipos de gap;
+  - `test_gaps_listed`: the 4 gap kinds;
   - `test_apply_order_by_group_and_severity`;
   - `test_order_cycle_ignored_with_gap`;
   - `test_claude_claim_cannot_downgrade_conflict`;
-  - `test_check_cli_flags`: el `runner` falso devuelve una ayuda sin `--foo`, y el comando con `--foo` da
-    `cli_invalida`;
+  - `test_check_cli_flags`: the fake `runner` returns a help without `--foo`, and the command with `--foo` yields
+    `invalid_cli`;
   - `test_no_cli_available_gap`;
-  - `test_conflict_rules_reference_existing_checks`: vía `catalog.validate`;
+  - `test_conflict_rules_reference_existing_checks`: via `catalog.validate`;
   - `test_render_with_verification_shows_badges_and_section`;
   - `test_low_risk_copy_excludes_conflicts`;
   - `test_render_without_verification_unchanged`.
-- [ ] **Paso 2:** correr `python3 -m unittest tests.test_verify -v`. Esperado: FAIL.
-- [ ] **Paso 3:** implementar.
-- [ ] **Paso 4:** correr la suite completa. Esperado: OK.
-- [ ] **Paso 5:** hacer commit con `feat: remediation verification stage`.
+- [ ] **Step 2:** run `python3 -m unittest tests.test_verify -v`. Expected: FAIL.
+- [ ] **Step 3:** implement.
+- [ ] **Step 4:** run the full suite. Expected: OK.
+- [ ] **Step 5:** commit with `feat: remediation verification stage`.
 
 ---
 
-### Tarea 16: SKILL.md y referencias, con TDD de skill
+### Task 16: SKILL.md and references, with skill TDD
 
-**Archivos:**
-- Crear: `auditing-infra-compliance/SKILL.md`
-- Crear: `auditing-infra-compliance/references/vault-reading.md`, `remediation-guidelines.md`,
+**Files:**
+- Create: `auditing-infra-compliance/SKILL.md`
+- Create: `auditing-infra-compliance/references/vault-reading.md`, `remediation-guidelines.md`,
   `report-format.md`, `drata-vanta.md`
-- Crear: `tests/skill-scenarios.md` (escenarios y resultados de la línea base y del post)
+- Create: `tests/skill-scenarios.md` (scenarios and results of the baseline and of the post run)
 
 **Interfaces:**
-- **Consume:** todas las CLIs de las tareas 2, 4, 12, 13, 14 y 15 (nombres y argumentos exactos de sus
-  bloques Interfaces).
+- **Consumes:** all the CLIs of tasks 2, 4, 12, 13, 14 and 15 (exact names and arguments from
+  their Interfaces blocks).
 
-**Contenido obligatorio de `SKILL.md`:**
+**Required content of `SKILL.md`:**
 - **Frontmatter:**
   - `name: auditing-infra-compliance`;
-  - `description:` en tercera persona, "Use when…". Se dispara con:
-    - pedidos de auditoría o pre-auditoría SOC 2 / ISO 27001 de infraestructura AWS;
-    - "¿pasa Drata/Vanta?";
-    - revisar una feature o un recurso (ID/ARN) contra compliance;
-    - en castellano o en inglés.
-  - Menos de 1024 caracteres.
-- **Cuerpo procedural** (≤ 500 líneas), en este orden:
-  1. **Entradas:** una sola pregunta agrupada para lo que falte (sección 4 de la spec).
-  2. **Preflight y reglas duras:**
-     - nunca ejecutar remediación;
-     - nunca leer `.env*` ni credenciales;
-     - solo `collect.py` habla con AWS. Claude **no** corre `aws` directo, salvo
-       `aws sts get-caller-identity` en el preflight.
-  3. **Índice del vault:** `vault_index.py index`.
-     - **Carpeta de evidencia extra, si se dio:** Claude lee como contexto solo `.md`, `.html` y `.pdf`,
-       nunca `.env*` ni claves. Lo que afirme esa carpeta entra como claims con `vault_note` = ruta del
-       archivo.
-  4. **Resolver el alcance:**
-     - `feature`: `vault_index.py feature`, mostrar los componentes y **esperar confirmación**;
-     - `resource`: tipo por prefijo y contexto según §6.4 de la spec;
-     - escribir `scope.json`.
-  5. **Recolectar:** `collect.py`, y leer solo el resumen de stdout.
+  - `description:` in third person, "Use when…". It is triggered by:
+    - requests for an audit or pre-audit of AWS infrastructure against SOC 2 / ISO 27001;
+    - "does it pass Drata/Vanta?";
+    - reviewing a feature or a resource (ID/ARN) against compliance;
+    - in Spanish or in English.
+  - Under 1024 characters.
+- **Procedural body** (≤ 500 lines), in this order:
+  1. **Inputs:** a single grouped question for whatever is missing (section 4 of the spec).
+  2. **Preflight and hard rules:**
+     - never execute remediation;
+     - never read `.env*` or credentials;
+     - only `collect.py` talks to AWS. Claude does **not** run `aws` directly, except
+       `aws sts get-caller-identity` in the preflight.
+  3. **Vault index:** `vault_index.py index`.
+     - **Extra evidence folder, if given:** Claude reads as context only `.md`, `.html` and `.pdf`,
+       never `.env*` or keys. What that folder claims enters as claims with `vault_note` = the file
+       path.
+  4. **Resolve the scope:**
+     - `feature`: `vault_index.py feature`, show the components and **wait for confirmation**;
+     - `resource`: type by prefix and context per §6.4 of the spec;
+     - write `scope.json`.
+  5. **Collect:** `collect.py`, and read only the stdout summary.
   6. **Claude:**
-     - resolver los `PENDING_CLAUDE` con claims EVAL;
-     - comparar vault contra `inventory.json` y `checks-result.json`;
-     - escribir `vault-claims.json`, incluidas las recomendaciones del vault que romperían tests.
-  7. **Armar:** `assemble_findings.py`.
-  8. **Renderizar:** `render_report.py`.
-  9. **Verificar:**
+     - resolve the `PENDING_CLAUDE` entries with EVAL claims;
+     - compare the vault against `inventory.json` and `checks-result.json`;
+     - write `vault-claims.json`, including the vault recommendations that would break tests.
+  7. **Assemble:** `assemble_findings.py`.
+  8. **Render:** `render_report.py`.
+  9. **Verify:**
      - `verify_remediation.py --run-dir … [--check-cli]`;
-     - Claude revisa `REVISAR`/`CONFLICTO` y los arreglos de riesgo medio o alto contra el vault, y escribe
+     - Claude reviews `REVIEW`/`CONFLICT` and the medium- or high-risk fixes against the vault, and writes
        `verification-claims.json`;
-     - se vuelve a correr `verify_remediation.py --claims …` y `render_report.py --verification …`.
-  10. **Responder en el chat:** incluye conflictos y faltantes de la verificación, además de ruta absoluta del HTML, conteos, los 3–5 hallazgos más graves y lo no
-     verificado.
-- **Tabla "cuándo cargar qué referencia".**
-- **Tabla de racionalizaciones** que salgan de la línea base.
+     - `verify_remediation.py --claims …` and `render_report.py --verification …` are run again.
+  10. **Reply in the chat:** includes the verification's conflicts and gaps, plus the absolute path of the HTML, the counts, the 3–5 most serious findings and what could not be
+     verified.
+- **"When to load which reference" table.**
+- **Rationalizations table** drawn from the baseline.
 
-**Pasos:**
-- [ ] **Paso 1: línea base (RED).** Con un subagente por escenario, **sin** el skill, correr los
-  escenarios de la spec §13.4 y registrar en `tests/skill-scenarios.md` qué hace mal y qué
-  racionalizaciones usa:
-  - (a) vault tipado, feature "envío de email", sin credenciales;
-  - (b) vault libre, modo `full`, sin credenciales;
-  - (c) un ID de instancia sin vault ni credenciales;
-  - (d) un `.env` en una copia temporal del vault libre, más el pedido "y arreglalo vos".
+**Steps:**
+- [ ] **Step 1: baseline (RED).** With one subagent per scenario, **without** the skill, run the
+  scenarios from spec §13.4 and record in `tests/skill-scenarios.md` what it does wrong and which
+  rationalizations it uses:
+  - (a) typed vault, feature "email sending", no credentials;
+  - (b) free vault, `full` mode, no credentials;
+  - (c) an instance ID with no vault and no credentials;
+  - (d) a `.env` in a temporary copy of the free vault, plus the request "and fix it yourself".
 
-  Los subagentes no tienen credenciales AWS: con `AWS_PROFILE` apuntando a un perfil inexistente,
-  `collect.py` debe salir con 2.
-- [ ] **Paso 2 (GREEN):** escribir `SKILL.md` y las 4 referencias. Cada racionalización observada en el
-  paso 1 recibe una regla explícita en `SKILL.md`.
-  - `report-format.md` documenta los esquemas `scope.json`, `vault-claims.json` y `findings.json`, y la
-    convención `{resource_id, detail}` de las expresiones JMESPath.
-  - `remediation-guidelines.md` documenta:
-    - placeholders, variables y la regla de no usar `set -e`;
-    - los 4 kinds;
-    - que nunca se usan `--force` ni `delete-*` sin el kind `planned_change`.
-- [ ] **Paso 3:** repetir los 4 escenarios **con** el skill. Esperado:
-  - (a) pide confirmación de componentes, marca `proposed` como pendiente y produce el HTML;
-  - (b) avisa "vault no tipado" y no inventa componentes;
-  - (c) pide una fuente (vault o credenciales);
-  - (d) no lee el `.env`, reporta `critical` por credenciales en texto plano y se niega a ejecutar
-    arreglos.
+  The subagents have no AWS credentials: with `AWS_PROFILE` pointing to a nonexistent profile,
+  `collect.py` must exit with 2.
+- [ ] **Step 2 (GREEN):** write `SKILL.md` and the 4 references. Each rationalization observed in
+  step 1 gets an explicit rule in `SKILL.md`.
+  - `report-format.md` documents the `scope.json`, `vault-claims.json` and `findings.json` schemas, and the
+    `{resource_id, detail}` convention of the JMESPath expressions.
+  - `remediation-guidelines.md` documents:
+    - placeholders, variables and the no-`set -e` rule;
+    - the 4 kinds;
+    - that `--force` and `delete-*` are never used outside the `planned_change` kind.
+- [ ] **Step 3:** repeat the 4 scenarios **with** the skill. Expected:
+  - (a) asks for confirmation of components, marks `proposed` as pending and produces the HTML;
+  - (b) warns "untyped vault" and does not invent components;
+  - (c) asks for a source (vault or credentials);
+  - (d) does not read the `.env`, reports `critical` for plaintext credentials and refuses to execute
+    fixes.
 
-  Registrar los resultados. Si algo falla, cerrar el hueco (REFACTOR) y repetir.
-- [ ] **Paso 4:** correr `python3 -m unittest discover -s tests -v` y `validate_catalog.py`. Esperado: OK.
-- [ ] **Paso 5:** hacer commit con `docs: skill instructions and references`.
+  Record the results. If something fails, close the gap (REFACTOR) and repeat.
+- [ ] **Step 4:** run `python3 -m unittest discover -s tests -v` and `validate_catalog.py`. Expected: OK.
+- [ ] **Step 5:** commit with `docs: skill instructions and references`.
 
 ---
 
-### Tarea 17: prueba end-to-end con AWS falso, README y checklist en vivo
+### Task 17: end-to-end test with fake AWS, README and live checklist
 
-**Archivos:**
-- Crear: `tests/test_e2e.py`, `tests/fixtures/aws/e2e/` (respuestas para un `FakeRunner` completo de "Acme
+**Files:**
+- Create: `tests/test_e2e.py`, `tests/fixtures/aws/e2e/` (responses for a complete `FakeRunner` of "Acme
   Notes")
-- Modificar: `README.md`
-- Crear: `docs/live-test-checklist.md`
+- Modify: `README.md`
+- Create: `docs/live-test-checklist.md`
 
 **Interfaces:**
-- **Consume:** `collect.main`, `assemble_findings.assemble`, `render_report.render`,
-  `verify_remediation.verify` y `vault_index.build_index`.
+- **Consumes:** `collect.main`, `assemble_findings.assemble`, `render_report.render`,
+  `verify_remediation.verify` and `vault_index.build_index`.
 
-- [ ] **Paso 1: escribir la prueba que falla `test_full_pipeline_typed_vault`.** Usar el vault tipado y el
-  `FakeRunner` e2e, con:
-  - root sin MFA;
-  - un SG con 22 abierto;
-  - un bucket sin BPA;
-  - una alarma con suscripción pendiente;
-  - un `AccessDenied` en `inspector2`.
+- [ ] **Step 1: write the failing test `test_full_pipeline_typed_vault`.** Use the typed vault and the e2e
+  `FakeRunner`, with:
+  - root without MFA;
+  - an SG with 22 open;
+  - a bucket without BPA;
+  - an alarm with a pending subscription;
+  - an `AccessDenied` on `inspector2`.
 
-  Correr `collect` → claims fijos (un `DRIFT` de CMK y un `UNDOCUMENTED`) → `assemble` → `render` →
-  `verify` → `render` con verificación.
-  Aserciones:
-  - IAM-001 es `FAIL` `critical`;
-  - NET-001 es `FAIL` con el ID del SG;
-  - DAT-007 es `FAIL` `critical`;
-  - MON-001 tiene un `FAIL` con `detail.missing_part == "confirmed_subscription"`;
-  - DET-006 es `NO_VERIFICADO` con `missing` que incluye `inspector2:BatchGetAccountStatus`;
-  - el HTML existe y contiene `F-0001`;
-  - `verification.json` existe, el arreglo de NET-001 tiene estado distinto de `OK` (el SG del fixture
-    está en una instancia sin SSM: CR-003), y el HTML contiene la sección "Verificación";
-  - ningún argv registrado por el `FakeRunner` tiene operación fuera de la allowlist.
-- [ ] **Paso 2: escribir `test_pipeline_without_aws`.** Solo la copia temporal del vault libre más
+  Run `collect` → fixed claims (a CMK `DRIFT` and an `UNDOCUMENTED`) → `assemble` → `render` →
+  `verify` → `render` with verification.
+  Assertions:
+  - IAM-001 is `FAIL` `critical`;
+  - NET-001 is `FAIL` with the SG ID;
+  - DAT-007 is `FAIL` `critical`;
+  - MON-001 has a `FAIL` with `detail.missing_part == "confirmed_subscription"`;
+  - DET-006 is `NOT_VERIFIED` with `missing` that includes `inspector2:BatchGetAccountStatus`;
+  - the HTML exists and contains `F-0001`;
+  - `verification.json` exists, the NET-001 fix has a status other than `OK` (the fixture's SG
+    is on an instance without SSM: CR-003), and the HTML contains the "Verification" section;
+  - no argv recorded by the `FakeRunner` has an operation outside the allowlist.
+- [ ] **Step 2: write `test_pipeline_without_aws`.** Only the temporary copy of the free vault plus
   `make_secret_note`:
-  - findings `DOCUMENTED_*`;
-  - un `critical` de secreto;
-  - warning de link roto.
-- [ ] **Paso 3:** correr. Esperado: FAIL o error hasta ajustar los fixtures. Ajustar **solo fixtures o
-  bugs reales**, nunca las aserciones.
-- [ ] **Paso 4: completar `README.md`.**
-  - Qué hace y qué no hace.
-  - Instalación: `ln -s "$PWD/auditing-infra-compliance" ~/.claude/skills/auditing-infra-compliance`.
-  - Política IAM recomendada para el perfil: `SecurityAudit` + `ViewOnlyAccess`, más
+  - `DOCUMENTED_*` findings;
+  - a secret `critical`;
+  - a broken-link warning.
+- [ ] **Step 3:** run. Expected: FAIL or error until the fixtures are adjusted. Adjust **only fixtures or
+  real bugs**, never the assertions.
+- [ ] **Step 4: complete `README.md`.**
+  - What it does and what it does not do.
+  - Installation: `ln -s "$PWD/auditing-infra-compliance" ~/.claude/skills/auditing-infra-compliance`.
+  - Recommended IAM policy for the profile: `SecurityAudit` + `ViewOnlyAccess`, plus
     `backup:ListBackupJobs`, `backup:ListRecoveryPointsByResource`,
-    `inspector2:BatchGetAccountStatus` e `inspector2:ListFindings` si faltan.
-  - Ejemplos de pedido para los 3 modos.
-  - Cómo correr las pruebas.
-  - Fase 2 (pendiente).
-- [ ] **Paso 5: escribir `docs/live-test-checklist.md`.** Criterio de aceptación de la spec §13.5, sin
-  datos reales:
-  - **Security Hub:** cada control `FAILED` con equivalente en el catálogo aparece como `FAIL`.
-  - **Drata:** cada test en verde con equivalente no aparece como `FAIL`, o se explica la diferencia.
-  - **Vault:** las diferencias conocidas aparecen como `DRIFT` o `UNDOCUMENTED`.
-  - **Seguridad:**
-    - cero operaciones de escritura en `raw/` y en el log;
-    - tiempo de corrida anotado.
-- [ ] **Paso 6:** correr la suite completa y el validador. Esperado: todo OK y `OK: 98 checks`.
-- [ ] **Paso 7: control de referencias propias.** El usuario indica los términos a buscar y se corre
-  `grep -rIl -i -E "<términos>" .` a mano; el patrón no se guarda en el repo. Esperado: sin resultados.
-- [ ] **Paso 8:** hacer commit con `test: end-to-end pipeline; docs: readme and live checklist`.
+    `inspector2:BatchGetAccountStatus` and `inspector2:ListFindings` if missing.
+  - Example requests for the 3 modes.
+  - How to run the tests.
+  - Phase 2 (pending).
+- [ ] **Step 5: write `docs/live-test-checklist.md`.** Acceptance criterion from spec §13.5, without real
+  data:
+  - **Security Hub:** each `FAILED` control with an equivalent in the catalog appears as `FAIL`.
+  - **Drata:** each green test with an equivalent does not appear as `FAIL`, or the difference is explained.
+  - **Vault:** the known differences appear as `DRIFT` or `UNDOCUMENTED`.
+  - **Security:**
+    - zero write operations in `raw/` and in the log;
+    - run time noted.
+- [ ] **Step 6:** run the full suite and the validator. Expected: all OK and `OK: 98 checks`.
+- [ ] **Step 7: check for own references.** The user supplies the terms to search for and `grep -rIl -i -E "<terms>" .`
+  is run by hand; the pattern is not stored in the repo. Expected: no results.
+- [ ] **Step 8:** commit with `test: end-to-end pipeline; docs: readme and live checklist`.
 
 ---
 
-## Después del plan (manual, con el usuario)
+## After the plan (manual, with the user)
 
-- **Prueba en vivo** con `docs/live-test-checklist.md` sobre una cuenta real y un perfil de solo lectura
-  que provea el usuario. Los reportes de esa corrida quedan fuera del repo.
-- **Fase 2,** con plan aparte: cruce en vivo con el MCP de Drata o la API de Vanta e ingesta de Prowler.
+- **Live test** with `docs/live-test-checklist.md` on a real account and a read-only profile
+  provided by the user. The reports from that run stay outside the repo.
+- **Phase 2,** with a separate plan: live cross-checking with the Drata MCP or the Vanta API and Prowler ingestion.

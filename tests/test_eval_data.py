@@ -67,10 +67,10 @@ class RdsBackupsTests(unittest.TestCase):
     def test_rds_backups_fail_reports_offenders(self):
         found = evaluate("rds_backups", {"instances": [(REGION, fx("rds-describe-db-instances-raw"))]}, {"min_days": 7})
         self.assertEqual([(o["resource_id"], o["region"]) for o in found], [(LEGACY, REGION), (STAGING, REGION), (UNTAGGED, REGION), (AURORA, REGION)])
-        self.assertEqual(found[0]["detail"], {"backup_retention_period": 0, "reason": "los backups automáticos están desactivados"})
+        self.assertEqual(found[0]["detail"], {"backup_retention_period": 0, "reason": "automated backups are disabled"})
         self.assertNotIn("severity_override", found[0]["detail"])
         self.assertEqual(found[1]["detail"], {"backup_retention_period": 3, "severity_override": "low",
-                                              "reason": "la retención es de 3 días, menos que los 7 recomendados"})
+                                              "reason": "retention is 3 days, less than the recommended 7"})
 
     def test_retention_boundaries(self):
         def outcome(days):
@@ -140,7 +140,7 @@ class DynamoPitrTests(unittest.TestCase):
     def test_ddb_pitr_fail_reports_offenders(self):
         found = evaluate("ddb_pitr", self.tables(a=fx("dynamodb-describe-continuous-backups-enabled"), b=fx("dynamodb-describe-continuous-backups-disabled")))
         self.assertEqual([(o["resource_id"], o["region"]) for o in found], [("b", REGION)])
-        self.assertEqual(found[0]["detail"], {"pitr_status": "DISABLED", "reason": "la recuperación a un punto en el tiempo (PITR) no está habilitada"})
+        self.assertEqual(found[0]["detail"], {"pitr_status": "DISABLED", "reason": "point-in-time recovery (PITR) is not enabled"})
 
     def test_status_is_compared_ignoring_case_and_a_missing_description_fails(self):
         self.assertEqual(evaluate("ddb_pitr", self.tables(a={"ContinuousBackupsDescription": {"PointInTimeRecoveryDescription": {"PointInTimeRecoveryStatus": "enabled"}}})), [])
@@ -165,8 +165,8 @@ class S3VersioningTests(unittest.TestCase):
     def test_s3_versioning_fail_reports_offenders(self):
         found = evaluate("s3_versioning", self.buckets(a=fx("s3api-get-bucket-versioning-enabled"), b=fx("s3api-get-bucket-versioning-suspended"), c=None, d={}))
         self.assertEqual([(o["resource_id"], o["region"]) for o in found], [("b", REGION), ("c", REGION), ("d", REGION)])
-        self.assertEqual(found[0]["detail"], {"status": "Suspended", "reason": "el versionado está suspendido"})
-        self.assertEqual(found[1]["detail"], {"status": None, "reason": "el versionado nunca se habilitó"})
+        self.assertEqual(found[0]["detail"], {"status": "Suspended", "reason": "versioning is suspended"})
+        self.assertEqual(found[1]["detail"], {"status": None, "reason": "versioning was never enabled"})
 
     def test_deleted_bucket_is_not_applicable_and_a_blocked_bucket_is_unverified(self):
         found = evaluate("s3_versioning", self.buckets(a={"__error__": "NoSuchBucket"}, b={"__error__": "ACCESS_DENIED"}, c={"__error__": "ERROR"},
@@ -188,9 +188,9 @@ class S3BpaTests(unittest.TestCase):
                                                 c={"__error__": "NoSuchPublicAccessBlockConfiguration"}))
         self.assertEqual([(o["resource_id"], o["region"]) for o in found], [("b", REGION), ("c", REGION)])
         self.assertEqual(found[0]["detail"], {"missing_flags": ["BlockPublicPolicy", "RestrictPublicBuckets"],
-                                              "reason": "el Block Public Access del bucket no tiene los 4 ajustes activos"})
+                                              "reason": "the bucket's Block Public Access does not have all 4 settings on"})
         self.assertEqual(found[1]["detail"]["missing_flags"], ["BlockPublicAcls", "IgnorePublicAcls", "BlockPublicPolicy", "RestrictPublicBuckets"])
-        self.assertEqual(found[1]["detail"]["reason"], "el bucket no tiene configuración de Block Public Access")
+        self.assertEqual(found[1]["detail"]["reason"], "the bucket has no Block Public Access configuration")
 
     def test_each_flag_alone_makes_the_bucket_fail(self):
         for flag in ("BlockPublicAcls", "IgnorePublicAcls", "BlockPublicPolicy", "RestrictPublicBuckets"):
@@ -238,7 +238,7 @@ class BackupJobsRecentTests(unittest.TestCase):
         self.assertEqual(flags(found), [("acme-notes-quiet", "offender"), ("Default", "not_applicable")])
         self.assertEqual((found[0]["resource_id"], found[0]["region"]), ("acme-notes-quiet", REGION))
         self.assertEqual(found[0]["detail"], {"resources": [{"arn": R_EFS, "states": ["EXPIRED", "FAILED"]}],
-                                              "reason": "hay recursos sin ningún job completado en las últimas 24 horas"})
+                                              "reason": "there are resources with no completed job in the last 24 hours"})
 
     def test_a_retry_that_completed_clears_the_failure(self):
         found = evaluate("backup_jobs_recent", self.responses(), self.PARAMS)
@@ -247,7 +247,7 @@ class BackupJobsRecentTests(unittest.TestCase):
     def test_jobs_older_than_the_window_are_ignored(self):
         data = {"BackupJobs": [dict(j, State="FAILED") for j in fx("backup-list-backup-jobs-mixed")["BackupJobs"] if j["BackupJobId"] == "1f"]}
         found = evaluate("backup_jobs_recent", self.responses(data, self.one_vault()), self.PARAMS)
-        self.assertEqual(found[0]["detail"]["reason"], "la bóveda tiene puntos de recuperación y ningún job en las últimas 24 horas")
+        self.assertEqual(found[0]["detail"]["reason"], "the vault has recovery points and no job in the last 24 hours")
 
     def test_window_boundaries_use_total_seconds(self):
         def outcome(delta):
@@ -305,12 +305,12 @@ class BackupVaultNotificationsTests(unittest.TestCase):
                                       "acme-notes-quiet": fx("backup-get-backup-vault-notifications-completed-only")})
         (offender,) = evaluate("backup_vault_notifications", responses)
         self.assertEqual((offender["resource_id"], offender["region"]), ("acme-notes-quiet", REGION))
-        self.assertEqual(offender["detail"], {"events": ["BACKUP_JOB_COMPLETED"], "reason": "la bóveda no notifica BACKUP_JOB_FAILED a un tópico de SNS"})
+        self.assertEqual(offender["detail"], {"events": ["BACKUP_JOB_COMPLETED"], "reason": "the vault does not notify BACKUP_JOB_FAILED to an SNS topic"})
 
     def test_vault_without_notification_configuration_fails(self):
         (offender,) = evaluate("backup_vault_notifications", self.responses(**{"acme-notes-vault": {"__error__": "ResourceNotFoundException"}}))
         self.assertEqual(offender["resource_id"], "acme-notes-vault")
-        self.assertEqual(offender["detail"]["reason"], "la bóveda no tiene notificaciones configuradas")
+        self.assertEqual(offender["detail"]["reason"], "the vault has no notifications configured")
 
     def test_vault_without_a_topic_fails_and_events_are_compared_ignoring_case(self):
         data = fx("backup-get-backup-vault-notifications-failed")
@@ -358,7 +358,7 @@ class BackupPlanRulesTests(unittest.TestCase):
         self.assertEqual((offender["resource_id"], offender["region"]), ("aws-backup", REGION))
         self.assertEqual(offender["detail"]["plans"], [{"plan": "acme-notes-weekly", "region": REGION,
                                                         "rules": [{"name": "weekly", "schedule": "cron(0 5 ? * SUN *)", "daily": False, "retention_days": 35}]}])
-        self.assertEqual(offender["detail"]["reason"], "ningún plan de AWS Backup tiene una regla diaria con retención de al menos 7 días")
+        self.assertEqual(offender["detail"]["reason"], "no AWS Backup plan has a daily rule with retention of at least 7 days")
 
     def test_weekly_or_archive_plans_do_not_fail_when_a_qualifying_daily_plan_exists(self):
         responses = self.responses("backup-list-backup-plans-two", **{PLAN_ID: fx("backup-get-backup-plan-daily"), WEEKLY_ID: fx("backup-get-backup-plan-weekly")})
@@ -519,8 +519,8 @@ class DataCatalogTests(unittest.TestCase):
     def test_dat_010_is_account_level_and_says_so(self):
         check = catalog_check("DAT-010")
         self.assertEqual(check["scope"], "account")
-        self.assertRegex(check["title"], r"(?i)al menos un plan")
-        self.assertRegex(check["verify"]["pass_when_text"], r"semanales o de archivo no fallan")
+        self.assertRegex(check["title"], r"(?i)at least one AWS Backup plan")
+        self.assertRegex(check["verify"]["pass_when_text"], r"Weekly or archive plans do not fail")
 
     def test_dat_011_has_a_standalone_block_for_groups_that_already_have_a_replica(self):
         commands = catalog_check("DAT-011")["remediation"]["commands"]
@@ -624,7 +624,7 @@ class DataCatalogTests(unittest.TestCase):
 
     def test_dat_002_and_dat_011_are_planned_changes_that_warn_about_cost(self):
         for check_id in ("DAT-002", "DAT-011"):
-            self.assertRegex(catalog_check(check_id)["remediation"]["notes"], r"(?i)costo", check_id)
+            self.assertRegex(catalog_check(check_id)["remediation"]["notes"], r"(?i)cost", check_id)
 
 
 class DataCollectTests(unittest.TestCase):
@@ -702,7 +702,7 @@ class DataCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_only_the_blocked_items_are_unverified(self):
         self.assertEqual(self.code, 0)
-        unverified = [(r["check_id"], r["resource_id"]) for r in self.result["results"] if r["status"] == "NO_VERIFICADO"]
+        unverified = [(r["check_id"], r["resource_id"]) for r in self.result["results"] if r["status"] == "NOT_VERIFIED"]
         self.assertEqual(unverified, [("DAT-005", "acme-notes-denied"), ("DAT-006", "acme-notes-logs")])
 
     def test_rds_outcomes(self):
@@ -720,9 +720,9 @@ class DataCollectTests(unittest.TestCase):
         self.assertEqual(rows[STAGING]["detail"]["severity_override"], "low")
 
     def test_dynamodb_and_s3_outcomes(self):
-        self.assertEqual(self.rows("DAT-005"), [("FAIL", "acme-notes-audit", REGION), ("NO_VERIFICADO", "acme-notes-denied", REGION),
+        self.assertEqual(self.rows("DAT-005"), [("FAIL", "acme-notes-audit", REGION), ("NOT_VERIFIED", "acme-notes-denied", REGION),
                                                 ("PASS", "acme-notes-sessions", REGION)])
-        self.assertEqual(self.rows("DAT-006"), [("PASS", "acme-notes-data", REGION), ("NO_VERIFICADO", "acme-notes-logs", REGION)])
+        self.assertEqual(self.rows("DAT-006"), [("PASS", "acme-notes-data", REGION), ("NOT_VERIFIED", "acme-notes-logs", REGION)])
         self.assertEqual(self.rows("DAT-007"), [("PASS", "acme-notes-data", REGION), ("FAIL", "acme-notes-logs", REGION)])
 
     def test_a_blocked_item_names_the_missing_permissions_and_does_not_hide_the_others(self):

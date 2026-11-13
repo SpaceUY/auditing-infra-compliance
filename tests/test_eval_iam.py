@@ -90,7 +90,7 @@ class RootEvaluatorTests(unittest.TestCase):
     def test_root_hardware_mfa_fail_without_any_mfa(self):
         responses = self.responses("iam-get-account-summary-mfa-off", "iam-list-virtual-mfa-devices-hardware")
         (offender,) = evaluate("root_hardware_mfa", responses)
-        self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), ("root", "sin MFA"))
+        self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), ("root", "no MFA"))
 
     def test_root_usage_pass(self):
         responses = one("events", load_fixture("aws/iam/cloudtrail-lookup-events-root-clean.json"))
@@ -198,7 +198,7 @@ class PolicyEvaluatorTests(unittest.TestCase):
 
     def test_password_min_length_fail_without_policy(self):
         (offender,) = evaluate("password_min_length", one("policy", {"__error__": "NoSuchEntity"}), {"min_length": 14})
-        self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), ("account", "sin política de contraseñas"))
+        self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), ("account", "no password policy"))
 
     def test_password_reuse_prevention_pass(self):
         responses = one("policy", load_fixture("aws/iam/iam-get-account-password-policy-strong.json"))
@@ -211,7 +211,7 @@ class PolicyEvaluatorTests(unittest.TestCase):
 
     def test_password_reuse_prevention_fail_without_policy_or_setting(self):
         (offender,) = evaluate("password_reuse_prevention", one("policy", {"__error__": "NoSuchEntity"}), {"min_reuse": 24})
-        self.assertEqual(offender["detail"]["reason"], "sin política de contraseñas")
+        self.assertEqual(offender["detail"]["reason"], "no password policy")
         responses = one("policy", {"PasswordPolicy": {"MinimumPasswordLength": 14}})
         (offender,) = evaluate("password_reuse_prevention", responses, {"min_reuse": 24})
         self.assertEqual(offender["detail"], {"password_reuse_prevention": 0, "required": 24})
@@ -251,7 +251,7 @@ class PolicyEvaluatorTests(unittest.TestCase):
     def test_alternate_contact_present_fail_reports_offenders(self):
         (offender,) = evaluate("alternate_contact_present", one("contact", {"__error__": "ResourceNotFoundException"}))
         self.assertEqual((offender["resource_id"], offender["region"]), ("account", REGION))
-        self.assertEqual(offender["detail"]["reason"], "sin contacto alternativo SECURITY")
+        self.assertEqual(offender["detail"]["reason"], "no SECURITY alternate contact")
 
 
 
@@ -455,7 +455,7 @@ class IamCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_nothing_is_unverified(self):
         self.assertEqual(self.code, 0)
-        unverified = [(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NO_VERIFICADO"]
+        unverified = [(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NOT_VERIFIED"]
         self.assertEqual(unverified, [])
 
     def test_account_checks_outcomes(self):
