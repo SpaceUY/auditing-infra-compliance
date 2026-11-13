@@ -893,7 +893,10 @@ class FinalCleanupBTests(AssembleCase):
         self.only(("DET-001", "account"))
         claims = [{"kind": "UNDOCUMENTED", "check_id": "ENC-003", "resource": self.RESOURCE},
                   {"kind": "DRIFT", "check_id": "ENC-003", "resource": self.RESOURCE, "actual_status": "PASS"}]
-        verdict, summary = self.verdict(claims)
+        vault = self.tmp / "vault"
+        vault.mkdir(exist_ok=True)
+        (vault / "Note.md").write_text("# Note\nText.\n", encoding="utf-8")
+        verdict, summary = self.verdict(claims, vault_index.build_index(vault))
         self.assertEqual(verdict, "OPTIMAL")
         self.assertIn("2 difference(s)", summary["verdict_text"])
         self.assertNotIn("\n", summary["verdict_text"])
@@ -1110,7 +1113,7 @@ class VerdictBasisTests(AssembleCase):
     def test_basis_is_aws_and_vault_when_both_were_used(self):
         self.only(("DET-001", "account"))
         self.assertEqual(self.summary([], self.index())["verdict_basis"], "aws+vault")
-        self.assertEqual(self.summary([self.documented()])["verdict_basis"], "aws+vault")
+        self.assertEqual(self.summary([self.documented()], self.index())["verdict_basis"], "aws+vault")
 
     def test_basis_is_vault_without_credentials(self):
         self.no_aws()
@@ -1135,7 +1138,7 @@ class VerdictBasisTests(AssembleCase):
 
     def test_aws_basis_keeps_documented_only_as_unverified(self):
         self.only(("DET-001", "account"))
-        summary = self.summary([self.documented()])  # basis aws+vault
+        summary = self.summary([self.documented()], self.index())  # basis aws+vault
         self.assertEqual((summary["verdict"], summary["verdict_basis"]), ("NOT_VERIFIABLE", "aws+vault"))
 
     # ---- basis aws+vault
