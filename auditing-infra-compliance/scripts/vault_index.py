@@ -13,7 +13,10 @@ CLI:
 
 Feature lookup levels (the first one with matches wins): exact title/alias, title/H1 substring, body substring, and finally
 a token level (words of 4+ characters, accents folded, stopwords dropped, matched against titles/H1/aliases; the notes
-with the most tokens win), so "envío de email" finds "Email delivery".
+with the most tokens win), so "envío de email" finds "Email delivery". Superseded notes are candidates only when nothing else matches.
+The matched note is itself a component (depth 0, via "matched") when it is under systems/ (typed) or names an AWS resource (free), so
+asking for a leaf resource note does not drop that resource. Links resolve through title, alias and folder (`[[notes/Queue]]`; with two
+notes of one name `systems/` wins). Notes are read up to MAX_NOTE_BYTES characters; longer ones are listed in `truncated_notes`.
 """
 
 import argparse
@@ -50,9 +53,19 @@ BREADCRUMB = "←"  # "← [[Hub]]" lines point to the parent; they are not depe
 
 # ---------------------------------------------------------------- reading
 
+MAX_NOTE_BYTES = 2_000_000  # a note is read up to this many characters; the rest is ignored and the note is reported in `truncated_notes`
+
+
 def _read(path):
     with open(path, encoding="utf-8-sig", errors="replace") as handle:
-        return handle.read()
+        return handle.read(MAX_NOTE_BYTES)
+
+
+def _is_truncated(path):
+    try:
+        return path.stat().st_size > MAX_NOTE_BYTES
+    except OSError:
+        return False
 
 
 def _note_files(vault):
@@ -154,7 +167,8 @@ def _edges(body):
 
 
 def _kv(body):
-    rows = [redact.mask(line.strip()) for line in body.splitlines()]  # mask whole rows: a secret name can be the key
+    # mask the whole body, then split: a secret name can be the key, and masking needs the table context (header rows)
+    rows = [line.strip() for line in redact.mask(body).splitlines()]
     skip = set()
     for i, row in enumerate(rows):
         if row.startswith("|") and SEPARATOR_ROW.match(row):
@@ -181,8 +195,8 @@ def _secrets(text):
 
 
 def _inferred_type(stem):
-    prefix = stem.split(" - ", 1)[0].split()[0] if stem.strip() else ""
-    return INFERRED_TYPES.get(prefix.upper())
+    words = stem.split(" - ", 1)[0].split()
+    return INFERRED_TYPES.get(words[0].upper()) if words else None
 
 
 def _links(lines):
@@ -224,10 +238,12 @@ def build_index(vault: Path) -> dict:
     if not vault.is_dir():
         raise ValueError(f"el vault no existe o no es un directorio: {vault}")
     files = _note_files(vault)
-    notes, raw_links, secrets = [], {}, []
+    notes, raw_links, secrets, truncated = [], {}, [], []
     for path in files:
         note, links, patterns = _parse_note(vault, path)
         notes.append(note)
+        if _is_truncated(path):
+            truncated.append(note["path"])
         raw_links[note["path"]] = links
         secrets += [{"path": note["path"], "pattern": p} for p in patterns]
     meta = vault / "_meta"
@@ -236,12 +252,12 @@ def build_index(vault: Path) -> dict:
     if not typed:
         for note, path in zip(notes, files):
             note["inferred_type"] = _inferred_type(path.stem)
-    names = {_key(path.stem) for path in files}
+    names = {_key(path.stem) for path in files} | {_key(a) for note in notes for a in note["aliases"]}
     broken = [{"from": rel, "target": redact.mask(target)} for rel, links in raw_links.items() for target in links
               if not NON_NOTE_LINK.search(target) and _key(target) not in names]
     return {"kind": "typed" if typed else "free", "root": str(vault), "notes": notes, "broken_links": broken,
             "secrets_detected": secrets, "sensitive_files": _sensitive_files(vault),
-            "obsidian_plugins": _plugins(vault)}
+            "obsidian_plugins": _plugins(vault), "truncated_notes": truncated}
 
 
 # ---------------------------------------------------------------- feature resolution
@@ -299,10 +315,15 @@ def _token_matches(notes, query):
 
 
 def _candidates(index, query):
+    """Matches among the notes that are not superseded; only when there are none, among all of them."""
+    active = [n for n in index["notes"] if n.get("status") != "superseded"]
+    return _matching(index, query, active) or _matching(index, query, index["notes"])
+
+
+def _matching(index, query, notes):
     q = _norm(query)
     if not q:
         return []
-    notes = index["notes"]
     levels = (
         lambda n: q in {_norm(n["title"]), *(_norm(a) for a in n.get("aliases", []))},
         lambda n: q in _norm(n["title"]) or any(h.startswith("# ") and q in _norm(h[2:]) for h in n["headings"]),
@@ -320,24 +341,54 @@ def _component(note, depth, via):
             "aws_ids": note["aws_ids"], "status": note["status"]}
 
 
+def _link_folder(target):
+    """The folder part of a qualified link ([[notes/Queue]] -> "notes/"), normalised; "" when the link has none."""
+    name = target.strip()
+    name = name[:-3] if name.lower().endswith(".md") else name
+    return _norm(name.rsplit("/", 1)[0]) + "/" if "/" in name else ""
+
+
+def _note_index(notes, prefer=None):
+    """key -> notes sharing it (title or alias), the preferred folder first: two notes with one stem do not overwrite each other."""
+    table = {}
+    for note in sorted(notes, key=lambda n: (prefer is not None and not n["path"].startswith(prefer), n["path"])):
+        for name in (note["title"], *note.get("aliases", [])):
+            table.setdefault(_key(name), []).append(note)
+    return table
+
+
+def _resolve(table, target):
+    """The note a wikilink target points to: a folder in the link picks the note in that folder, otherwise the preferred one."""
+    found = table.get(_key(target)) or []
+    folder = _link_folder(target)
+    if folder:
+        inside = [n for n in found if _norm(n["path"]).startswith(folder) or ("/" + folder) in _norm(n["path"])]
+        found = inside or found
+    return found[0] if found else None
+
+
 def _typed_walk(index, root, max_depth):
-    by_title = {_key(n["title"]): n for n in index["notes"]}
+    by_title = _note_index(index["notes"], prefer="systems/")
     inbound = {}
     for note in index["notes"]:
         for edge in note["edges"]:
             if edge["layer"] == "structural" and edge["relation"] in INBOUND_RELATIONS:
-                inbound.setdefault(_key(edge["target"]), []).append(note)
+                owner = _resolve(by_title, edge["target"])
+                if owner:
+                    inbound.setdefault(owner["path"], []).append(note)
 
     def neighbours(note):
         for edge in note["edges"]:
             if edge["layer"] == "structural" and edge["relation"] in OUTBOUND_RELATIONS:
-                target = by_title.get(_key(edge["target"]))
+                target = _resolve(by_title, edge["target"])
                 if target:
                     yield target, edge["relation"]
-        for source in inbound.get(_key(note["title"]), []):
+        for source in inbound.get(note["path"], []):
             yield source, "is part of"
 
     components, constraints = {}, []
+    if root["path"].startswith("systems/"):  # the feature note is itself a resource of the feature (a leaf note has nothing else)
+        components[root["path"]] = _component(root, 0, ["matched"])
     frontier, seen = [root], {root["path"]}
     for depth in range(1, max_depth + 1):
         nxt = []
@@ -360,13 +411,15 @@ def _typed_walk(index, root, max_depth):
 
 
 def _free_walk(index, root):
-    by_name = {_key(n["title"]): n for n in index["notes"]}
+    by_name = _note_index(index["notes"])
     components, frontier, seen = [], [root], {root["path"]}
+    if root["inferred_type"] or root["aws_ids"]:
+        components.append(_component(root, 0, ["matched"]))
     for depth in range(1, FREE_DEPTH + 1):
         nxt = []
         for node in frontier:
             for link in node["links"]:
-                target = by_name.get(_key(link))
+                target = _resolve(by_name, link)
                 if target and target["path"] not in seen:
                     seen.add(target["path"])
                     nxt.append(target)
@@ -441,7 +494,8 @@ def main(argv=None) -> int:
             print(str(exc), file=sys.stderr)
             return 2
         output.write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(f"Vault {index['kind']}: {len(index['notes'])} notas, {len(index['broken_links'])} links rotos, "
+        kind = "tipado" if index["kind"] == "typed" else "libre (no tipado): el mapa de componentes es inferido y menos confiable"
+        print(f"Vault {kind}: {len(index['notes'])} notas, {len(index['broken_links'])} links rotos, "
               f"{len(index['secrets_detected'])} secretos detectados (enmascarados), "
               f"{len(index['sensitive_files'])} archivos sensibles (solo el nombre). Índice en: {output}")
         return 0

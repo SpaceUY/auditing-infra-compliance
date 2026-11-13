@@ -68,6 +68,12 @@ a.chip:hover { text-decoration: underline; }
 .st-DOCUMENTED_ONLY { background: var(--low-bg); color: var(--low-fg); border-color: var(--low-fg); }
 .st-NO_VERIFICADO { background: var(--nov-bg); color: var(--nov-fg); border-color: var(--nov-fg); }
 .st-NA, .st-NOT_TOUCHED { background: var(--na-bg); color: var(--na-fg); border-color: var(--na-fg); }
+.verdict { border: 2px solid var(--border); border-radius: 8px; padding: 12px 16px; margin: 0 0 12px; background: var(--surface); }
+.verdict .label { font-size: 1.25rem; font-weight: 700; margin: 0 0 4px; }
+.verdict p { margin: 4px 0; }
+.verdict-OPTIMO { background: var(--pass-bg); color: var(--pass-fg); border-color: var(--pass-fg); }
+.verdict-NO_OPTIMO { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
+.verdict-NO_VERIFICABLE { background: var(--nov-bg); color: var(--nov-fg); border-color: var(--nov-fg); }
 .ver-OK { background: var(--pass-bg); color: var(--pass-fg); border-color: var(--pass-fg); }
 .ver-REVISAR { background: var(--med-bg); color: var(--med-fg); border-color: var(--med-fg); }
 .ver-CONFLICTO { background: var(--crit-bg); color: var(--crit-fg); border-color: var(--crit-fg); }
@@ -139,6 +145,8 @@ footer.fixed {
 <body>
 <header class="top">
   <h1 id="title"></h1>
+  <noscript><div class="alert">Este reporte necesita JavaScript para mostrarse. Abrirlo en un navegador con JavaScript activo; los datos están en el propio archivo (findings.json trae lo mismo).</div></noscript>
+  <div class="verdict" id="verdict" role="status" hidden></div>
   <div class="panel"><dl class="meta" id="meta"></dl></div>
 </header>
 <main>
@@ -176,20 +184,27 @@ const I18N = {
   meta: { platform: 'Plataforma', mode: 'Modo', target: 'Objetivo', sources: 'Fuentes', account: 'Cuenta AWS',
           identity: 'Identidad', regions: 'Regiones', date: 'Fecha', none: 'no indicado' },
   sources: { aws: 'AWS (solo lectura)', noAws: 'sin credenciales AWS', vault: 'vault', vaultTyped: 'tipado', vaultFree: 'libre', noVault: 'sin vault' },
-  summary: { title: 'Resumen', byStatus: 'Hallazgos por estado', bySeverity: 'Fallas por severidad', drata: 'Tests de Drata que fallan',
+  verdict: { OPTIMO: 'Óptimo', NO_OPTIMO: 'No óptimo', NO_VERIFICABLE: 'No verificable', basis: 'Veredicto de la infraestructura para SOC 2 / ISO 27001 (Drata / Vanta)',
+             noAws: 'Nada se verificó contra AWS: no hubo credenciales de solo lectura. Lo que figura abajo es lo que dice el vault, sin comprobar.',
+             unverified: 'Sin verificar', reasons: 'Motivos' },
+  summary: { title: 'Resumen', noAwsNote: 'Sin credenciales AWS: ningún conteo de abajo es un resultado verificado.', notChecked: 'sin verificar (sin credenciales AWS)',
+             unverifiedTitle: 'Sin verificar', unverifiedCounts: { no_verificado: 'No verificado', documented_only: 'Solo documentado en el vault', documented_gap: 'Brecha documentada en el vault', scope_without_claims: 'Componentes del alcance sin afirmaciones ni resultados' },
+             scopeList: 'Componentes del alcance sin verificar', scopeUnverified: 'sin verificar', byStatus: 'Hallazgos por estado', bySeverity: 'Fallas por severidad', drata: 'Tests de Drata que fallan',
              vanta: 'Tests de Vanta que fallan', notVerified: 'No verificado', notVerifiedHint: 'No se pudo comprobar: falta permiso o la evaluación quedó pendiente.',
              missing: 'Permisos que faltan', none: 'ninguno', clickHint: 'Tocar un conteo filtra los hallazgos.' },
   filters: { title: 'Filtros', severity: 'Severidad', status: 'Estado', domain: 'Dominio', tool: 'Herramienta', norm: 'Norma', search: 'Buscar',
              searchPlaceholder: 'ID, recurso, texto…', all: 'Todos', allF: 'Todas', clear: 'Limpiar filtros', expand: 'Expandir todo', collapse: 'Contraer todo',
              showing: 'Mostrando', of: 'de', normSoc2: 'SOC 2', normIso: 'ISO 27001' },
-  bulk: { title: 'Copiar arreglos de bajo riesgo', hint: 'Por severidad: junta los comandos de los hallazgos FAIL de tipo CLI con riesgo bajo, separados por comentarios con el ID. Se omiten los que tienen valores por completar y los que la verificación marcó como CONFLICTO o REVISAR. Revisar antes de pegar en CloudShell.',
-          button: 'Copiar arreglos de bajo riesgo', empty: 'sin comandos', header: 'Hallazgos' },
+  bulk: { title: 'Copiar arreglos de bajo riesgo', hint: 'Por severidad: junta los comandos de los hallazgos FAIL de tipo CLI con riesgo bajo que la verificación marcó OK, separados por comentarios con el ID. Se omiten los que tienen valores por completar y los que la verificación marcó como CONFLICTO o REVISAR. Revisar antes de pegar en CloudShell.',
+          button: 'Copiar arreglos de bajo riesgo', empty: 'sin comandos', header: 'Hallazgos', none: 'No hay arreglos de bajo riesgo para copiar.',
+          noVerification: 'Desactivado: falta la verificación de los arreglos. Correr verify_remediation.py y volver a generar el reporte con --verification.',
+          stale: 'Desactivado: la verificación quedó desactualizada (los hallazgos cambiaron). Volver a correr verify_remediation.py y a generar el reporte.' },
   findings: { title: 'Hallazgos', empty: 'Ningún hallazgo coincide con los filtros.', noResource: 'Sin recurso asociado', account: 'Cuenta AWS',
               region: 'región', mappings: 'Mapeos', inferred: 'inferido', inferredHint: 'Mapeo inferido por el catálogo, sin fuente oficial.',
               catalogSeverity: 'severidad del chequeo', notVerified: 'no verificada',
               evidence: 'Evidencia', vault: 'Lo que afirma el vault', vaultNote: 'Nota', breaks: 'Esta recomendación del vault rompería',
               dependsOnMe: 'Tests que dependen de este recurso', missing: 'Permisos que faltan', byClaude: 'evaluado por Claude',
-              vacuous: 'pasa por vacío: no hay recursos de este tipo en el alcance', checkId: 'Chequeo' },
+              vacuous: 'pasa por vacío: no hay recursos de este tipo en el alcance', checkId: 'Chequeo', fromVault: 'transcrito del vault, no verificado' },
   rem: { title: 'Remediación', steps: 'Pasos', commands: 'Comandos para CloudShell', verify: 'Verificar después', verifyWith: 'Verificar con', notes: 'Notas',
          copy: 'Copiar', copyAll: 'Copiar todo', copied: 'Copiado', copyCmdAria: 'Copiar comando', copyAllAria: 'Copiar todos los comandos', copyVerifyAria: 'Copiar comando de verificación', of: 'de', ofN: 'de', copyFail: 'No se pudo copiar: seleccionar y copiar a mano',
          placeholders: 'Completar los valores resaltados (__COMPLETAR_…__) antes de pegar.',
@@ -209,6 +224,7 @@ const I18N = {
          counts: 'Arreglos verificados', pending: 'Valores por completar (__COMPLETAR_…__) pendientes', pendingHint: 'Completarlos antes de pegar los comandos en CloudShell.',
          cliOn: 'Validez de operaciones y flags: comprobada con la ayuda local de la AWS CLI.',
          cliOff: 'Validez de operaciones y flags: no comprobada (correr la verificación con --check-cli y la AWS CLI instalada).',
+         cliNone: 'Validez de operaciones y flags: no había comandos aws que comprobar.',
          stale: 'verificación desactualizada: volver a correr verify_remediation',
          warnings: 'Advertencias de la verificación', conflicts: 'Conflictos entre arreglos', noConflicts: 'Sin conflictos entre arreglos.', gaps: 'Lo que falta', noGaps: 'Nada faltante detectado.',
          order: 'Orden sugerido de aplicación', orderHint: 'Identidad, logging y detección, claves KMS, cifrado, red, datos, monitoreo, tags e integración; dentro de cada grupo por severidad y los cambios planificados al final. Las reglas de conflicto tienen prioridad.',
@@ -216,7 +232,7 @@ const I18N = {
          status: { OK: 'OK', REVISAR: 'REVISAR', CONFLICTO: 'CONFLICTO' },
          gapKind: { sin_arreglo: 'Falla sin arreglo', no_verificado: 'No verificado', recurso_sin_chequeo: 'Recurso sin chequeo', sin_verify_after: 'Arreglo sin verificación posterior' },
          issueKind: { syntax: 'Sintaxis', cli_invalida: 'CLI inválida', placeholder_sin_resolver: 'Placeholder sin resolver', requiere_completar: 'Valor por completar',
-                      higiene: 'Higiene', destructivo_sin_aviso: 'Destructivo sin aviso', conflicto_regla: 'Conflicto', impacto_dependencias: 'Impacto en dependencias', downtime: 'Downtime', claude: 'Claude' } },
+                      higiene: 'Higiene', destructivo_sin_aviso: 'Destructivo sin aviso', conflicto_regla: 'Conflicto', impacto_dependencias: 'Impacto en dependencias', downtime: 'Downtime', claude: 'Claude', riesgo_alto: 'Riesgo alto', evidencia_faltante: 'Evidencia faltante' } },
   footer: 'Pre-auditoría técnica automatizada. No es una opinión de auditoría ni cubre controles organizacionales (políticas, RRHH, equipos, proveedores, ISMS).',
   status: { FAIL: 'Falla', PASS: 'Pasa', DRIFT: 'Drift', DOCUMENTED_ONLY: 'Solo documentado', DOCUMENTED_GAP: 'Brecha documentada',
             UNDOCUMENTED: 'Sin documentar', NO_VERIFICADO: 'No verificado', 'N/A': 'N/A' },
@@ -239,6 +255,7 @@ const META = DATA.meta || {};
 const FINDINGS = Array.isArray(DATA.findings) ? DATA.findings : [];
 const VERIF = DATA.verification && typeof DATA.verification === 'object' ? DATA.verification : null;
 const VERIF_STATES = ['OK', 'REVISAR', 'CONFLICTO'];
+const VERDICTS = ['OPTIMO', 'NO_OPTIMO', 'NO_VERIFICABLE'];
 const openIds = new Set();
 const filters = { severity: '', status: '', domain: '', tool: '', norm: '', q: '' };
 
@@ -346,6 +363,19 @@ function renderHeader() {
   metaRow(dl, I18N.meta.date, META.generated_at);
 }
 
+function renderVerdict() {
+  const box = document.getElementById('verdict');
+  const summary = DATA.summary && typeof DATA.summary === 'object' ? DATA.summary : {};
+  if (VERDICTS.indexOf(summary.verdict) === -1) { box.hidden = true; return; }
+  clear(box);
+  box.hidden = false;
+  box.className = 'verdict verdict-' + summary.verdict;
+  box.appendChild(el('p', { cls: 'label', text: I18N.verdict[summary.verdict] }));
+  box.appendChild(el('p', { text: summary.verdict_text || '' }));
+  if (!META.aws) box.appendChild(el('p', { cls: 'noaws', text: I18N.verdict.noAws }));
+  box.appendChild(el('p', { cls: 'muted', text: I18N.verdict.basis }));
+}
+
 function failingTests(tool) {
   const seen = new Map();
   FINDINGS.filter(function (f) { return f.status === 'FAIL'; }).forEach(function (f) {
@@ -367,7 +397,8 @@ function countChip(label, count, key, value) {
   return btn;
 }
 function testList(title, entries, tool) {
-  const box = el('div', null, [el('h3', { text: title + ' (' + entries.length + ')' })]);
+  const box = el('div', null, [el('h3', { text: title + (META.aws ? ' (' + entries.length + ')' : '') })]);
+  if (!META.aws) { box.appendChild(el('p', { cls: 'muted', text: I18N.summary.notChecked })); return box; }
   if (!entries.length) { box.appendChild(el('p', { cls: 'muted', text: I18N.summary.none })); return box; }
   const ul = el('ul', { cls: 'plain' });
   entries.forEach(function (e) {
@@ -375,6 +406,26 @@ function testList(title, entries, tool) {
   });
   box.appendChild(ul);
   return box;
+}
+function unverifiedBlock(body, nov) {
+  const summary = DATA.summary && typeof DATA.summary === 'object' ? DATA.summary : {};
+  const counts = summary.unverified && typeof summary.unverified === 'object' ? summary.unverified : null;
+  const scope = arr(DATA.unverified_scope);
+  body.appendChild(el('h3', { text: I18N.summary.unverifiedTitle }));
+  const row = el('div', { cls: 'row' });
+  Object.keys(I18N.summary.unverifiedCounts).forEach(function (k) {
+    const n = counts ? Number(counts[k]) || 0 : (k === 'no_verificado' ? nov.length : 0);
+    row.appendChild(badge(I18N.summary.unverifiedCounts[k] + ': ' + n, n ? 'st-NO_VERIFICADO' : 'st-NA'));
+  });
+  body.appendChild(row);
+  if (scope.length) {
+    body.appendChild(el('h3', { text: I18N.summary.scopeList + ' (' + scope.length + ')' }));
+    const ul = el('ul', { cls: 'plain' });
+    scope.forEach(function (c) {
+      ul.appendChild(el('li', { text: (c.type ? c.type + ' ' : '') + c.id + (c.region ? ' · ' + c.region : '') + ' — ' + I18N.summary.scopeUnverified }));
+    });
+    body.appendChild(ul);
+  }
 }
 function renderSummary() {
   document.getElementById('h-summary').textContent = I18N.summary.title;
@@ -384,6 +435,7 @@ function renderSummary() {
     byStatus[f.status] = (byStatus[f.status] || 0) + 1;
     if (f.status === 'FAIL') bySev[f.severity] = (bySev[f.severity] || 0) + 1;
   });
+  if (!META.aws) body.appendChild(el('div', { cls: 'alert', text: I18N.summary.noAwsNote, attrs: { role: 'alert' } }));
   body.appendChild(el('h3', { text: I18N.summary.byStatus }));
   const r1 = el('div', { cls: 'row' });
   STATUSES.forEach(function (s) { r1.appendChild(countChip(I18N.status[s], byStatus[s] || 0, 'status', s)); });
@@ -396,8 +448,9 @@ function renderSummary() {
   body.appendChild(testList(I18N.summary.drata, failingTests('drata'), 'drata'));
   body.appendChild(testList(I18N.summary.vanta, failingTests('vanta'), 'vanta'));
   const nov = FINDINGS.filter(function (f) { return f.status === 'NO_VERIFICADO'; });
+  unverifiedBlock(body, nov);
+  if (!nov.length) return;
   body.appendChild(el('h3', { text: I18N.summary.notVerified + ' (' + nov.length + ')' }));
-  if (!nov.length) { body.appendChild(el('p', { cls: 'muted', text: I18N.summary.none })); return; }
   body.appendChild(el('p', { cls: 'muted', text: I18N.summary.notVerifiedHint }));
   const ul = el('ul', { cls: 'plain' });
   nov.forEach(function (f) {
@@ -502,15 +555,18 @@ function resourceLabel(f) {
   const name = r.name && r.name !== r.id ? r.name + ' (' + r.id + ')' : r.id;
   return (r.type ? r.type + ' ' : '') + name + (r.region ? ' · ' + r.region : '');
 }
-// Findings with unresolved __COMPLETAR_ placeholders are left out: pasting them would run literal placeholders.
-// Findings the verification stage marked CONFLICTO or REVISAR are left out too.
-function bulkCandidates(sev) {
+// The bulk copy is only for fixes the verification stage stamped OK, so it needs a verification that matches the findings:
+// without one (never run, or stale) the buttons are disabled with the reason. Findings with unresolved __COMPLETAR_
+// placeholders are left out too, and so is anything that is not stamped OK (CONFLICTO, REVISAR, no entry).
+function bulkRaw(sev) {
   return FINDINGS.filter(function (f) {
     const rem = f.remediation;
     return f.status === 'FAIL' && f.severity === sev && rem && rem.kind === 'cli' && rem.risk === 'low' && arr(rem.commands).length &&
-      verifStatus(f) !== 'CONFLICTO' && verifStatus(f) !== 'REVISAR' &&
       !arr(rem.commands).some(function (c) { return c.indexOf('__COMPLETAR_') !== -1; });
   });
+}
+function bulkCandidates(sev) {
+  return VERIF ? bulkRaw(sev).filter(function (f) { return verifStatus(f) === 'OK'; }) : [];
 }
 function lowRiskBundle(sev) {
   return bulkCandidates(sev).map(function (f) {
@@ -523,15 +579,19 @@ function renderBulk() {
   document.getElementById('h-bulk').textContent = I18N.bulk.title;
   const body = mount('bulk-body');
   body.appendChild(el('p', { cls: 'muted', text: I18N.bulk.hint }));
+  const reason = DATA.verification_stale ? I18N.bulk.stale : I18N.bulk.noVerification;
+  if (!VERIF) body.appendChild(el('div', { cls: 'alert', text: reason, attrs: { id: 'bulk-reason', role: 'alert' } }));
   const row = el('div', { cls: 'row' });
+  let shown = 0;
   SEVERITIES.forEach(function (sev) {
-    const n = bulkCandidates(sev).length;
-    const label = I18N.bulk.button + ': ' + I18N.severity[sev] + ' (' + n + ')';
-    const btn = copyButton(label, function () { return lowRiskBundle(sev); });
-    if (!n) { btn.disabled = true; btn.title = I18N.bulk.empty; }
+    const n = VERIF ? bulkCandidates(sev).length : bulkRaw(sev).length;
+    if (!n) return;
+    shown += 1;
+    const btn = copyButton(I18N.bulk.button + ': ' + I18N.severity[sev] + ' (' + n + ')', function () { return lowRiskBundle(sev); });
+    if (!VERIF) { btn.disabled = true; btn.title = reason; }
     row.appendChild(btn);
   });
-  body.appendChild(row);
+  if (shown) body.appendChild(row); else if (VERIF) body.appendChild(el('p', { cls: 'muted', text: I18N.bulk.none }));
 }
 
 // ---------------------------------------------------------------- cards
@@ -579,7 +639,8 @@ function renderRemediation(f) {
   const box = el('div');
   box.appendChild(el('h3', { text: I18N.rem.title }));
   if (rem.note_status) {
-    box.appendChild(el('div', { cls: 'alert', text: rem.note_status, attrs: { role: 'alert' } }));
+    if (f.status === 'PASS' || f.status === 'N/A') box.appendChild(el('p', { cls: 'muted', text: rem.note_status }));
+    else box.appendChild(el('div', { cls: 'alert', text: rem.note_status, attrs: { role: 'alert' } }));
     if (rem.verify_after) box.appendChild(section(I18N.rem.verifyWith, commandBlock(rem.verify_after, I18N.rem.copyVerifyAria + ' ' + I18N.rem.of + ' ' + f.id)));
     return box;
   }
@@ -639,6 +700,7 @@ function cardBody(f) {
   const flags = el('div', { cls: 'row' });
   if (f.check_id) flags.appendChild(badge(I18N.findings.checkId + ' ' + f.check_id, ''));
   if (f.evaluated_by === 'claude') flags.appendChild(badge(I18N.findings.byClaude, 'st-NOT_TOUCHED'));
+  if (f.evaluated_by === 'vault') flags.appendChild(badge(I18N.findings.fromVault, 'st-DOCUMENTED_ONLY'));
   if (f.vacuous && f.status === 'N/A') flags.appendChild(badge(I18N.findings.vacuous, 'st-NA'));
   if (flags.childNodes.length) body.appendChild(flags);
   const mp = renderMappings(f);
@@ -724,7 +786,8 @@ function verifCounts(body) {
   body.appendChild(row);
   const pending = Number(VERIF.completar_pendientes) || 0;
   body.appendChild(el('p', null, [el('strong', { text: I18N.ver.pending + ': ' + pending + '. ' }), document.createTextNode(pending ? I18N.ver.pendingHint : '')]));
-  body.appendChild(el('p', { cls: 'muted', text: VERIF.cli_checked ? I18N.ver.cliOn : I18N.ver.cliOff }));
+  const none = !VERIF.cli_checked && VERIF.cli_requested && Number(VERIF.cli_operations_checked) === 0;
+  body.appendChild(el('p', { cls: 'muted', text: VERIF.cli_checked ? I18N.ver.cliOn : none ? I18N.ver.cliNone : I18N.ver.cliOff }));
 }
 function verifConflicts(body) {
   const conflicts = arr(VERIF.conflicts);
@@ -865,6 +928,7 @@ function renderNotes() {
 }
 
 renderHeader();
+renderVerdict();
 renderSummary();
 renderStaleWarning();
 renderVerification();

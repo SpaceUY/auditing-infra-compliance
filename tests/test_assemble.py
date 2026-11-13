@@ -334,7 +334,7 @@ class CoverageTests(AssembleCase):
         self.assertEqual(iso["A.8.21"]["status"], "FAIL")  # NET-001 FAIL on one group, PASS on another
         self.assertEqual(iso["A.8.22"]["status"], "PASS")  # only NET-004 PASS
         self.assertEqual(iso["A.8.13"]["status"], "NO_VERIFICADO")  # DAT-001 not verified
-        self.assertEqual(iso["A.8.15"]["status"], "NOT_TOUCHED")  # only an N/A row and a claim
+        self.assertEqual(iso["A.8.15"]["status"], "NO_VERIFICADO")  # an N/A row and a DOCUMENTED_GAP claim: the vault says so, nothing checked it
         self.assertEqual(iso["A.7.1"]["status"], "NOT_TOUCHED")
         self.assertEqual(iso["A.7.1"]["category"], "inherited")
         self.assertEqual(iso["A.8.2"]["category"], "technical")
@@ -541,7 +541,7 @@ class RemediationByStatusTests(AssembleCase):
     def assert_verify_only(self, finding):
         rem = finding["remediation"]
         self.assertEqual({k: rem[k] for k in self.NO_FIX}, self.NO_FIX)
-        self.assertEqual(rem["note_status"], "no verificado: no aplicar sin confirmar")
+        self.assertEqual(rem["note_status"], assemble_findings.NOTE_STATUS_BY_STATUS.get(finding["status"], "no verificado: no aplicar sin confirmar"))
         self.assertTrue(rem["verify_after"].strip())
 
     def test_documented_only_destructive_fix_is_not_carried(self):
@@ -623,6 +623,240 @@ class NoPercentageTests(AssembleCase):
                 for value in node:
                     walk(value)
         walk(json.loads(text))
+
+
+class ReviewTwoVerdictTests(AssembleCase):
+    """Review 2 (D Important 3 and the verdict decision): one verdict per run, never OPTIMO without credentials."""
+
+    def no_aws(self):
+        self.edit_results(lambda data: data.update(aws=None, results=[], warnings=["sin credenciales AWS válidas"]))
+
+    def only(self, *keep, status_for=None):
+        """Complete run with credentials where only these (check, resource) rows exist."""
+        def prune(data):
+            data["results"] = [r for r in data["results"] if (r["check_id"], r["resource_id"]) in keep]
+            data["warnings"] = []
+        self.edit_results(prune)
+
+    def verdict(self, claims=None, index=None):
+        summary = self.assemble(claims, index)["summary"]
+        return summary["verdict"], summary
+
+    def test_fail_makes_it_not_optimal(self):
+        verdict, summary = self.verdict()
+        self.assertEqual(verdict, "NO_OPTIMO")
+        self.assertTrue(summary["verdict_text"].startswith("No óptimo"))
+        self.assertNotIn("\n", summary["verdict_text"])
+
+    def test_clean_complete_run_with_credentials_is_optimal(self):
+        self.only(("DET-001", "account"), ("DAT-007", "acme-notes-assets"))
+        verdict, summary = self.verdict([])
+        self.assertEqual(verdict, "OPTIMO")
+        self.assertTrue(summary["verdict_text"].startswith("Óptimo"))
+        self.assertEqual(summary["unverified"]["total"], 0)
+
+    def test_no_credentials_is_never_optimal_and_says_nothing_was_verified(self):
+        self.no_aws()
+        only_vault = [{"kind": "DOCUMENTED_ONLY", "check_id": "ENC-003", "resource": {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}}]
+        verdict, summary = self.verdict(only_vault)  # a vault statement is the only source
+        self.assertEqual(verdict, "NO_VERIFICABLE")
+        self.assertIn("nada se verificó contra AWS", summary["verdict_text"])
+        self.assertFalse(summary["aws_verified"])
+
+    def test_no_credentials_with_a_vault_secret_is_still_not_optimal(self):
+        self.no_aws()
+        vault = self.tmp / "vault"
+        vault.mkdir()
+        helpers.make_secret_note(vault)
+        verdict, summary = self.verdict([], vault_index.build_index(vault))
+        self.assertEqual(verdict, "NO_OPTIMO")
+        self.assertIn("nada se verificó contra AWS", summary["verdict_text"])
+
+    def test_partial_run_blocked_regions_and_incomplete_inventory_are_not_verifiable(self):
+        self.only(("DET-001", "account"))
+        for patch in ({"partial": True, "pending_checks": ["NET-001"]},
+                      {"aws": {"account_id": "111122223333", "identity_arn": "x", "regions": ["us-east-1"], "blocked_regions": ["eu-west-1"]}},
+                      {"warnings": ["inventario incompleto: rds_instance ACCESS_DENIED en us-east-1"]}):
+            self.only(("DET-001", "account"))
+            self.edit_results(lambda data, patch=patch: data.update(patch))
+            self.assertEqual(self.verdict([])[0], "NO_VERIFICABLE", patch)
+
+    def test_not_verified_and_documented_only_items_block_optimal(self):
+        self.only(("DET-001", "account"), ("DAT-001", "account"))
+        verdict, summary = self.verdict([])
+        self.assertEqual((verdict, summary["unverified"]["no_verificado"]), ("NO_VERIFICABLE", 1))
+        self.only(("DET-001", "account"))
+        claim = {"kind": "DOCUMENTED_ONLY", "check_id": "ENC-003", "resource": {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}}
+        verdict, summary = self.verdict([claim])
+        self.assertEqual((verdict, summary["unverified"]["documented_only"]), ("NO_VERIFICABLE", 1))
+
+    def test_documented_gap_and_failing_drift_make_it_not_optimal(self):
+        self.only(("DET-001", "account"))
+        resource = {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}
+        gap = {"kind": "DOCUMENTED_GAP", "check_id": "ENC-003", "resource": resource}  # catalog severity high/critical
+        self.assertEqual(self.verdict([gap])[0], "NO_OPTIMO")
+        low = {"kind": "DOCUMENTED_GAP", "check_id": "ENC-003", "resource": resource, "severity": "low"}
+        self.assertEqual(self.verdict([low])[0], "NO_VERIFICABLE")
+        drift = {"kind": "DRIFT", "check_id": "ENC-003", "resource": resource, "actual_status": "FAIL", "severity": "low"}
+        self.assertEqual(self.verdict([drift])[0], "NO_OPTIMO")
+        calm = {"kind": "DRIFT", "check_id": "ENC-003", "resource": resource, "actual_status": "PASS"}
+        self.assertEqual(self.verdict([calm])[0], "OPTIMO")
+
+    def test_scoped_components_without_claims_are_listed_as_unverified(self):
+        self.only(("DET-001", "account"))
+        (self.run_dir / "scope.json").write_text(json.dumps({
+            "platform": "Acme Notes", "mode": "feature", "target": "email", "regions": ["us-east-1"], "resources": [
+                {"type": "lambda_function", "id": "acme-notes-mailer", "region": "us-east-1"},
+                {"type": "sqs_queue", "id": "arn:aws:sqs:us-east-1:111122223333:acme-notes-mail-queue", "region": "us-east-1"},
+                {"type": "s3_bucket", "id": "acme-notes-uploads", "region": "us-east-1"}]}), encoding="utf-8")
+        claim = {"kind": "DOCUMENTED_ONLY", "check_id": None, "resource": {"type": "sqs_queue", "id": "acme-notes-mail-queue", "region": "us-east-1"}}
+        out = self.assemble([claim])
+        listed = {u["id"] for u in out["unverified_scope"]}
+        self.assertEqual(listed, {"acme-notes-mailer", "acme-notes-uploads"})
+        self.assertEqual(out["summary"]["unverified"]["scope_without_claims"], 2)
+        self.assertEqual(out["summary"]["verdict"], "NO_VERIFICABLE")
+
+    def test_without_scope_file_nothing_is_listed(self):
+        self.assertEqual(self.assemble()["unverified_scope"], [])
+
+    def test_summary_keeps_its_old_keys_and_has_no_percentage(self):
+        summary = self.assemble()["summary"]
+        for key in ("by_status", "by_severity_fail", "drata_tests_failing", "vanta_tests_failing", "not_verified"):
+            self.assertIn(key, summary)
+        self.assertNotIn("%", json.dumps(summary))
+
+
+class ReviewTwoSourcesTests(AssembleCase):
+    def run_cli(self, *extra):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = assemble_findings.main(["--run-dir", str(self.run_dir), "--platform", "x", "--mode", "resource", *extra])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_no_vault_and_no_credentials_stops_without_writing_findings(self):
+        self.edit_results(lambda data: data.update(aws=None, results=[]))
+        code, out, err = self.run_cli()
+        self.assertEqual(code, 2)
+        self.assertIn("sin fuentes: hace falta un vault o credenciales AWS de solo lectura", err)
+        self.assertEqual(out, "")
+        self.assertFalse((self.run_dir / "findings.json").exists())
+
+    def test_missing_checks_result_without_vault_stops_too(self):
+        (self.run_dir / "checks-result.json").unlink()
+        code, _, err = self.run_cli()
+        self.assertEqual(code, 2)
+        self.assertIn("sin fuentes", err)
+
+    def test_a_vault_alone_or_credentials_alone_are_enough(self):
+        self.assertEqual(self.run_cli()[0], 0)  # credentials, no vault
+        self.edit_results(lambda data: data.update(aws=None, results=[]))
+        vault = self.tmp / "v"
+        vault.mkdir()
+        (vault / "a.md").write_text("# A\n", encoding="utf-8")
+        index = self.tmp / "i.json"
+        index.write_text(json.dumps(vault_index.build_index(vault)), encoding="utf-8")
+        self.assertEqual(self.run_cli("--vault-index", str(index))[0], 0)
+
+
+class ReviewTwoSmallFixesTests(AssembleCase):
+    def test_lookup_keys_on_resource_type_as_well_as_id(self):
+        inventory = json.loads((self.run_dir / "inventory.json").read_text(encoding="utf-8"))
+        inventory.insert(0, {"type": "iam_role", "id": "acme-notes-uploads", "arn": "arn:aws:iam::111122223333:role/acme-notes-uploads",
+                             "name": "acme-notes-uploads", "region": "us-east-1", "tags": {}})
+        (self.run_dir / "inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+        finding = self.one(self.assemble(), "INV-001", "acme-notes-uploads")
+        self.assertEqual(finding["resource"]["type"], "s3_bucket")
+        self.assertIn('RESOURCE_ARN="arn:aws:s3:::acme-notes-uploads"', finding["remediation"]["commands"][0])
+        self.assertNotIn(":role/", json.dumps(finding["remediation"]))
+
+    def test_lookup_with_only_a_wrong_type_match_leaves_the_arn_to_complete(self):
+        inventory = [{"type": "iam_role", "id": "acme-notes-uploads", "arn": "arn:aws:iam::111122223333:role/acme-notes-uploads",
+                      "name": "acme-notes-uploads", "region": "us-east-1", "tags": {}}]
+        (self.run_dir / "inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+        finding = self.one(self.assemble(), "INV-001", "acme-notes-uploads")
+        self.assertIn('RESOURCE_ARN="__COMPLETAR_RESOURCE_ARN__"', finding["remediation"]["commands"][0])
+
+    def test_unicode_digits_are_not_safe_in_region_or_account(self):
+        claim = {"kind": "DOCUMENTED_GAP", "check_id": "ENC-003",
+                 "resource": {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-\u0663"}}
+        finding = self.one(self.assemble([claim]), "ENC-003", "acme-notes-db")
+        self.assertNotIn("\u0663", json.dumps(finding["remediation"], ensure_ascii=False))
+        self.assertIn('REGION="__COMPLETAR_REGION__"', finding["remediation"]["commands"][0])
+
+    def test_pass_and_na_get_their_own_status_note(self):
+        out = self.assemble()
+        passed = self.one(out, "DET-001", "account", "PASS")["remediation"]["note_status"]
+        na = self.one(out, "LOG-002", "account", "N/A")["remediation"]["note_status"]
+        unverified = self.one(out, "DAT-001", "account", "NO_VERIFICADO")["remediation"]["note_status"]
+        self.assertEqual(unverified, "no verificado: no aplicar sin confirmar")
+        self.assertNotIn("no verificado", passed)
+        self.assertNotIn("no verificado", na)
+        self.assertNotEqual(passed, na)
+
+    def test_vault_statements_are_not_marked_as_claude_evaluations(self):
+        resource = {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}
+        claims = [{"kind": kind, "check_id": "ENC-003", "resource": resource} for kind in ("DOCUMENTED_ONLY", "DOCUMENTED_GAP")]
+        out = self.assemble(claims)
+        for finding in self.find(out, "ENC-003"):
+            self.assertEqual(finding["evaluated_by"], "vault", finding["status"])
+        drift = self.assemble([{"kind": "DRIFT", "check_id": "ENC-003", "resource": resource}])
+        self.assertEqual(self.one(drift, "ENC-003")["evaluated_by"], "claude")
+
+    def test_free_vault_adds_an_untyped_warning(self):
+        vault = self.tmp / "free"
+        vault.mkdir()
+        (vault / "a.md").write_text("# A\n", encoding="utf-8")
+        index = vault_index.build_index(vault)
+        self.assertEqual(index["kind"], "free")
+        self.assertTrue(any("vault no tipado" in w for w in self.assemble([], index)["warnings"]))
+        index["kind"] = "typed"
+        self.assertFalse(any("vault no tipado" in w for w in self.assemble([], index)["warnings"]))
+
+    def test_truncated_notes_warn(self):
+        index = {"kind": "typed", "root": "/v", "notes": [], "broken_links": [], "secrets_detected": [], "sensitive_files": [],
+                 "truncated_notes": ["big.md"]}
+        self.assertTrue(any("big.md" in w and "truncada" in w for w in self.assemble([], index)["warnings"]))
+
+    def test_documented_findings_touch_their_controls_as_not_verified(self):
+        claim = {"kind": "DOCUMENTED_ONLY", "check_id": "ENC-003", "resource": {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}}
+        out = self.assemble([claim])
+        finding = self.one(out, "ENC-003")
+        ids = {m["id"] for m in finding["mappings"]["iso27001_2022"]}
+        self.assertTrue(ids)
+        coverage = {c["id"]: c["status"] for c in out["coverage"]["iso"]}
+        for control in ids:
+            self.assertIn(coverage[control], ("NO_VERIFICADO", "FAIL"), control)
+
+    def test_malformed_rows_and_claim_fields_do_not_crash(self):
+        def corrupt(data):
+            data["results"] += [{"check_id": "NET-001", "status": "FAIL"}, "texto", {"status": "FAIL", "resource_id": "x"}]
+        self.edit_results(corrupt)
+        out = self.assemble()
+        self.assertTrue(any("fila inválida" in w for w in out["warnings"]))
+        path = self.tmp / "claims.json"
+        path.write_text(json.dumps([{"kind": "DRIFT", "resource": {"id": 5}}]), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            assemble_findings._load_claims(path)
+
+    def test_findings_digest_covers_status_and_commands(self):
+        out = self.assemble()
+        before = assemble_findings.findings_digest(out)
+        changed = json.loads(json.dumps(out))
+        changed["findings"][0]["status"] = "PASS"
+        self.assertNotEqual(assemble_findings.findings_digest(changed), before)
+        again = json.loads(json.dumps(out))
+        again["findings"][0]["remediation"]["commands"] = ["echo cambiado"]
+        self.assertNotEqual(assemble_findings.findings_digest(again), before)
+        self.assertEqual(assemble_findings.findings_digest(json.loads(json.dumps(out))), before)
+
+    def test_sensitive_note_with_credentials_in_a_policy_title_carries_the_review_hint(self):
+        index = {"kind": "typed", "root": "/v", "notes": [], "broken_links": [], "secrets_detected": [],
+                 "sensitive_files": [{"path": "policies/Credentials rotation policy.md", "reason": "x"},
+                                     {"path": "Rotation of credentials.md", "reason": "x"}]}
+        findings = [f for f in self.assemble([], index)["findings"] if f["evidence"].get("detection") == "nombre de archivo"]
+        self.assertEqual(len(findings), 2)
+        for finding in findings:
+            self.assertIn(assemble_findings.TEMPLATE_HINT, finding["remediation"]["steps"])
 
 
 class CliTests(AssembleCase):

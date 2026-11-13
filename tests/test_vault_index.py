@@ -358,7 +358,7 @@ class FeatureTests(VaultCase):
         self.assertEqual(result["chosen"], "systems/Email delivery.md")
         self.assertEqual(result["confidence"], "typed")
         self.assertEqual(titles(result["components"]),
-                         {"SES Identity", "Mailer Lambda", "Mail Queue", "Mailer Role", "DMARC reject policy"})
+                         {"Email delivery", "SES Identity", "Mailer Lambda", "Mail Queue", "Mailer Role", "DMARC reject policy"})
         role = next(c for c in result["components"] if c["title"] == "Mailer Role")
         self.assertEqual((role["depth"], role["via"]), (2, ["depends on"]))
         self.assertTrue(any(i["value"].startswith("arn:aws:iam") for i in role["aws_ids"]))
@@ -475,7 +475,7 @@ class FeatureTests(VaultCase):
         index = vault_index.build_index(FREE)
         result = vault_index.resolve_feature(index, "S3 - uploads")
         self.assertEqual(result["chosen"], "S3 - uploads.md")
-        self.assertEqual(result["components"], [])
+        self.assertEqual([c["title"] for c in result["components"]], ["S3 - uploads"])  # itself, nothing reached through "← [[Hub]]"
 
     def test_feature_matches_partial_title_without_h1(self):
         vault = self.tmp / "noh1"
@@ -496,7 +496,7 @@ class FeatureTests(VaultCase):
         index = vault_index.build_index(vault)
         self.assertEqual(index["broken_links"], [])
         result = vault_index.resolve_feature(index, "F")
-        self.assertEqual(titles(result["components"]), {"G", "H", "I", "J"})
+        self.assertEqual(titles(result["components"]), {"F", "G", "H", "I", "J"})
 
     def test_feature_typed_matches_nfd_links_and_extra_spaces(self):
         vault = self.tmp / "nfd"
@@ -511,7 +511,7 @@ class FeatureTests(VaultCase):
         index = vault_index.build_index(vault)
         self.assertEqual(index["broken_links"], [])
         result = vault_index.resolve_feature(index, "F")
-        self.assertEqual(titles(result["components"]), {nfc, "Mail Queue"})
+        self.assertEqual(titles(result["components"]), {"F", nfc, "Mail Queue"})
 
     def test_body_ignores_symlinks_dirs_and_dot_paths(self):
         vault = self.tmp / "b"
@@ -529,6 +529,132 @@ class FeatureTests(VaultCase):
                 "aws_ids": [], "kv": {}, "headings": [], "inferred_type": None}
         index["notes"] += [{**base, "path": ".git/n.md"}, {**base, "path": "dir.md"}]
         self.assertEqual(vault_index.resolve_feature(index, "zzzunico")["candidates"], [])
+
+
+class ReviewTwoFeatureTests(VaultCase):
+    """Review 2 (B I8, D Important 1): the matched note's own resource is part of the feature; plus M2, M7, M12."""
+
+    def test_typed_leaf_note_is_its_own_component(self):
+        index = vault_index.build_index(TYPED)
+        queue = vault_index.resolve_feature(index, "Mail Queue")
+        self.assertEqual(queue["chosen"], "systems/Mail Queue.md")
+        root = next(c for c in queue["components"] if c["title"] == "Mail Queue")
+        self.assertEqual((root["depth"], root["via"]), (0, ["matched"]))
+        self.assertTrue(any(i["value"].startswith("arn:aws:sqs") for i in root["aws_ids"]))
+        lam = vault_index.resolve_feature(index, "Mailer Lambda")
+        self.assertEqual(titles(lam["components"]), {"Mailer Lambda", "Mailer Role"})
+        ids = {i["value"] for c in lam["components"] if c["title"] == "Mailer Lambda" for i in c["aws_ids"]}
+        self.assertIn("sg-0123456789abcdef0", ids)
+
+    def test_typed_root_outside_systems_is_not_a_component(self):
+        index = vault_index.build_index(TYPED)
+        result = vault_index.resolve_feature(index, "PII handling")
+        self.assertEqual(result["chosen"], "constraints/PII handling.md")
+        self.assertEqual(result["components"], [])
+
+    def test_free_leaf_note_is_its_own_component_only_when_it_names_a_resource(self):
+        index = vault_index.build_index(FREE)
+        uploads = vault_index.resolve_feature(index, "uploads")
+        self.assertEqual([(c["title"], c["depth"]) for c in uploads["components"]], [("S3 - uploads", 0)])
+        database = vault_index.resolve_feature(index, "RDS - acme-db")
+        self.assertEqual({c["title"]: c["depth"] for c in database["components"]}["RDS - acme-db"], 0)
+        self.assertIn("VPC", titles(database["components"]))
+        self.assertEqual(vault_index.resolve_feature(index, "Runbook de guardia")["components"], [])
+        self.assertNotIn("Acme Notes", titles(vault_index.resolve_feature(index, "Acme Notes")["components"]))
+
+    def test_empty_stem_prefix_does_not_crash_the_index(self):
+        vault = self.tmp / "odd"
+        vault.mkdir()
+        (vault / " - x.md").write_text("# x\n", encoding="utf-8")
+        (vault / "-.md").write_text("# y\n", encoding="utf-8")
+        self.assertEqual(len(vault_index.build_index(vault)["notes"]), 2)
+
+    def test_same_stem_in_two_folders_prefers_systems_and_honours_folder_links(self):
+        vault = self.tmp / "dup"
+        for folder in ("systems", "notes"):
+            (vault / folder).mkdir(parents=True)
+        (vault / "systems" / "Hub.md").write_text(
+            "---\ntype: system\n---\n# Hub\n\n## Structural\n- depends on → [[Queue]]\n- depends on → [[notes/Queue]]\n", encoding="utf-8")
+        (vault / "systems" / "Queue.md").write_text("---\ntype: system\n---\n# Queue\n", encoding="utf-8")
+        (vault / "notes" / "Queue.md").write_text("---\ntype: system\n---\n# Queue notes\n", encoding="utf-8")
+        result = vault_index.resolve_feature(vault_index.build_index(vault), "Hub")
+        self.assertEqual([c["path"] for c in result["components"] if c["depth"] == 1], ["systems/Queue.md"])
+
+    def test_alias_links_resolve_and_are_not_broken(self):
+        vault = self.tmp / "alias"
+        (vault / "systems").mkdir(parents=True)
+        (vault / "systems" / "Hub.md").write_text(
+            "---\ntype: system\n---\n# Hub\n\n## Structural\n- depends on → [[Cola de correo]]\n", encoding="utf-8")
+        (vault / "systems" / "Mail Queue.md").write_text(
+            "---\ntype: system\naliases: [Cola de correo]\n---\n# Mail Queue\n", encoding="utf-8")
+        index = vault_index.build_index(vault)
+        self.assertEqual(index["broken_links"], [])
+        self.assertEqual(titles(vault_index.resolve_feature(index, "Hub")["components"]), {"Hub", "Mail Queue"})
+
+    def test_superseded_notes_are_not_feature_candidates(self):
+        vault = self.tmp / "old"
+        (vault / "systems").mkdir(parents=True)
+        (vault / "systems" / "Mail queue v1.md").write_text("---\ntype: system\nstatus: superseded\n---\n# Mail queue v1\n", encoding="utf-8")
+        (vault / "systems" / "Mail queue v2.md").write_text("---\ntype: system\nstatus: shipped\n---\n# Mail queue v2\n", encoding="utf-8")
+        result = vault_index.resolve_feature(vault_index.build_index(vault), "mail queue")
+        self.assertEqual(result["chosen"], "systems/Mail queue v2.md")
+        only_old = self.tmp / "only-old"
+        (only_old / "systems").mkdir(parents=True)
+        (only_old / "systems" / "Mail queue v1.md").write_text("---\ntype: system\nstatus: superseded\n---\n# Mail queue v1\n", encoding="utf-8")
+        self.assertEqual(vault_index.resolve_feature(vault_index.build_index(only_old), "mail queue")["chosen"], "systems/Mail queue v1.md")
+
+    def test_oversized_notes_are_read_up_to_a_cap_and_reported(self):
+        vault = self.tmp / "big"
+        vault.mkdir()
+        (vault / "big.md").write_text("# Big\n\n" + "linea de relleno\n" * 200 + "password: hunter2\n", encoding="utf-8")
+        with mock.patch.object(vault_index, "MAX_NOTE_BYTES", 400):
+            index = vault_index.build_index(vault)
+        self.assertEqual(index["truncated_notes"], ["big.md"])
+        self.assertEqual(vault_index.build_index(vault)["truncated_notes"], [])
+
+
+class ReviewTwoSecretTests(VaultCase):
+    def write(self, **notes):
+        vault = self.tmp / "secrets"
+        vault.mkdir()
+        for name, text in notes.items():
+            (vault / f"{name}.md").write_text(text, encoding="utf-8")
+        return vault
+
+    def test_password_table_rows_are_masked_in_kv_and_detected(self):
+        vault = self.write(db="# DB\n\n| Campo | Valor |\n|---|---|\n| DBPassword | Abc123xyz |\n| MasterUserPassword | Zzz 999 |\n"
+                              "| Engine | postgres |\n")
+        index = vault_index.build_index(vault)
+        note = self.note(index, "db")
+        self.assertEqual(note["kv"]["DBPassword"], "[REDACTED]")
+        self.assertEqual(note["kv"]["MasterUserPassword"], "[REDACTED]")
+        self.assertEqual(note["kv"]["Engine"], "postgres")
+        dumped = json.dumps(index, ensure_ascii=False)
+        for leaked in ("Abc123xyz", "Zzz 999"):
+            self.assertNotIn(leaked, dumped)
+        self.assertIn({"path": "db.md", "pattern": "password"}, index["secrets_detected"])
+
+    def test_references_in_a_password_table_are_clean(self):
+        vault = self.write(db="# DB\n\n| Campo | Valor |\n|---|---|\n| Password | en Secrets Manager (prod/db) |\n"
+                              "| Password policy | ver Políticas |\n")
+        index = vault_index.build_index(vault)
+        self.assertEqual(index["secrets_detected"], [])
+        self.assertEqual(self.note(index, "db")["kv"]["Password"], "en Secrets Manager (prod/db)")
+
+    def test_hostile_200kb_lines_index_in_under_a_second(self):
+        hostile = ("password=" * 25000, "| password |" * 18000, "token: " + "A1b" * 66000, "x" * 200000 + "password=y",
+                   "bearer " * 28000, "api_key " * 25000, "postgres" + "://" + "u" * 100000 + ":" + "p" * 100000)
+        vault = self.write(**{f"h{i}": f"# H\n\n{line}\n" for i, line in enumerate(hostile)})
+        start = time.perf_counter()
+        vault_index.build_index(vault)
+        self.assertLess(time.perf_counter() - start, 1.0)
+
+    def test_cli_message_for_a_free_vault_is_spanish_and_says_it_is_untyped(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            vault_index.main(["index", str(FREE), "-o", str(self.tmp / "i.json")])
+        self.assertIn("libre (no tipado)", out.getvalue())
+        self.assertNotIn("Vault free", out.getvalue())
 
 
 class CliTests(VaultCase):

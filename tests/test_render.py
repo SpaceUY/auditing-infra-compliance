@@ -94,11 +94,13 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("overflow-wrap: anywhere", body_rule)
 
     def test_bulk_copy_skips_unresolved_placeholders(self):
-        logic = re.search(r"function bulkCandidates\(.*?\n\}", TEMPLATE, re.S).group(0)
+        logic = re.search(r"function bulkRaw\(.*?\n\}", TEMPLATE, re.S).group(0)
         self.assertIn("'__COMPLETAR_'", logic)
         self.assertIn("rem.risk === 'low'", logic)
         self.assertIn("rem.kind === 'cli'", logic)
-        self.assertEqual(TEMPLATE.count("bulkCandidates("), 3)  # definition + bundle + count
+        gate = re.search(r"function bulkCandidates\(.*?\n\}", TEMPLATE, re.S).group(0)
+        self.assertIn("verifStatus(f) === 'OK'", gate)  # only what the verification stamped OK
+        self.assertIn("VERIF ?", gate)
 
     def test_copy_buttons_have_aria_labels_and_restore_focus(self):
         self.assertIn("'aria-label'", TEMPLATE)
@@ -121,8 +123,8 @@ def fix_finding(number, kind, commands, *, risk="low", status="FAIL", severity="
 
 
 @unittest.skipUnless(shutil.which("node"), "node no está instalado")
-class ScriptSmokeTests(unittest.TestCase):
-    """Runs the template script over a rendered report (DOM stub in dom_smoke.js) and checks what can be copied."""
+class PageCase(unittest.TestCase):
+    """Runs the template script over a rendered report (DOM stub in dom_smoke.js)."""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -156,6 +158,11 @@ class ScriptSmokeTests(unittest.TestCase):
                 "apply_order": [], "completar_pendientes": 1, "cli_checked": False, "summary": {"OK": 2, "REVISAR": 1, "CONFLICTO": 1},
                 "warnings": [], "findings_digest": assemble_findings.findings_digest(document)}
 
+
+@unittest.skipUnless(shutil.which("node"), "node no está instalado")
+class ScriptSmokeTests(PageCase):
+    """Checks what the page offers to copy."""
+
     def test_bulk_copy_bundles_only_cli_low_risk_fixes_that_verification_did_not_flag(self):
         document = self.document()
         page = self.run_page(document, self.verification(document))
@@ -181,8 +188,8 @@ class ScriptSmokeTests(unittest.TestCase):
         page = self.run_page(document, verification)
         self.assertFalse(page["stale"]["hidden"])
         self.assertIn("verificación desactualizada: volver a correr verify_remediation", page["stale"]["text"])
-        bundle = next(b["text"] for b in page["bulk"] if b["text"])
-        self.assertIn("revisar-2", bundle)  # no verification applies
+        self.assertTrue(page["bulk"] and all(b["disabled"] for b in page["bulk"]))  # nothing verified applies: bulk copy is off
+        self.assertIn("la verificación quedó desactualizada", page["bulkText"])
         fresh = self.run_page(document, self.verification(document))
         self.assertTrue(fresh["stale"]["hidden"])
 
@@ -194,6 +201,104 @@ class ScriptSmokeTests(unittest.TestCase):
         self.assertEqual({c["id"] for c in page["cards"] if c["copyAll"]}, {i for i in multi if kinds[i] == "cli"})
         self.assertTrue(any(kinds[i] != "cli" for i in multi), "el fixture debe tener un arreglo multi-bloque que no sea cli")
         self.assertEqual(len(page["cards"]), len(SAMPLE["findings"]))
+
+
+@unittest.skipUnless(shutil.which("node"), "node no está instalado")
+class ReviewTwoPageTests(PageCase):
+    """Verdict banner, credential-less honesty, bulk copy that needs a valid verification."""
+
+    VERDICT_TEXT = "No verificable para SOC 2 / ISO 27001: sin credenciales AWS: nada se verificó contra AWS, solo se informa lo que dice el vault."
+
+    def no_aws_document(self):
+        document = self.document()
+        document["meta"] = {"aws": None, "vault": {"kind": "typed", "path": "v"}}
+        document["summary"] = {"verdict": "NO_VERIFICABLE", "verdict_text": self.VERDICT_TEXT, "aws_verified": False,
+                               "unverified": {"no_verificado": 0, "documented_only": 3, "documented_gap": 2, "scope_without_claims": 1, "total": 6},
+                               "by_status": {}, "by_severity_fail": {}, "drata_tests_failing": [], "vanta_tests_failing": [], "not_verified": 0}
+        document["unverified_scope"] = [{"type": "lambda_function", "id": "acme-notes-mailer", "region": "us-east-1", "reason": "x"}]
+        return document
+
+    def test_verdict_is_shown_first_with_its_text_and_class(self):
+        page = self.run_page(self.no_aws_document())
+        self.assertFalse(page["verdict"]["hidden"])
+        self.assertIn("verdict-NO_VERIFICABLE", page["verdict"]["cls"])
+        self.assertIn(self.VERDICT_TEXT, page["verdict"]["text"])
+        self.assertIn("No verificable", page["verdict"]["text"])
+        self.assertLess(TEMPLATE.index('id="verdict"'), TEMPLATE.index('id="meta"'))
+        for verdict, label in (("OPTIMO", "Óptimo"), ("NO_OPTIMO", "No óptimo")):
+            document = self.document()
+            document["meta"] = {"aws": {"account_id": "111122223333"}}
+            document["summary"] = {"verdict": verdict, "verdict_text": f"{label} para SOC 2 / ISO 27001."}
+            page = self.run_page(document)
+            self.assertIn(f"verdict-{verdict}", page["verdict"]["cls"])
+            self.assertIn(label, page["verdict"]["text"])
+            self.assertNotIn("Nada se verificó contra AWS", page["verdict"]["text"])
+
+    def test_without_credentials_the_page_says_so_and_does_not_show_clean_zeros(self):
+        page = self.run_page(self.no_aws_document())
+        self.assertIn("Nada se verificó contra AWS", page["verdict"]["text"])
+        summary = page["summary"]
+        self.assertIn("Sin credenciales AWS: ningún conteo de abajo es un resultado verificado", summary)
+        self.assertEqual(summary.count("sin verificar (sin credenciales AWS)"), 2)  # Drata and Vanta
+        self.assertNotIn("ninguno", summary)
+        for wanted in ("Solo documentado en el vault: 3", "Brecha documentada en el vault: 2",
+                       "Componentes del alcance sin afirmaciones ni resultados: 1", "lambda_function acme-notes-mailer · us-east-1 — sin verificar"):
+            self.assertIn(wanted, summary)
+
+    def test_with_credentials_the_failing_test_lists_keep_their_counts(self):
+        document = self.document()
+        document["meta"] = {"aws": {"account_id": "111122223333"}}
+        summary = self.run_page(document)["summary"]
+        self.assertIn("Tests de Drata que fallan (0)", summary)
+        self.assertNotIn("sin credenciales", summary)
+
+    def test_a_findings_file_without_a_verdict_hides_the_banner(self):
+        self.assertTrue(self.run_page(self.document())["verdict"]["hidden"])
+
+    def test_bulk_copy_is_disabled_with_a_visible_reason_without_verification(self):
+        page = self.run_page(self.document())
+        self.assertTrue(page["bulk"] and all(b["disabled"] for b in page["bulk"]))
+        self.assertIn("falta la verificación de los arreglos", page["bulkText"])
+
+    def test_bulk_copy_only_offers_what_the_verification_stamped_ok(self):
+        document = self.document()
+        verification = self.verification(document)
+        verification["per_finding"].pop("F-0007")  # no entry: not verified, not copied
+        page = self.run_page(document, verification)
+        bundle = next(b["text"] for b in page["bulk"] if b["text"])
+        self.assertIn("echo ok-1a", bundle)
+        self.assertNotIn("ok-7", bundle)
+        self.assertNotIn("falta la verificación", page["bulkText"])
+
+    def test_bulk_copy_with_nothing_to_copy_says_so_instead_of_empty_buttons(self):
+        document = {"meta": {}, "dependencies": [], "warnings": [], "notes": [], "findings": [fix_finding(1, "planned_change", ["echo x"])]}
+        page = self.run_page(document, {"per_finding": {}, "findings_digest": assemble_findings.findings_digest(document), "summary": {}})
+        self.assertEqual(page["bulk"], [])
+        self.assertIn("No hay arreglos de bajo riesgo para copiar", page["bulkText"])
+
+    def test_verification_section_does_not_claim_a_cli_check_that_never_ran(self):
+        document = self.document()
+        verification = self.verification(document)
+        verification.update(cli_checked=False, cli_requested=True, cli_operations_checked=0)
+        self.assertIn("no había comandos aws que comprobar", self.run_page(document, verification)["verification"])
+        verification.update(cli_checked=True, cli_operations_checked=3)
+        self.assertIn("comprobada con la ayuda local", self.run_page(document, verification)["verification"])
+        verification.update(cli_checked=False, cli_requested=False, cli_operations_checked=0)
+        self.assertIn("no comprobada", self.run_page(document, verification)["verification"])
+
+    def test_pass_status_note_is_not_an_alert(self):
+        document = self.document()
+        passed = fix_finding(9, "cli", [], status="PASS")
+        passed["remediation"].update(steps=[], note_status="verificado en AWS: cumple, no requiere arreglo", verify_after="echo ok")
+        document["findings"].append(passed)
+        self.assertNotIn("verificado en AWS: cumple, no requiere arreglo", self.run_page(document)["planned"])
+
+    def test_template_has_a_noscript_fallback_and_new_labels(self):
+        self.assertIn("<noscript>", TEMPLATE)
+        block = i18n_block(TEMPLATE)
+        for key in ("riesgo_alto: 'Riesgo alto'", "evidencia_faltante: 'Evidencia faltante'", "fromVault:"):
+            self.assertIn(key, block)
+        self.assertNotIn("%", block)
 
 
 class RenderTests(unittest.TestCase):
@@ -221,6 +326,11 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("\u2028", match.group(1))
         self.assertNotIn("\u2029", match.group(1))
         self.assertEqual(json.loads(match.group(1))["findings"][0]["title"], "a\u2028b\u2029c")
+
+    def test_fixture_verdict_matches_what_the_assembler_computes(self):
+        recomputed = assemble_findings._summary(SAMPLE["findings"], True, [], [])
+        for key in ("verdict", "verdict_text", "unverified"):
+            self.assertEqual(SAMPLE["summary"][key], recomputed[key], key)
 
     def test_fixture_has_long_tokens_and_placeholder_cli_fix(self):
         findings = SAMPLE["findings"]

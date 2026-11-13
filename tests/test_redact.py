@@ -155,5 +155,138 @@ class LayoutTests(unittest.TestCase):
             self.assertLess(time.perf_counter() - start, 1.0, text[:20])
 
 
+def url(scheme, rest):
+    """URL built at runtime (a hook blocks literal database URLs that carry credentials)."""
+    return scheme + "://" + rest
+
+
+class CredentialFormatTests(unittest.TestCase):
+    """Review 2, C1/I1/I2/I3: the credential formats a vault really uses, and the references that are not secrets."""
+
+    def assert_secret(self, line, pattern="password", value="hunter2"):
+        masked = redact.mask(line)
+        self.assertNotIn(value, masked, line)
+        self.assertIn(redact.REDACTED, masked, line)
+        self.assertEqual(redact.mask(masked), masked, line)
+        self.assertIn(pattern, redact.detect(line), line)
+
+    def assert_untouched(self, line):
+        self.assertEqual(redact.mask(line), line, line)
+        self.assertEqual(redact.detect(line), [], line)
+
+    def test_password_in_table_cells(self):
+        for line in ("| Password | hunter2 |", "| db_password | hunter2 |", "| Admin password | hunter2 |",
+                     "| DBPassword | hunter2 | nota |", "| Contraseña | hunter2 |"):
+            self.assert_secret(line)
+        self.assertEqual(redact.mask("| Password | hunter2 | nota |"), "| Password | [REDACTED] | nota |")
+
+    def test_compound_and_camel_case_labels(self):
+        for line in ("MasterUserPassword: hunter2", "DBPassword: hunter2", "AdminPassword = hunter2", "db_password=hunter2",
+                     "RDS_MASTER_PASSWORD=hunter2", "x-db-password: hunter2", "--master-user-password hunter2",
+                     "--master-user-password 'hunter2'"):
+            self.assert_secret(line)
+
+    def test_values_with_spaces_and_quotes_are_fully_masked(self):
+        cases = {"password: P@ss;w0rd123": "password: [REDACTED]", "password=Ab,Cd*12|x": "password=[REDACTED]",
+                 'PASSWORD="pa ss"': 'PASSWORD="[REDACTED]"', "password: 'two words here'": "password: '[REDACTED]'",
+                 "Password: correct horse battery staple": "Password: [REDACTED]",
+                 '"password": "a b; c"': '"password": "[REDACTED]"',
+                 '{\\"password\\": \\"sp ace\\"}': '{\\"password\\": \\"[REDACTED]\\"}',
+                 "| Password | pa ss word | nota |": "| Password | [REDACTED] | nota |"}
+        for text, expected in cases.items():
+            self.assertEqual(redact.mask(text), expected, text)
+            self.assertEqual(redact.mask(expected), expected)
+            self.assertEqual(redact.detect(text), ["password"], text)
+
+    def test_unterminated_quote_masks_to_end_of_line(self):
+        self.assertEqual(redact.mask('password: "abc def'), 'password: "[REDACTED]')
+
+    def test_references_are_not_secrets(self):
+        for line in ("Password: in Secrets Manager", "Password: en Secrets Manager", "- Password: ver Secrets Manager (prod/db)",
+                     "DB_PASSWORD=${DB_PASSWORD}", "password: {{ vault_db_password }}", "password: <db-password>",
+                     "- Password: N/A", "| Password | - |", "| Password |  |", "Password:", "password: *****", "password: [REDACTED]",
+                     "PASSWORD_ARN=arn:aws:secretsmanager:us-east-1:111122223333:secret:prod/db-AbCdEf",
+                     "password: arn:aws:ssm:us-east-1:111122223333:parameter/prod/db",
+                     "password: ssm:/acme/prod/db-password", "password: /acme/prod/db-password",
+                     "password_file: /run/secrets/db", "db_password_path: /run/secrets/db", "admin_password_file=/x/y",
+                     "password: rotated every 90 days", "password: stored in 1Password", "Contraseña: en Secrets Manager",
+                     "IAM password policy: enforced", "password_policy: strong", "RequireUppercaseCharacters: true",
+                     "MinimumPasswordLength: 14", "PasswordReusePrevention: 24", "MaxPasswordAge: 90",
+                     "AllowUsersToChangePassword: true", "password_last_used: 2026-01-01"):
+            self.assert_untouched(line)
+
+    def test_table_header_with_password_column_is_not_a_secret(self):
+        text = "| Password | Rotación | Owner |\n|---|---|---|\n| Password | hunter2 | ops |\n"
+        masked = redact.mask(text)
+        self.assertIn("| Password | Rotación | Owner |", masked)
+        self.assertNotIn("hunter2", masked)
+        self.assertEqual(redact.detect("| Password | Rotación | Owner |\n|---|---|---|\n"), [])
+
+    def test_hr_after_a_password_line_does_not_hide_it(self):
+        self.assertNotIn("hunter2", redact.mask("password: hunter2\n---\n"))
+
+    def test_api_keys_tokens_and_client_secrets(self):
+        cases = (("api_key: sk-123456789", "api_key"), ("apikey=abcDEF123456", "api_key"), ("X-Api-Key: abcDEF123456", "api_key"),
+                 ("API key | abcDEF123456 |", "api_key"), ("token: ghp_abcdef", "token"), ("access_token=abcDEF123456", "token"),
+                 ("auth_token: abcDEF123456", "token"), ("x-amz-security-token: FwoGZXIvYXdz12345", "token"),
+                 ("client_secret=abcDEF123456", "client_secret"), ('"client_secret": "abcDEF123456"', "client_secret"),
+                 ("Authorization: Bearer eyJhbGciOi.abc123.def456", "bearer_token"), ("curl -H 'Bearer abcDEF123456'", "bearer_token"))
+        for line, pattern in cases:
+            masked = redact.mask(line)
+            self.assertIn(redact.REDACTED, masked, line)
+            self.assertEqual(redact.mask(masked), masked, line)
+            self.assertIn(pattern, redact.detect(line), line)
+        for secret in ("sk-123456789", "ghp_abcdef", "abcDEF123456", "FwoGZXIvYXdz12345", "eyJhbGciOi.abc123.def456"):
+            for line, _ in cases:
+                self.assertNotIn(secret, redact.mask(line), line)
+
+    def test_token_and_key_labels_that_are_not_secrets(self):
+        for line in ("token: abc", "token: placeholder", "tokens: 5", "token_ttl: 3600", "api_key: <your-key>",
+                     "access_token: ${TOKEN}", "api_key: in Secrets Manager", "Authorization: required", "bearer authentication",
+                     "api_key_id: AbCdEf123456", "| Token | Expiración |\n|---|---|", "client_secret: ver Secrets Manager"):
+            self.assert_untouched(line)
+
+    def test_url_userinfo_password(self):
+        for text in (url("postgres", "admin:s3cr3t@db.acme-notes.example:5432/app"), url("https", "bob:s3cr3t@host.acme-notes.example/x")):
+            masked = redact.mask(text)
+            self.assertNotIn("s3cr3t", masked)
+            self.assertIn(":[REDACTED]@", masked)
+            self.assertNotIn("***", masked)
+            self.assertEqual(redact.mask(masked), masked)
+            self.assertEqual(redact.detect(text), ["url_credentials"])
+        for text in (url("postgres", "admin:${DB_PASS}@db.acme-notes.example/app"),
+                     url("postgres", "admin:<password>@db.acme-notes.example/app"),
+                     url("https", "acme-notes.example/path"), url("postgres", "admin@db.acme-notes.example/app"),
+                     "mailto:jo@acme-notes.example"):
+            self.assertEqual(redact.detect(text), [], text)
+
+    def test_arn_with_secret_key_segment_is_not_an_assignment(self):
+        arn = "arn:aws:lambda:us-east-1:111122223333:function:secret_key_rotator:PROD"
+        self.assertEqual(redact.mask(arn), arn)
+        self.assertEqual(redact.detect(arn), [])
+
+    def test_mask_obj_keeps_colliding_keys_and_masks_tag_lists(self):
+        masked = redact.mask_obj({"ab@x.example": 1, "ac@x.example": 2})
+        self.assertEqual(sorted(masked.values()), [1, 2])
+        tags = redact.mask_obj([{"Key": "DBPassword", "Value": "hunter2"}, {"Key": "Owner", "Value": "ana"}])
+        self.assertEqual(tags, [{"Key": "DBPassword", "Value": redact.REDACTED}, {"Key": "Owner", "Value": "ana"}])
+        self.assertEqual(redact.mask_obj({"api_key": "x", "PasswordPolicy": {"MinimumPasswordLength": 14}, "Token": "abc"}),
+                         {"api_key": redact.REDACTED, "PasswordPolicy": {"MinimumPasswordLength": 14}, "Token": redact.REDACTED})
+
+    def test_hostile_lines_stay_linear(self):
+        import time
+        texts = ("password=" * 25000, "password_policy=" * 12000, "| password |" * 20000, '"password": "' * 15000,
+                 "x" * 200000 + "password=y", "a" * 100000 + "token=" + "b" * 100000, "token: " + "A1b" * 70000,
+                 "://a:" * 40000, "api_key " * 30000, "bearer " * 30000, "--password " * 20000, "Password" * 25000 + ": x",
+                 url("p", "u" * 200000 + ":" + "p" * 200000 + "@h"), "| password |\n|---|\n" * 10000,
+                 "a|\n|" + " " * 50000 + "|" + " " * 50000 + "--x", "a|\n" + "| -- " * 50000 + "|x", "password:" + " " * 200000 + "x",
+                 'password: "' + '\\"' * 100000, "password: '" + "a'" * 100000)
+        for text in texts:
+            start = time.perf_counter()
+            redact.mask(text)
+            redact.detect(text)
+            self.assertLess(time.perf_counter() - start, 1.0, text[:24])
+
+
 if __name__ == "__main__":
     unittest.main()

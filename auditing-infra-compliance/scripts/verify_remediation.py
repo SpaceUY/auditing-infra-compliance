@@ -7,14 +7,18 @@ What it does (spec 9bis):
   every --flag of an `aws ...` line must appear in that help;
 - unresolved {placeholders}, pending __COMPLETAR_*__ values, heredocs / `set -e`, destructive operations without warning;
 - the rules of references/conflict-rules.json, tests that depend on the resource, gaps and a suggested apply order;
-- a fix that declares downtime is never OK (floor REVISAR);
+- a fix that declares downtime, or has risk high, is never OK (floor REVISAR);
+- no green OK on missing evidence: a rule that needs a fact the run did not collect (a CMP-006 result for an instance that uses
+  the security group) records a gap and floors the fix at REVISAR;
+- steps-only fixes (console / DNS) are verified too, and the `__COMPLETAR_*__` values of steps, verify_after and notes are counted;
 - Claude's vault-based claims (verification-claims.json): the most severe status wins and a claim never lowers a
   CONFLICTO raised by the script.
 
 verification.json carries `findings_digest` (see assemble_findings.findings_digest): render_report ignores a verification
 whose digest does not match findings.json.
 
-Only findings that carry a fix get a status (OK / REVISAR / CONFLICTO): FAIL ones and any other with commands (DOCUMENTED_GAP...). Everything written goes through redact.
+Only findings that carry a fix get a status (OK / REVISAR / CONFLICTO): FAIL ones and any other with commands or steps (DOCUMENTED_GAP...);
+the verify-only ones (remediation.note_status) have nothing to verify. Everything written goes through redact.
 
 Usage: verify_remediation.py --run-dir DIR [--claims FILE] [--check-cli]
 """
@@ -42,6 +46,7 @@ PROCESS_TIMEOUT = 30
 KIND_STATE = {
     "syntax": "CONFLICTO", "cli_invalida": "CONFLICTO", "placeholder_sin_resolver": "CONFLICTO", "higiene": "CONFLICTO",
     "requiere_completar": "REVISAR", "destructivo_sin_aviso": "REVISAR", "impacto_dependencias": "REVISAR", "downtime": "REVISAR",
+    "riesgo_alto": "REVISAR", "evidencia_faltante": "REVISAR",
 }
 
 PENDING = re.compile(r"__COMPLETAR_[A-Z0-9_]+__")
@@ -52,7 +57,15 @@ AWS_OPERATION = re.compile(r"(?:^|[;&|(]|\b(?:do|then|else)\s)\s*aws\s+([a-z0-9-
 DOUBLE_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
 SUBSTITUTION = re.compile(r"\$\([^)]*\)")
 DESTRUCTIVE_PREFIXES = ("delete-", "revoke-", "terminate-", "remove-", "deregister-", "detach-", "disable-", "stop-")
-REPLACING_OPERATIONS = ("put-bucket-policy", "put-key-policy", "update-account-password-policy")
+# Operations that replace a whole configuration or policy (the old one is gone), so they need the same warning as a delete:
+# put-*-policy (bucket, key, user, role, group, resource, retention), put-bucket-* (acl, lifecycle, logging, notification, tagging,
+# encryption, versioning...), the public access blocks, update-account-password-policy, update-assume-role-policy, replace-*
+# (network ACL entries, routes, associations) and the modify-* that rewrite a list or an action set (security groups of an
+# instance or interface, listener / rule default actions).
+REPLACING_OPERATIONS = re.compile(
+    r"(?:put-[a-z0-9-]*-policy|put-bucket-[a-z0-9-]+|put-(?:event-selectors|"
+    r"insight-selectors|configuration-recorder|delivery-channel|metric-alarm)|update-account-password-policy|"
+    r"update-assume-role-policy|replace-[a-z0-9-]+|modify-(?:instance-attribute|network-interface-attribute|listener|rule))")
 DESTRUCTIVE_PAIRS = frozenset({("s3", "rm"), ("s3", "rb")})
 # a bare --force, --force-delete* and --delete (aws s3 sync); not benign flags such as --force-new-deployment
 DESTRUCTIVE_FLAG = re.compile(r"(?<![\w-])(--force(?:-delete[\w-]*)?|--delete)(?![\w-])")
@@ -158,14 +171,21 @@ def _destructive_operations(commands):
     found = []
     for line in _code_text(commands).splitlines():
         for service, operation in AWS_OPERATION.findall(line):
-            if operation.startswith(DESTRUCTIVE_PREFIXES) or operation in REPLACING_OPERATIONS or (service, operation) in DESTRUCTIVE_PAIRS:
+            if operation.startswith(DESTRUCTIVE_PREFIXES) or REPLACING_OPERATIONS.fullmatch(operation) or (service, operation) in DESTRUCTIVE_PAIRS:
                 found.append(f"{service} {operation}")
         found += DESTRUCTIVE_FLAG.findall(line)
     return sorted(set(found))
 
 
+# A cli_with_decision fix is "warned" only when its notes actually say so; any non-empty text is not a warning.
+WARNING_WORDS = re.compile(
+    r"(?i)\b(?:advertencia|atenci[oó]n|cuidado|precauci[oó]n|peligro|riesgo|irreversible\w*|destructiv\w*|p[eé]rdida|perder\w*|pierd\w*|"
+    r"sobrescrib\w*|reemplaz\w*|elimin\w*|borr\w*|cort(?:a|ar|e|es)|dej\w+ sin|sin acceso|sin tr[aá]fico|downtime|"
+    r"no se puede deshacer|warning|caution|danger|data loss|overwrit\w*|replac\w*|lock(?:ed)?[ -]?out|permanent\w*)\b")
+
+
 def _has_warning(rem):
-    return rem.get("kind") == "planned_change" or (rem.get("kind") == "cli_with_decision" and str(rem.get("notes") or "").strip())
+    return rem.get("kind") == "planned_change" or (rem.get("kind") == "cli_with_decision" and bool(WARNING_WORDS.search(str(rem.get("notes") or ""))))
 
 
 def _destructive_issues(finding, commands):
@@ -176,8 +196,23 @@ def _destructive_issues(finding, commands):
                    + ", ".join(ops) + "): marcarlo como cambio planificado o con decisión previa y notas")]
 
 
-def _pending_names(commands):
-    return sorted({m.group(0) for command in commands for m in PENDING.finditer(command)})
+def _pending_names(texts):
+    return sorted({m.group(0) for text in texts for m in PENDING.finditer(text)})
+
+
+def _fix_texts(finding):
+    """Every text of the fix that ends up in the report: commands, steps, verify_after and notes."""
+    rem = finding.get("remediation") or {}
+    steps = [t for t in rem.get("steps") or [] if isinstance(t, str)]
+    return _commands(finding) + steps + [str(rem[k]) for k in ("verify_after", "notes") if rem.get(k)]
+
+
+def _has_fix(finding):
+    """A FAIL, or any finding with commands or steps. Verify-only findings (remediation.note_status) have nothing to verify."""
+    rem = finding.get("remediation")
+    if not isinstance(rem, dict) or rem.get("note_status"):
+        return False
+    return finding.get("status") == "FAIL" or bool(_commands(finding)) or any(isinstance(t, str) and t.strip() for t in rem.get("steps") or [])
 
 
 def _pending_issues(names):
@@ -198,6 +233,12 @@ def _downtime_issues(rem):
     if rem.get("downtime") is not True:
         return []
     return [_issue("downtime", "el arreglo declara downtime")]
+
+
+def _risk_issues(rem):
+    if rem.get("risk") != "high":
+        return []
+    return [_issue("riesgo_alto", "riesgo alto: pendiente de revisión con el vault antes de aplicar")]
 
 
 # ---------------------------------------------------------------- aws help check
@@ -351,6 +392,33 @@ def _apply_rules(rules, fails, all_findings):
     return conflicts, issues, order_pairs
 
 
+def _rule_instances(finding):
+    return sorted({a["instance_id"] for a in _attachments(finding) if isinstance(a.get("instance_id"), str) and a["instance_id"]})
+
+
+def _missing_evidence(rules, fails, all_findings):
+    """Rules that need a fact about an attached instance (attached_instance_fail: a CMP-006 result) fire only when that fact says
+    "unreachable". When the run has no usable result for the instance (check not run, NO_VERIFICADO, N/A) the rule cannot clear the
+    fix either: returns (issues by finding id, gaps) so the fix is floored at REVISAR instead of showing a green OK."""
+    issues, gaps = defaultdict(list), []
+    for rule in rules:
+        when = rule["when"]
+        wanted = when.get("attached_instance_fail")
+        if not wanted or "fail" not in when:
+            continue
+        for f in (f for f in fails if f["check_id"] in _as_list(when["fail"])):
+            for instance in _rule_instances(f):
+                results = [g for g in all_findings if g.get("check_id") == wanted.get("check")
+                           and (g.get("resource") or {}).get("id") == instance and g.get("status") in ("PASS", "FAIL")]
+                if results:
+                    continue
+                message = (f"{rule['id']}: no hay resultado de {wanted.get('check')} para la instancia {instance} que usa este security group; "
+                           "no se sabe si es accesible por Systems Manager y cerrar el acceso podría dejarla sin entrada")
+                issues[f["id"]].append(_issue("evidencia_faltante", message, rule_id=rule["id"]))
+                gaps.append(_gap("no_verificado", f"{f['id']}: falta evidencia, {wanted.get('check')} sin resultado para {instance}", f["id"]))
+    return issues, gaps
+
+
 # ---------------------------------------------------------------- order and gaps
 
 
@@ -455,7 +523,10 @@ def _claim_issues(claims, per_finding):
             warnings.append(f"claim {number} ignorado: forma inválida ({CLAIM_FORM})")
             continue
         fid = claim["finding_id"]
-        if fid not in per_finding or claim["status"] == "OK":
+        if fid not in per_finding:
+            warnings.append(f"claim {number} ignorado: {_one_line(fid, 40)} no tiene arreglo que verificar (id inexistente o hallazgo sin arreglo)")
+            continue
+        if claim["status"] == "OK":
             continue
         state = claim["status"] if claim["status"] in RANK else "REVISAR"
         message = _one_line(claim.get("message") or "revisión de Claude sin detalle", 600)
@@ -477,31 +548,33 @@ def _issue_state(issue, rules_status):
 
 def _analyse(finding, runner, cache, cli_on):
     rem = finding["remediation"]
-    commands = _commands(finding)
-    texts = commands + [str(rem["verify_after"])] if rem.get("verify_after") else commands
+    commands, texts = _commands(finding), _fix_texts(finding)
     issues, gaps = [], []
     if commands:
         syntax, problem = _syntax_issues(commands, runner)
         issues += syntax
         if problem:
             gaps.append(_gap("no_verificado", f"{finding['id']}: {problem}", finding["id"]))
-        issues += _placeholder_issues(texts) + _hygiene_issues(commands)
+        issues += _hygiene_issues(commands)
         if cli_on:
             issues += _cli_issues(commands, runner, cache)
         issues += _destructive_issues(finding, commands)
-    issues += _pending_issues(_pending_names(commands)) + _dependency_issues(finding) + _downtime_issues(rem)
+    issues += _placeholder_issues(texts) + _pending_issues(_pending_names(texts)) + _dependency_issues(finding) + _downtime_issues(rem)
+    issues += _risk_issues(rem)
     return issues, gaps
 
 
 def verify(findings: dict, inventory: list, rules: list, *, claims: list | None = None, runner=subprocess.run,
            which=shutil.which, check_cli: bool = False) -> dict:
     all_findings = [f for f in findings.get("findings", []) if isinstance(f, dict)]
-    # every finding that carries a fix gets a status: FAIL (console_only included) and any other status with commands
-    # (DOCUMENTED_GAP, DRIFT whose actual fails...); findings without fix commands (DOCUMENTED_ONLY, PASS, N/A,
-    # NO_VERIFICADO) have nothing to verify
-    fails = [f for f in all_findings if isinstance(f.get("remediation"), dict) and (f.get("status") == "FAIL" or _commands(f))]
+    # every finding that carries a fix gets a status: FAIL (console_only included) and any other status with commands or steps
+    # (DOCUMENTED_GAP, DRIFT whose actual fails...); verify-only findings (DOCUMENTED_ONLY, PASS, N/A, NO_VERIFICADO) have nothing to verify
+    fails = [f for f in all_findings if _has_fix(f)]
     cli_on = bool(check_cli and which("aws"))
     gaps = _finding_gaps(all_findings) + _inventory_gaps(all_findings, inventory)
+    meta = findings.get("meta")
+    if isinstance(meta, dict) and "aws" in meta and not meta["aws"]:
+        gaps.append(_gap("no_verificado", "sin credenciales AWS: ningún estado se verificó contra AWS, los arreglos no se contrastaron con la cuenta", "aws"))
     if check_cli and not cli_on:
         gaps.append(_gap("no_verificado", "la AWS CLI no está instalada: no se comprobó la validez de operaciones y flags (cli_checked: false)", "aws-cli"))
 
@@ -510,12 +583,14 @@ def verify(findings: dict, inventory: list, rules: list, *, claims: list | None 
         issues, extra_gaps = _analyse(f, runner, cache, cli_on)
         gaps += extra_gaps
         per_finding[f["id"]] = {"issues": issues}
-        pending += len(_pending_names(_commands(f)))
+        pending += len(_pending_names(_fix_texts(f)))
 
     rule_fails = [f for f in fails if f.get("check_id")]
     conflicts, rule_issues, order_pairs = _apply_rules(rules, rule_fails, all_findings)
+    evidence_issues, evidence_gaps = _missing_evidence(rules, rule_fails, all_findings)
+    gaps += evidence_gaps
     rules_status = {r["id"]: r["status"] for r in rules}
-    for fid, issues in rule_issues.items():
+    for fid, issues in {**rule_issues, **{k: rule_issues.get(k, []) + v for k, v in evidence_issues.items()}}.items():
         per_finding[fid]["issues"] += issues
     warnings = _claim_issues(claims, per_finding)
 
@@ -526,9 +601,11 @@ def verify(findings: dict, inventory: list, rules: list, *, claims: list | None 
     unavailable = sorted(f"{service} {operation}" for (service, operation), text in cache.items() if text == "")
     if unavailable:
         gaps.append(_gap("no_verificado", "ayuda de la CLI no disponible, no se comprobaron operaciones ni flags de: " + ", ".join(unavailable), "aws-cli"))
+    compared = sum(1 for text in cache.values() if text != "")
     summary = {s: sum(1 for e in per_finding.values() if e["status"] == s) for s in RANK}
     result = {"per_finding": per_finding, "conflicts": conflicts, "gaps": gaps + order_gaps, "apply_order": order,
-              "completar_pendientes": pending, "cli_checked": cli_on and not unavailable, "summary": summary,
+              "completar_pendientes": pending, "cli_checked": cli_on and not unavailable and compared > 0,
+              "cli_requested": bool(check_cli), "cli_operations_checked": compared if cli_on else 0, "summary": summary,
               "warnings": warnings, "findings_digest": assemble_findings.findings_digest(findings)}
     return redact.mask_obj(result)
 
@@ -562,8 +639,11 @@ def main(argv=None) -> int:
         findings = _read_json(run_dir / "findings.json", dict, "findings.json")
         inventory = _read_json(run_dir / "inventory.json", list, "inventory.json") if (run_dir / "inventory.json").exists() else []
         rules = _read_json(RULES_PATH, list, "conflict-rules.json")
-        claims = _read_json(args.claims, list, args.claims) if args.claims else None
+        missing_claims = bool(args.claims) and not Path(args.claims).is_file()
+        claims = _read_json(args.claims, list, args.claims) if args.claims and not missing_claims else None
         result = verify(findings, inventory, rules, claims=claims, check_cli=args.check_cli)
+        if missing_claims:
+            result["warnings"].append(f"el archivo de claims no existe, se verificó sin claims de Claude: {redact.mask(args.claims)}")
         (run_dir / "verification.json").write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     except (ValueError, OSError, KeyError, TypeError) as exc:
         print(f"error: {' '.join(str(exc).split())}", file=sys.stderr)

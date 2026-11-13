@@ -66,6 +66,10 @@ async function click(button) {
              copyButtons: buttons.filter((b) => b.textContent === 'Copiar').length };
   });
   const stale = document.getElementById('stale-warning');
+  const verdict = registry.verdict;
   console.log(JSON.stringify({ bulk, cards, stale: { hidden: stale.hidden, text: stale.textContent },
+                               verdict: { hidden: verdict.hidden, cls: verdict.className, text: verdict.textContent },
+                               summary: registry['summary-body'].textContent, bulkText: registry['bulk-body'].textContent,
+                               verification: registry.verification.hidden ? '' : registry['verification-body'].textContent,
                                planned: registry.cards.descendants().filter((n) => n.className === 'alert').map((n) => n.textContent) }));
 })();

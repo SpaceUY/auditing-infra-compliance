@@ -1,10 +1,10 @@
 [
   {
     "id": "CR-001",
-    "when": {"fail": "NET-003", "attachment_description_prefix": "ELB app/"},
+    "when": {"fail": ["NET-003", "NET-004"], "attachment_description_prefix": "ELB "},
     "scope": "same_account",
     "status": "CONFLICTO",
-    "message": "Este security group lo usa un Application Load Balancer (interfaz ELB app/): cerrar el puerto 80 rompe la redirección HTTP a HTTPS. Alternativa: dejar solo el 443, o excluir el recurso en Drata con la justificación de que el ALB solo redirige.",
+    "message": "Este security group lo usa un balanceador de carga (ALB, NLB o clásico; interfaz ELB ...): revocar el acceso público del puerto 80 (o todo el tráfico) rompe la redirección HTTP a HTTPS o corta el servicio. Alternativa: dejar solo el 443, o excluir el recurso en Drata con la justificación de que el balanceador solo redirige.",
     "order": []
   },
   {

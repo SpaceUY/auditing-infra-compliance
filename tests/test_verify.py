@@ -68,6 +68,7 @@ def status(result, fid):
 
 
 SAFE = "aws s3api get-bucket-versioning --bucket acme-notes-uploads"
+WARN = "Atención: puede cortar el acceso de quien hoy entra."  # a real warning (see verify_remediation.WARNING_WORDS)
 
 
 class StatusCoverageTests(unittest.TestCase):
@@ -93,6 +94,7 @@ class StatusCoverageTests(unittest.TestCase):
         only = finding(1, "ENC-003", [], status="DOCUMENTED_ONLY", domain="encryption", rtype="rds_instance")
         only["remediation"].update(steps=[], note_status="no verificado: no aplicar sin confirmar")
         passed = finding(2, "DAT-007", [], status="PASS", domain="data")
+        passed["remediation"].update(steps=[], note_status="verificado")
         result = run(only, passed, finding(3, "NET-001", [HEADER + SAFE]))
         self.assertEqual(set(result["per_finding"]), {"F-0003"})
         self.assertEqual(result["apply_order"], ["F-0003"])
@@ -192,7 +194,7 @@ class AutomaticChecksTests(unittest.TestCase):
 
     def test_destructive_with_warning_is_fine(self):
         command = "aws ec2 revoke-security-group-ingress --group-id g"
-        for kind, notes in (("planned_change", ""), ("cli_with_decision", "Revisar antes.")):
+        for kind, notes in (("planned_change", ""), ("cli_with_decision", "Atención: revoca el acceso de entrada.")):
             result = run(finding(1, "DAT-007", [command], kind=kind, notes=notes))
             self.assertNotIn("destructivo_sin_aviso", kinds(result, "F-0001"), kind)
         result = run(finding(1, "DAT-007", [command], kind="cli_with_decision", notes=""))
@@ -242,7 +244,7 @@ class AutomaticChecksTests(unittest.TestCase):
 
 class ConflictRuleTests(unittest.TestCase):
     def alb_sg(self, *attachments):
-        return finding(1, "NET-003", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="Decidir.",
+        return finding(1, "NET-003", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes=WARN,
                        evidence=sg_evidence(*attachments))
 
     def test_cr001_port80_vs_redirect(self):
@@ -253,18 +255,19 @@ class ConflictRuleTests(unittest.TestCase):
         self.assertEqual((conflict["status"], conflict["findings"]), ("CONFLICTO", ["F-0001"]))
         self.assertIn("redirección", conflict["message"])
 
-    def test_cr001_needs_an_alb_attachment_not_just_an_alb_in_the_region(self):
+    def test_cr001_needs_a_load_balancer_attachment_not_just_one_in_the_region(self):
         ec2_only = self.alb_sg((INSTANCE, ""))
         redirect_ok = finding(2, "TLS-002", [], status="PASS", rtype="elbv2", rid="acme-notes-alb")
         self.assertEqual(run(ec2_only, redirect_ok)["conflicts"], [])
         self.assertEqual(run(self.alb_sg())["conflicts"], [])  # no attachment data: no conflict
-        no_evidence = finding(1, "NET-003", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="n")
+        no_evidence = finding(1, "NET-003", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes=WARN)
         self.assertEqual(run(no_evidence)["conflicts"], [])
-        nlb = self.alb_sg((None, "ELB net/acme-notes-nlb/8f2ae1a53a0e1b2b"))
-        self.assertEqual(run(nlb)["conflicts"], [])
+        nlb = self.alb_sg((None, "ELB net/acme-notes-nlb/8f2ae1a53a0e1b2b"))  # an NLB or classic ELB breaks too (review 2)
+        self.assertEqual([c["rule_id"] for c in run(nlb)["conflicts"]], ["CR-001"])
+        self.assertEqual(run(self.alb_sg((None, "AWS Lambda VPC ENI-x")))["conflicts"], [])
 
     def ssh_and_instance(self, *, unreachable=True, attached=INSTANCE, instance_id=INSTANCE):
-        ssh = finding(1, "NET-001", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="Ojo.",
+        ssh = finding(1, "NET-001", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes=WARN,
                       severity="critical", evidence=sg_evidence((attached, "")) if attached else {})
         ssm = finding(2, "CMP-006", [SAFE], kind="planned_change", severity="low", domain="compute", rtype="ec2_instance",
                       rid=instance_id, evidence={"problems": ["x"], "ssm_unreachable": unreachable})
@@ -296,7 +299,7 @@ class ConflictRuleTests(unittest.TestCase):
 
     def test_cr002_orders_key_before_trail(self):
         trail = finding(1, "LOG-003", [SAFE], kind="planned_change", severity="high", domain="logging", rtype="cloudtrail_trail")
-        key = finding(2, "INT-004", [SAFE], kind="cli_with_decision", notes="n", severity="low", domain="integration", rtype="kms_key")
+        key = finding(2, "INT-004", [SAFE], kind="cli_with_decision", notes=WARN, severity="low", domain="integration", rtype="kms_key")
         result = run(trail, key)
         self.assertEqual(status(result, "F-0001"), "REVISAR")
         self.assertLess(result["apply_order"].index("F-0002"), result["apply_order"].index("F-0001"))
@@ -334,7 +337,7 @@ class ConflictRuleTests(unittest.TestCase):
                  (7, "ENC-009", "encryption", "high", "planned_change"), (8, "ENC-010", "encryption", "low", "cli"),
                  (9, "DAT-009", "data", "high", "cli"), (10, "MON-009", "monitoring", "high", "cli"),
                  (11, "NET-010", "network", "medium", "cli")]
-        findings = [finding(n, c, [SAFE], kind=k, domain=d, severity=s, notes="n") for n, c, d, s, k in specs]
+        findings = [finding(n, c, [SAFE], kind=k, domain=d, severity=s, notes=WARN) for n, c, d, s, k in specs]
         findings[5]["resource"]["type"] = "kms_key"
         order = run(*findings)["apply_order"]
         # iam, logging+detection (by severity), kms, encryption (planned_change last), network (by severity), data, monitoring, integration
@@ -444,6 +447,190 @@ class ClaimTests(unittest.TestCase):
         self.assertEqual(status(result, "F-0003"), "CONFLICTO")
 
 
+class ReviewTwoStepsAndPlaceholdersTests(unittest.TestCase):
+    """D Important 2: steps-only fixes are verified and the placeholders of steps, verify_after and notes are counted."""
+
+    @staticmethod
+    def dns_gap(**fix):
+        gap = finding(1, "EML-005", [], kind="console_only", status="DOCUMENTED_GAP", domain="email", rtype="ses_identity", rid="acme-notes.example")
+        gap["remediation"].update(steps=["Publicar el TXT _dmarc con __COMPLETAR_EMAIL_DMARC__."], risk="medium", **fix)
+        return gap
+
+    def test_a_steps_only_fix_gets_a_status_a_pending_count_and_an_apply_order_slot(self):
+        result = run(self.dns_gap())
+        self.assertEqual(status(result, "F-0001"), "REVISAR")
+        self.assertIn("requiere_completar", kinds(result, "F-0001"))
+        self.assertEqual(result["completar_pendientes"], 1)
+        self.assertEqual(result["apply_order"], ["F-0001"])
+        self.assertEqual(result["summary"]["REVISAR"], 1)
+
+    def test_a_steps_only_fix_without_placeholders_is_ok(self):
+        gap = self.dns_gap()
+        gap["remediation"]["steps"] = ["Publicar el TXT _dmarc."]
+        self.assertEqual(status(run(gap), "F-0001"), "OK")
+
+    def test_placeholders_in_verify_after_and_notes_are_counted_and_need_completing(self):
+        fail = finding(1, "DAT-002", [HEADER + SAFE], verify_after='aws rds describe-db-instances --region "__COMPLETAR_REGION__"',
+                       notes="Usar __COMPLETAR_RETENCION__ dias.")
+        result = run(fail)
+        self.assertEqual(result["completar_pendientes"], 2)
+        self.assertEqual(status(result, "F-0001"), "REVISAR")
+        self.assertIn("__COMPLETAR_REGION__", result["per_finding"]["F-0001"]["issues"][0]["message"])
+
+    def test_an_unresolved_brace_placeholder_in_a_step_is_a_conflict(self):
+        gap = self.dns_gap()
+        gap["remediation"]["steps"] = ["Usar {resource_id}."]
+        self.assertEqual(status(run(gap), "F-0001"), "CONFLICTO")
+
+
+class ReviewTwoEvidenceTests(unittest.TestCase):
+    """B I4: no green OK when the evidence a rule needs is missing."""
+
+    def ssh(self, *attachments, check="NET-001"):
+        return finding(1, check, ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes=WARN,
+                       severity="critical", evidence=sg_evidence(*attachments))
+
+    def ssm(self, number=2, *, state="FAIL", unreachable=False):
+        return finding(number, "CMP-006", [SAFE], kind="planned_change", domain="compute", rtype="ec2_instance", rid=INSTANCE,
+                       status=state, evidence={"ssm_unreachable": unreachable})
+
+    def test_attached_instance_without_a_cmp006_result_is_review_and_a_gap(self):
+        for others in ((), (finding(2, "TLS-002", [], status="PASS", rtype="elbv2", rid="x"),)):
+            result = run(self.ssh((INSTANCE, ""), ), *others)
+            self.assertEqual(status(result, "F-0001"), "REVISAR")
+            self.assertEqual([k for k in kinds(result, "F-0001") if k != "downtime"], ["evidencia_faltante"])
+            self.assertEqual(result["conflicts"], [])
+            gap = next(g for g in result["gaps"] if g["ref"] == "F-0001")
+            self.assertIn("CMP-006", gap["message"])
+            self.assertIn(INSTANCE, gap["message"])
+
+    def test_unverified_or_not_applicable_cmp006_counts_as_missing(self):
+        for state in ("NO_VERIFICADO", "N/A"):
+            result = run(self.ssh((INSTANCE, "")), self.ssm(state=state))
+            self.assertIn("evidencia_faltante", kinds(result, "F-0001"), state)
+
+    def test_a_cmp006_result_for_the_instance_clears_the_missing_evidence(self):
+        for attached in (self.ssm(unreachable=False), self.ssm(state="PASS")):
+            result = run(self.ssh((INSTANCE, "")), attached)
+            self.assertNotIn("evidencia_faltante", kinds(result, "F-0001"))
+            self.assertEqual(status(result, "F-0001"), "OK")
+
+    def test_no_instances_attached_needs_no_evidence(self):
+        self.assertEqual(status(run(self.ssh((None, "ELB app/x/1"), check="NET-002")), "F-0001"), "OK")
+        self.assertEqual(status(run(self.ssh()), "F-0001"), "OK")
+
+    def test_rdp_is_covered_like_ssh(self):
+        self.assertIn("evidencia_faltante", kinds(run(self.ssh((INSTANCE, ""), check="NET-002")), "F-0001"))
+
+    def test_cr001_covers_every_load_balancer_type(self):
+        for description in ("ELB app/acme-notes-alb/50dc6c495c0c9188", "ELB net/acme-notes-nlb/8f2ae1a53a0e1b2b",
+                            "ELB acme-notes-classic", "ELB gwy/acme-notes-gwlb/1"):
+            for check in ("NET-003", "NET-004"):
+                result = run(self.ssh((None, description), check=check))
+                self.assertEqual(status(result, "F-0001"), "CONFLICTO", (description, check))
+                self.assertEqual([c["rule_id"] for c in result["conflicts"]], ["CR-001"])
+        self.assertEqual(run(self.ssh((None, "AWS Lambda VPC ENI-x"), check="NET-003"))["conflicts"], [])
+
+    def test_the_cr001_message_names_every_balancer_type(self):
+        rule = next(r for r in RULES if r["id"] == "CR-001")
+        for word in ("ALB", "NLB", "clásico"):
+            self.assertIn(word, rule["message"])
+
+
+class ReviewTwoRiskAndWarningTests(unittest.TestCase):
+    def test_risk_high_always_floors_at_review(self):
+        for kind in ("cli", "cli_with_decision", "planned_change", "console_only"):
+            fix = finding(1, "NET-005", [] if kind == "console_only" else [HEADER + SAFE], kind=kind, notes=WARN)
+            fix["remediation"]["risk"] = "high"
+            result = run(fix)
+            self.assertEqual(status(result, "F-0001"), "REVISAR", kind)
+            self.assertIn("riesgo_alto", kinds(result, "F-0001"), kind)
+        medium = finding(1, "NET-005", [HEADER + SAFE])
+        medium["remediation"]["risk"] = "medium"
+        self.assertEqual(status(run(medium), "F-0001"), "OK")
+
+    def test_risk_floor_never_lowers_a_conflict(self):
+        fix = finding(1, "NET-003", ["echo $(("], kind="cli")
+        fix["remediation"]["risk"] = "high"
+        bad = FakeRunner({("bash", None, None): {"returncode": 2, "stderr": "syntax"}})
+        self.assertEqual(status(run(fix, runner=bad), "F-0001"), "CONFLICTO")
+
+    def test_notes_must_contain_a_warning_to_silence_the_destructive_check(self):
+        command = "aws ec2 revoke-security-group-ingress --group-id g"
+        for notes in ("Decidir.", "Ver el vault.", "Ojo.", "n", "Ejecutar en CloudShell"):
+            result = run(finding(1, "DAT-007", [command], kind="cli_with_decision", notes=notes))
+            self.assertIn("destructivo_sin_aviso", kinds(result, "F-0001"), notes)
+        for notes in ("ADVERTENCIA: corta el tráfico.", "Riesgo: deja sin acceso a la subnet.", "Reemplaza toda la política.",
+                      "Warning: this cannot be undone, data loss.", "Es irreversible.", "Borra la regla actual."):
+            result = run(finding(1, "DAT-007", [command], kind="cli_with_decision", notes=notes))
+            self.assertNotIn("destructivo_sin_aviso", kinds(result, "F-0001"), notes)
+
+    def test_every_catalog_warning_note_is_recognised(self):
+        # LOG-012 (put-retention-policy) has notes without any warning: a catalog fix to make (area A), it stays REVISAR until then
+        unrecognised = {c["id"] for c in catalog.load_checks(SKILL_DIR / "references" / "checks")
+                        if c["remediation"]["kind"] == "cli_with_decision" and verify_remediation._destructive_operations(c["remediation"]["commands"])
+                        and not verify_remediation._has_warning(c["remediation"])}
+        self.assertLessEqual(unrecognised, {"LOG-012"})
+
+    def test_replacing_operations_are_flagged(self):
+        flagged = ("s3api put-bucket-policy", "s3api put-bucket-acl", "s3api put-bucket-lifecycle-configuration", "s3api put-bucket-logging",
+                   "s3api put-bucket-notification-configuration", "s3api put-bucket-tagging", "s3api put-bucket-encryption",
+                   "iam put-user-policy", "iam put-role-policy", "iam put-group-policy", "iam update-assume-role-policy",
+                   "iam update-account-password-policy", "kms put-key-policy", "logs put-retention-policy", "ec2 replace-network-acl-entry",
+                   "ec2 replace-route", "ec2 replace-iam-instance-profile-association", "ec2 modify-instance-attribute",
+                   "ec2 modify-network-interface-attribute", "elbv2 modify-listener", "elbv2 modify-rule", "cloudtrail put-event-selectors")
+        for operation in flagged:
+            result = run(finding(1, "DAT-007", [f"aws {operation} --x y"], kind="cli"))
+            self.assertIn("destructivo_sin_aviso", kinds(result, "F-0001"), operation)
+        for operation in ("s3api get-bucket-policy", "s3api put-object", "ec2 modify-volume", "rds modify-db-instance",
+                          "iam put-user-permissions-boundary", "cloudwatch put-metric-data", "ec2 describe-network-acls",
+                          "s3api put-public-access-block", "ec2 create-tags", "ssm put-parameter"):
+            result = run(finding(1, "DAT-007", [f"aws {operation} --x y"], kind="cli"))
+            self.assertNotIn("destructivo_sin_aviso", kinds(result, "F-0001"), operation)
+
+
+class ReviewTwoVerificationOutputTests(unittest.TestCase):
+    def test_claim_for_an_unknown_finding_warns(self):
+        result = run(finding(1, "DAT-007", [HEADER + SAFE]), claims=[
+            {"finding_id": "F-9999", "status": "CONFLICTO", "message": "x", "vault_note": None},
+            {"finding_id": "F-0001", "status": "OK", "message": "ok", "vault_note": None}])
+        self.assertEqual(len(result["warnings"]), 1)
+        self.assertIn("claim 1 ignorado", result["warnings"][0])
+        self.assertIn("F-9999", result["warnings"][0])
+
+    def test_without_credentials_the_verification_says_nothing_was_checked_against_aws(self):
+        findings = doc(finding(1, "DAT-007", [HEADER + SAFE]))
+        findings["meta"] = {"aws": None}
+        result = verify_remediation.verify(findings, [], RULES, runner=bash_ok())
+        gap = next(g for g in result["gaps"] if g["ref"] == "aws")
+        self.assertIn("sin credenciales AWS", gap["message"])
+        findings["meta"] = {"aws": {"account_id": "111122223333"}}
+        self.assertFalse([g for g in verify_remediation.verify(findings, [], RULES, runner=bash_ok())["gaps"] if g["ref"] == "aws"])
+        self.assertFalse([g for g in run(finding(1, "DAT-007", [HEADER + SAFE]))["gaps"] if g["ref"] == "aws"])
+
+    def test_cli_checked_needs_at_least_one_operation_compared(self):
+        runner = FakeRunner({("bash", None, None): {"returncode": 0}})
+        none = run(finding(1, "IAM-001", [], kind="console_only"), runner=runner, check_cli=True, which=lambda name: "/usr/bin/aws")
+        self.assertFalse(none["cli_checked"])
+        self.assertEqual((none["cli_requested"], none["cli_operations_checked"]), (True, 0))
+        self.assertFalse(run(finding(1, "IAM-001", [], kind="console_only"))["cli_requested"])
+
+    def test_missing_claims_file_is_a_warning_not_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "findings.json").write_text(json.dumps(FINDINGS), encoding="utf-8")
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                code = verify_remediation.main(["--run-dir", str(tmp), "--claims", str(tmp / "nada.json")])
+            self.assertEqual(code, 0)
+            warnings = json.loads((tmp / "verification.json").read_text(encoding="utf-8"))["warnings"]
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("no existe", warnings[0])
+            (tmp / "roto.json").write_text("{no json", encoding="utf-8")
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(verify_remediation.main(["--run-dir", str(tmp), "--claims", str(tmp / "roto.json")]), 2)
+
+
 class CliCheckTests(unittest.TestCase):
     HELP_OK = "NAME\n       revoke-security-group-ingress\nOPTIONS\n       --group-id (string)\n       --ip-permissions (list)\n"
 
@@ -454,7 +641,7 @@ class CliCheckTests(unittest.TestCase):
     def test_check_cli_flags(self):
         command = 'aws ec2 revoke-security-group-ingress --group-id g --foo bar --region us-east-1'
         runner = self.runner(self.HELP_OK)
-        result = run(finding(1, "NET-009", [command], kind="cli_with_decision", notes="n"), runner=runner, check_cli=True,
+        result = run(finding(1, "NET-009", [command], kind="cli_with_decision", notes=WARN), runner=runner, check_cli=True,
                      which=lambda name: "/usr/bin/aws")
         self.assertEqual(status(result, "F-0001"), "CONFLICTO")
         issue = next(i for i in result["per_finding"]["F-0001"]["issues"] if i["kind"] == "cli_invalida")
@@ -469,14 +656,14 @@ class CliCheckTests(unittest.TestCase):
     def test_valid_flags_pass_and_help_is_cached(self):
         command = 'aws ec2 revoke-security-group-ingress --group-id g --ip-permissions \'[]\'\naws ec2 revoke-security-group-ingress --group-id h --ip-permissions \'[]\''
         runner = self.runner(self.HELP_OK)
-        result = run(finding(1, "NET-009", [command], kind="cli_with_decision", notes="n"), runner=runner, check_cli=True,
+        result = run(finding(1, "NET-009", [command], kind="cli_with_decision", notes=WARN), runner=runner, check_cli=True,
                      which=lambda name: "/usr/bin/aws")
         self.assertNotIn("cli_invalida", kinds(result, "F-0001"))
         self.assertEqual(len([c for c in runner.calls if c[0] == "aws"]), 1)
 
     def test_help_with_overstrike_is_readable(self):
         bold = "".join(f"{ch}\b{ch}" for ch in "--group-id") + " (string)\n"
-        result = run(finding(1, "NET-009", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="n"),
+        result = run(finding(1, "NET-009", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes=WARN),
                      runner=self.runner(bold), check_cli=True, which=lambda name: "/usr/bin/aws")
         self.assertNotIn("cli_invalida", kinds(result, "F-0001"))
 
@@ -484,14 +671,14 @@ class CliCheckTests(unittest.TestCase):
         for code, stderr in ((252, "aws: error: argument operation: Invalid choice, valid choices are:"), (2, "usage: aws [options]")):
             runner = FakeRunner({("bash", None, None): {"returncode": 0},
                                  ("ec2", "revoke-security-group-ingress", None): {"returncode": code, "stderr": stderr}})
-            result = run(finding(1, "NET-009", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="n"),
+            result = run(finding(1, "NET-009", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes=WARN),
                          runner=runner, check_cli=True, which=lambda name: "/usr/bin/aws")
             self.assertEqual(status(result, "F-0001"), "CONFLICTO", code)
             self.assertIn("cli_invalida", kinds(result, "F-0001"), code)
             self.assertTrue(result["cli_checked"])
 
     def assert_help_unavailable(self, runner):
-        result = run(finding(1, "NET-009", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="n"),
+        result = run(finding(1, "NET-009", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes=WARN),
                      runner=runner, check_cli=True, which=lambda name: "/usr/bin/aws")
         self.assertNotIn("cli_invalida", kinds(result, "F-0001"))
         self.assertEqual(status(result, "F-0001"), "OK")
@@ -526,7 +713,7 @@ class CliCheckTests(unittest.TestCase):
         runner = self.runner(self.HELP_OK)
         secrets = {"AWS_SECRET_ACCESS_KEY": "x", "AWS_PROFILE": "prod", "AWS_SESSION_TOKEN": "y", "PATH": "/usr/bin", "HOME": "/home/u", "OTHER": "z"}
         with mock.patch.dict(os.environ, secrets):
-            run(finding(1, "NET-009", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes="n"),
+            run(finding(1, "NET-009", ["aws ec2 revoke-security-group-ingress --group-id g"], kind="cli_with_decision", notes=WARN),
                 runner=runner, check_cli=True, which=lambda name: "/usr/bin/aws")
         env = runner.kwargs[runner.calls.index(["aws", "ec2", "revoke-security-group-ingress", "help"])]["env"]
         self.assertEqual(sorted(k for k in env if k.startswith("AWS_")), ["AWS_PAGER"])
@@ -535,7 +722,7 @@ class CliCheckTests(unittest.TestCase):
 
     def test_only_first_command_of_a_pipeline_is_checked(self):
         command = "aws ec2 revoke-security-group-ingress --group-id g && aws ec2 other-op --zzz 1"
-        result = run(finding(1, "NET-009", [command], kind="cli_with_decision", notes="n"), runner=self.runner(self.HELP_OK),
+        result = run(finding(1, "NET-009", [command], kind="cli_with_decision", notes=WARN), runner=self.runner(self.HELP_OK),
                      check_cli=True, which=lambda name: "/usr/bin/aws")
         self.assertNotIn("cli_invalida", kinds(result, "F-0001"))
 
@@ -627,12 +814,11 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(self.embedded(html)["verification"]["conflicts"][-1]["message"], "</script><script>alert(1)</script> x")
 
     def test_low_risk_copy_excludes_conflicts_and_reviews(self):
-        logic = re.search(r"function bulkCandidates\(.*?\n\}", TEMPLATE, re.S).group(0)
-        self.assertIn("'CONFLICTO'", logic)
-        self.assertIn("'REVISAR'", logic)
-        self.assertIn("verifStatus(f)", logic)
-        self.assertIn("'__COMPLETAR_'", logic)
-        self.assertEqual(TEMPLATE.count("bulkCandidates("), 3)
+        raw = re.search(r"function bulkRaw\(.*?\n\}", TEMPLATE, re.S).group(0)
+        gate = re.search(r"function bulkCandidates\(.*?\n\}", TEMPLATE, re.S).group(0)
+        self.assertIn("'__COMPLETAR_'", raw)
+        self.assertIn("verifStatus(f) === 'OK'", gate)  # CONFLICTO, REVISAR and findings without an entry are all out
+        self.assertIn("VERIF ?", gate)
 
     def test_render_without_verification_unchanged(self):
         plain = render_report.render(FINDINGS, TEMPLATE)
@@ -677,16 +863,19 @@ class StaleVerificationTests(unittest.TestCase):
         other["findings"][0]["resource"]["id"] = "sg-0f00000000000000f"
         return other
 
-    def test_digest_depends_on_ids_check_ids_and_resource_ids_only(self):
+    def test_digest_depends_on_ids_resources_statuses_and_fixes_but_not_titles(self):
         digest = assemble_findings.findings_digest(FINDINGS)
         self.assertEqual(self.verification["findings_digest"], digest)
         self.assertRegex(digest, r"^[0-9a-f]{64}$")
         changed = copy.deepcopy(FINDINGS)
         changed["findings"][0]["title"] = "otro título"
-        changed["findings"][0]["remediation"]["notes"] = "otras notas"
+        changed["findings"][0]["evidence"] = {"otra": "evidencia"}
         self.assertEqual(assemble_findings.findings_digest(changed), digest)
         for mutate in (lambda f: f["findings"][0].update(id="F-9999"), lambda f: f["findings"][0].update(check_id="ZZZ-001"),
-                       lambda f: f["findings"][0]["resource"].update(id="otro"), lambda f: f["findings"].pop()):
+                       lambda f: f["findings"][0]["resource"].update(id="otro"), lambda f: f["findings"].pop(),
+                       lambda f: f["findings"][0].update(status="PASS"),
+                       lambda f: f["findings"][0]["remediation"].update(commands=["echo otro"]),
+                       lambda f: f["findings"][0]["remediation"].update(notes="otras notas")):
             other = copy.deepcopy(FINDINGS)
             mutate(other)
             self.assertNotEqual(assemble_findings.findings_digest(other), digest)
@@ -758,8 +947,8 @@ class CliTests(unittest.TestCase):
                 code = verify_remediation.main(["--run-dir", str(tmp), "--claims", str(claims)])
             self.assertEqual(code, 0)
             written = json.loads((tmp / "verification.json").read_text(encoding="utf-8"))
-            self.assertEqual(set(written), {"per_finding", "conflicts", "gaps", "apply_order", "completar_pendientes", "cli_checked", "summary",
-                                        "warnings", "findings_digest"})
+            self.assertEqual(set(written), {"per_finding", "conflicts", "gaps", "apply_order", "completar_pendientes", "cli_checked", "cli_requested",
+                                        "cli_operations_checked", "summary", "warnings", "findings_digest"})
             self.assertEqual(written["findings_digest"], assemble_findings.findings_digest(FINDINGS))
             self.assertLessEqual(len(out.getvalue().splitlines()), 10)
 
