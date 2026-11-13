@@ -183,10 +183,10 @@ def _check_arg(arg: object) -> None:
         raise ReadOnlyViolation(f"forbidden argument (the CLI would download the URL): {arg}")
     flag = arg.split("=", 1)[0].strip()
     if flag.startswith("--with-dec") or flag.startswith("--include-val") or flag in FORBIDDEN_ARGS:
-        raise ReadOnlyViolation(f"argumento prohibido: {arg}")
+        raise ReadOnlyViolation(f"forbidden argument: {arg}")
     if flag.startswith("--") and len(flag) >= _MIN_ABBREVIATION:
-        if any(forbidden.startswith(flag) for forbidden in FORBIDDEN_FLAGS):
-            raise ReadOnlyViolation(f"argumento prohibido: {arg}")
+        if any(forbidden.startswith(flag) for forbidden in FORBIDDEN_FLAGS | FORBIDDEN_ARGS):
+            raise ReadOnlyViolation(f"forbidden argument: {arg}")
 
 
 def classify_error(stderr: str) -> str:
@@ -250,7 +250,7 @@ def run_aws(
             proc = runner(argv, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, shell=False,
                           stdin=subprocess.DEVNULL)  # a credential prompt must fail fast, not block the worker
         except subprocess.TimeoutExpired:
-            return _failure("ERROR", f"timeout tras {TIMEOUT_SECONDS}s", argv)
+            return _failure("ERROR", f"timeout after {TIMEOUT_SECONDS}s", argv)
         except OSError as exc:
             return _failure("ERROR", f"could not run aws: {exc}", argv)
         if proc.returncode == 0:
@@ -318,7 +318,7 @@ def run_dns(name: str, rrtype: str, runner=subprocess.run, which=shutil.which) -
     try:
         proc = runner(argv, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, shell=False)
     except subprocess.TimeoutExpired:
-        return _failure("ERROR", f"timeout tras {TIMEOUT_SECONDS}s", argv)
+        return _failure("ERROR", f"timeout after {TIMEOUT_SECONDS}s", argv)
     except OSError as exc:
         return _failure("ERROR", f"could not run {argv[0]}: {exc}", argv)
     if proc.returncode != 0:
