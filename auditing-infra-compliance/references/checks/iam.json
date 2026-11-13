@@ -1117,14 +1117,14 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Decide who can assume the support role (an administrators group or role) and fill in its ARN.",
-          "Create the role with a trust policy that requires MFA and attach AWSSupportAccess to it."
+          "Decide who can assume the support role: a user or a role (NOT a group: a trust policy cannot name an IAM group) and fill in its ARN.",
+          "Create the role with a trust policy (with an MFA condition, see the notes) and attach AWSSupportAccess to it."
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTRUST='{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":\"__FILL_IN_PRINCIPAL_ARN__\"},\"Action\":\"sts:AssumeRole\",\"Condition\":{\"Bool\":{\"aws:MultiFactorAuthPresent\":\"true\"}}}]}'\naws iam create-role --role-name aws-support-access --assume-role-policy-document \"$TRUST\"\naws iam attach-role-policy --role-name aws-support-access --policy-arn arn:aws:iam::aws:policy/AWSSupportAccess"
         ],
         "verify_after": "aws iam list-entities-for-policy --policy-arn arn:aws:iam::aws:policy/AWSSupportAccess",
-        "notes": "The decision is the principal that can assume the role (__FILL_IN_PRINCIPAL_ARN__). If the aws-support-access role already exists, omit create-role and only attach the policy."
+        "notes": "The decision is the principal that can assume the role (__FILL_IN_PRINCIPAL_ARN__): the ARN of a user or a role, never a group. The aws:MultiFactorAuthPresent condition only lets in sessions that carry MFA (a user who signed in with MFA); a role principal (for example an SSO or federated role) usually has no such key in its session, so nobody could assume the role: for a role principal, remove the whole Condition from the trust policy (the role's own MFA requirement is then up to the team). If the aws-support-access role already exists, omit create-role and only attach the policy."
       },
       "sources": [
         "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
