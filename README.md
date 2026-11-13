@@ -75,7 +75,7 @@ In the chat the verdict is given in your language and `verdict_text` is quoted a
   severity, and the verdict with its basis.
 - It does not evaluate organizational controls (policies, risk analysis, training, HR, vendors, ISMS
   management): it lists them as "outside the scope of this report" so nobody reads "all green" as "ready for SOC 2".
-- It does not read `.env*`, `~/.aws/credentials`, `*.pem` or `*.key` files; it detects them by name only. Detection of
+- It does not read `.env*`, `~/.aws/credentials`, `*.pem`, `*.key` or other sensitive files; it detects them by name only. Detection of
   secrets inside notes has known limits (see [Limitations](#known-limitations)).
 - It does not write to the vault, nor leave the report inside it.
 - It does not invent Drata or Vanta test names nor SOC 2 or ISO IDs: it uses only what comes from the catalog and from
@@ -380,8 +380,8 @@ assembled again. Everything that is written is masked (see [Security and privacy
 
 | Script | `0` | `2` | Others |
 |---|---|---|---|
-| `vault_index.py` | Index or feature resolved | Invalid vault, or `-o` inside the vault | |
-| `collect.py` | Complete run (also a well-formed scope that no check covers: no results and with a warning) | No valid credentials (leaves `checks-result.json` with `aws: null` and an empty `inventory.json`) or a malformed `scope.json` (message, no files) | `130`: interrupted (Ctrl-C, SIGTERM, timeout); leaves the partial result |
+| `vault_index.py` | Index or feature resolved | Invalid vault, `-o` inside the vault, or the index could not be written (`error: could not write the index to …`; an existing index is kept) | |
+| `collect.py` | Complete run (also a well-formed scope that no check covers: no results and with a warning) | No valid credentials (leaves `checks-result.json` with `aws: null` and an empty `inventory.json`) or a missing, unreadable or malformed `scope.json`, including an invalid `profile` (`error: …` on stdout, no files) | `130`: interrupted (Ctrl-C, SIGTERM, timeout); leaves the partial result |
 | `assemble_findings.py` | `findings.json` written | Input file with an invalid shape, or "no sources: a vault or read-only AWS credentials are required" (does not write `findings.json`) | |
 | `render_report.py` | `report.html` written | `findings.json` is missing or invalid JSON | |
 | `verify_remediation.py` | `verification.json` written (even with a `CONFLICT`: it is a result, not an error) | The folder or `findings.json` is missing, or invalid JSON | |
@@ -460,7 +460,7 @@ from the vault, not verified".
 | `kind` | What it is |
 |---|---|
 | `cli` | One or a few commands that fix the problem with no decisions from the user |
-| `cli_with_decision` | There is a value a person decides (retention days, owner email, CIDR, a key's ARN) or the command replaces an existing configuration or policy: it carries a prior read-only block and/or `__FILL_IN_…__` |
+| `cli_with_decision` | There is a value a person decides (retention days, owner email, CIDR, a key's ARN), the fix turns on a billable feature or restarts something, or the command replaces an existing configuration or policy: it carries a prior read-only block and/or `__FILL_IN_…__` |
 | `planned_change` | Multi-step, destructive or with downtime (encrypting an existing RDS, migrating a key): numbered steps, warning, risk and downtime. It is never "one command" |
 | `console_only` | Cannot be done by CLI (root MFA): steps in plain language, no commands |
 
@@ -610,13 +610,13 @@ enabled in all VPCs", "CloudTrail is enabled in all regions". The full list is i
 | Fixes are not executed | They are written to `findings.json` and the HTML; `verify_remediation.py` only runs `bash -n` and the CLI's local help |
 
 **Sensitive files.** The skill never opens `.env*`, `~/.aws/credentials`, `*.pem` or `*.key`, not with `cat`, `grep` or
-Read, nor "just the variable names". `vault_index.py` detects them **by name only** (`sensitive_files`) and the
+Read, nor "just the variable names". `vault_index.py` detects them **by name only** (`sensitive_files`): `.env*` and `*.env`, `*.pem`, `*.key`, key stores (`*.pfx`, `*.p12`, `*.jks`, `*.keystore`), `*.tfvars`, `terraform.tfstate*`, SSH private keys (`id_rsa`, `id_ed25519`, `id_ecdsa`) and names containing `credentials` or `secret` (`secret` only for files that are not `.md` notes, so a note such as `AWS Secrets Manager.md` is still read); and the
 assembler reports them as `FAIL` `critical` with `console_only` remediation (rotate and remove the file). Such a file
 in the extra evidence folder does not enter the index: it is named in the chat as a warning.
 
 **Masking.** Everything written to disk, stdout or the HTML goes through `redact.py`: access key IDs as
 `AKIA…WXYZ` (the last 4 characters), secrets and passwords as `[REDACTED]` (in any format: assignments,
-table cells, `--master-user-password`, `Bearer <token>`, passwords in URLs, PEM blocks), and emails as
+table cells, `--master-user-password`, `Bearer <token>`, passwords in URLs, PEM blocks, labels such as `DB_PASS`, `passphrase`, `private_key`, `psk`, unlabelled token shapes (GitHub `ghp_…`/`github_pat_…`, Slack `xox…-` tokens and webhook URLs, Stripe `sk_live_`/`rk_live_`, Google `AIza…`, JWTs, STS session tokens), `curl -u user:pass`, `mysql -pPASS`, `sshpass -p`, `Authorization: Basic …`), and emails as
 `u***@domain` (except those of the `VantaOwner` tag). References ("in Secrets Manager", `${VAR}`, a secret's ARN) are not
 secrets and stay as they are. Spanish labels in a vault (Contraseña, Clave, "en Secrets Manager") are recognised too.
 
@@ -654,6 +654,8 @@ know which tests are enabled, `UNUSED` or `DISABLED` in the Drata or Vanta accou
   - "password value" with no separator (`:`, `=`, quotes or a table cell) is not detected: it looks the same as prose.
   - In column tables, the Clave, Secret, Token and API key columns are ambiguous: only a key-shaped value is
     masked.
+  - Values with spaces after one-word labels (`private_key`, `psk`, `clave`) are masked only up to the first space, and a
+    bare `pass` or `clave` label needs `:` or `=`.
   - A sensitive file is detected by its name and is not opened: it is never known whether it contains a real secret.
   - Each note is read up to a cap of 2,000,000 characters; a longer one ends up in `truncated_notes` and the report
     warns about it.

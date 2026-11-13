@@ -605,3 +605,18 @@ class DetectionInventoryErrorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DetectionWithoutBucketsTests(DetectionCollectTests):
+    """DET-002 with no S3 bucket in the account: not applicable, never a vacuous PASS."""
+
+    @staticmethod
+    def rules():
+        return [("s3api", "list-buckets", None, "", ok({"Buckets": []})) if rule[:2] == ("s3api", "list-buckets") else rule
+                for rule in DetectionCollectTests.rules()]
+
+    def test_guardduty_s3_protection_and_events(self):
+        (row,) = [r for r in self.result["results"] if r["check_id"] == "DET-002"]
+        self.assertEqual((row["status"], row["resource_id"], row["region"]), ("N/A", "account", None))
+        self.assertTrue(row.get("vacuous"))
+        self.assertEqual(self.rows("DET-003"), [("FAIL", "account", REGION)])

@@ -570,11 +570,14 @@ def _evaluated_rows(ctx, check):
     unverified = [o for o in offenders if o.get("unverified")]
     # R20: not applicable resources get no FAIL and no PASS row; unverified ones get no PASS either
     skipped = {(o["resource_id"], o["region"]) for o in offenders if o.get("not_applicable") or o.get("unverified")}
+    not_applicable = [o for o in offenders if o.get("not_applicable")]
     offenders = [o for o in offenders if not o.get("not_applicable") and not o.get("unverified")]
     rows += [_row(check, "NOT_VERIFIED", o["resource_id"], o["region"], o["detail"],
                   missing=list(check["verify"]["needs"]) if o["detail"].get("error_code") == "ACCESS_DENIED" else [])
              for o in unverified]
     rows += [_row(check, "FAIL", o["resource_id"], o["region"], o["detail"]) for o in offenders]
+    if not is_resource and not rows and not_applicable:  # an account check the evaluator says does not apply: never a vacuous PASS
+        return [_row(check, "N/A", "account", None, not_applicable[0]["detail"] or {"reason": "not applicable"}, vacuous=True)]
     rows += _pass_rows(check, items, offenders, skipped, {f["region"] for f in failures}, bool(rows))
     if is_resource and not rows:  # R23: every in-scope item was not applicable
         return [_row(check, "N/A", "account", None, {"reason": "no resource applies"}, vacuous=True)]
