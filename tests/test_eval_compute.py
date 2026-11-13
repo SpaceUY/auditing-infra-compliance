@@ -240,6 +240,13 @@ class SsmManagedTests(unittest.TestCase):
         self.assertEqual(offenders[0]["detail"]["problems"], ["sin asociación de parches (Patch Manager)"])
         self.assertEqual(offenders[1]["detail"]["problems"], ["no registrada en Systems Manager"])
 
+    def test_ssm_unreachable_flag_ignores_patch_only_problems(self):
+        responses = self.responses("online", {I1: "patched"}, instance(I1), instance(I2), instance(I3))
+        offenders = evaluate("ssm_managed", responses)
+        self.assertEqual([(o["resource_id"], o["detail"]["ssm_unreachable"]) for o in offenders], [(I2, False), (I3, True)])
+        lost = evaluate("ssm_managed", self.responses("lost", {I2: "patched"}, instance(I2)))
+        self.assertTrue(lost[0]["detail"]["ssm_unreachable"])
+
     def test_agent_that_lost_connection_is_reported(self):
         responses = self.responses("lost", {I1: "patched", I2: "patched"}, instance(I2))
         (offender,) = evaluate("ssm_managed", responses)

@@ -34,10 +34,11 @@ def render(findings: dict, template: str, verification: dict | None = None) -> s
         raise ValueError(f"la plantilla debe contener exactamente un marcador {MARKER}")
     if not isinstance(findings, dict) or not isinstance(findings.get("findings"), list):
         raise ValueError("findings.json no tiene la forma esperada (falta la lista 'findings')")
+    if verification is not None and not isinstance(verification, dict):
+        raise ValueError("verification.json no tiene la forma esperada (se esperaba un objeto)")
+    findings = {k: v for k, v in findings.items() if k != "verification"}  # only the argument can add a verification
     if verification is not None:
-        if not isinstance(verification, dict):
-            raise ValueError("verification.json no tiene la forma esperada (se esperaba un objeto)")
-        findings = {**findings, "verification": verification}
+        findings["verification"] = verification
     return template.replace(MARKER, _embeddable_json(findings))
 
 

@@ -95,7 +95,9 @@ def asg_present(responses: dict, params: dict) -> list[dict]:
 @register("ssm_managed")
 def ssm_managed(responses: dict, params: dict) -> list[dict]:
     """Running instances registered in Systems Manager with a live agent and a Patch Manager patch state.
-    Instances in any other state (stopped...) cannot run the agent and are not applicable."""
+    Instances in any other state (stopped...) cannot run the agent and are not applicable.
+    detail.ssm_unreachable is true when the instance is not registered or its agent is not online (a missing patch state
+    alone leaves it false)."""
     states = {(region, i["InstanceId"]): (i.get("State") or {}).get("Name")
               for region, data in responses.get("instances", []) for r in (data or {}).get("Reservations", []) for i in r.get("Instances", [])}
     managed = {(region, i["InstanceId"]): i for region, data in responses.get("info", [])
@@ -115,5 +117,7 @@ def ssm_managed(responses: dict, params: dict) -> list[dict]:
             problems = ([] if info.get("PingStatus") == "Online" else [f"el agente SSM no está en línea ({info.get('PingStatus')})"])
             problems += [] if key in patched else ["sin asociación de parches (Patch Manager)"]
         if problems:
-            offenders.append(_offender(instance["id"], instance["region"], problems=problems))
+            # ssm_unreachable (stable key): not registered or agent offline, i.e. no Session Manager access today
+            unreachable = info is None or info.get("PingStatus") != "Online"
+            offenders.append(_offender(instance["id"], instance["region"], problems=problems, ssm_unreachable=unreachable))
     return offenders

@@ -153,6 +153,44 @@ class SgOpenPortTests(unittest.TestCase):
                          [("sg-1", REGION, True), ("sg-1", OTHER, False)])
 
 
+class SgAttachmentsTests(unittest.TestCase):
+    ALB_ENI = {"NetworkInterfaceId": "eni-alb", "Status": "in-use", "Description": "ELB app/acme-notes-alb/50dc6c495c0c9188",
+               "RequesterId": "amazon-elb", "Attachment": {"InstanceOwnerId": "amazon-elb"}, "Groups": [{"GroupId": "sg-web"}]}
+    EC2_ENI = {"NetworkInterfaceId": "eni-ec2", "Status": "in-use", "Description": "", "RequesterId": None,
+               "Attachment": {"InstanceId": "i-0123456789abcdef0"}, "Groups": [{"GroupId": "sg-web"}, {"GroupId": "sg-ssh"}]}
+    IDLE_ENI = {"NetworkInterfaceId": "eni-idle", "Status": "available", "Groups": [{"GroupId": "sg-ssh"}]}
+
+    def responses(self, *enis):
+        groups = {"SecurityGroups": [group("sg-web", tcp(80, 80)), group("sg-ssh", tcp(22, 22)), group("sg-none", tcp(22, 22))]}
+        return {"groups": [(REGION, groups)], "enis": [(REGION, {"NetworkInterfaces": list(enis)})]}
+
+    def detail(self, found, gid):
+        return next(o for o in found if o["resource_id"] == gid)["detail"]
+
+    def test_offenders_list_the_in_use_enis_that_use_the_group(self):
+        found = evaluate("sg_open_port", self.responses(self.ALB_ENI, self.EC2_ENI, self.IDLE_ENI), {"port": 80})
+        self.assertEqual(self.detail(found, "sg-web")["attachments"], [
+            {"eni_id": "eni-alb", "instance_id": None, "description": "ELB app/acme-notes-alb/50dc6c495c0c9188", "requester_id": "amazon-elb"},
+            {"eni_id": "eni-ec2", "instance_id": "i-0123456789abcdef0", "description": "", "requester_id": None}])
+        ssh = evaluate("sg_open_port", self.responses(self.ALB_ENI, self.EC2_ENI, self.IDLE_ENI), {"port": 22})
+        self.assertEqual([a["eni_id"] for a in self.detail(ssh, "sg-ssh")["attachments"]], ["eni-ec2"])
+        self.assertEqual(self.detail(ssh, "sg-none")["attachments"], [])
+
+    def test_existing_detail_keys_are_kept_and_all_traffic_has_attachments_too(self):
+        found = evaluate("sg_open_port", self.responses(self.EC2_ENI), {"port": 22})
+        self.assertTrue({"group_name", "vpc_id", "ip_permissions", "sources", "port"} <= set(self.detail(found, "sg-ssh")))
+        groups = {"SecurityGroups": [group("sg-web", {"IpProtocol": "-1", "IpRanges": [{"CidrIp": "10.0.0.0/8"}]})]}
+        responses = {"groups": [(REGION, groups)], "enis": [(REGION, {"NetworkInterfaces": [self.EC2_ENI]})]}
+        self.assertEqual(self.detail(evaluate("sg_all_traffic", responses), "sg-web")["attachments"][0]["instance_id"], "i-0123456789abcdef0")
+
+    def test_the_same_group_id_in_another_region_does_not_share_attachments(self):
+        responses = self.responses(self.EC2_ENI)
+        responses["groups"].append((OTHER, {"SecurityGroups": [group("sg-ssh", tcp(22, 22))]}))
+        responses["enis"].append((OTHER, {"NetworkInterfaces": [{"NetworkInterfaceId": "eni-eu", "Status": "in-use", "Groups": []}]}))
+        eu = [o for o in evaluate("sg_open_port", responses, {"port": 22}) if o["region"] == OTHER]
+        self.assertEqual(eu[0]["detail"]["attachments"], [])
+
+
 class SgAllTrafficTests(unittest.TestCase):
     def test_sg_all_traffic_pass(self):
         groups = {"SecurityGroups": [g for g in fx("ec2-describe-security-groups-mixed")["SecurityGroups"] if g["GroupId"] in (S_WEB, S_DB, S_RDP)]}

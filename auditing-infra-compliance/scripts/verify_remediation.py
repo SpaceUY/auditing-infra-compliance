@@ -41,13 +41,21 @@ KIND_STATE = {
 }
 
 PENDING = re.compile(r"__COMPLETAR_[A-Z0-9_]+__")
-HEREDOC = re.compile(r"<<")
+HEREDOC = re.compile(r"(?<!<)<<(?!<)")  # `<<<` is a here-string, not a heredoc
 SET_E = re.compile(r"(?:^|[;&|])\s*set\s+(?:-[a-zA-Z]*e[a-zA-Z]*\b|-o\s+errexit\b)", re.M)
-AWS_OPERATION = re.compile(r"\baws\s+([a-z0-9-]+)\s+([a-z0-9-]+)")
+# `aws` only counts as a command word: at line start, after ; & | ( or $(, or after do / then / else
+AWS_OPERATION = re.compile(r"(?:^|[;&|(]|\b(?:do|then|else)\s)\s*aws\s+([a-z0-9-]+)\s+([a-z0-9-]+)")
+DOUBLE_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
+SUBSTITUTION = re.compile(r"\$\([^)]*\)")
 DESTRUCTIVE_PREFIXES = ("delete-", "revoke-", "terminate-", "remove-", "deregister-", "detach-", "disable-", "stop-")
 REPLACING_OPERATIONS = ("put-bucket-policy", "put-key-policy", "update-account-password-policy")
-FORCE_FLAG = re.compile(r"(?<![\w-])--force\b")
+DESTRUCTIVE_PAIRS = frozenset({("s3", "rm"), ("s3", "rb")})
+# a bare --force, --force-delete* and --delete (aws s3 sync); not benign flags such as --force-new-deployment
+DESTRUCTIVE_FLAG = re.compile(r"(?<![\w-])(--force(?:-delete[\w-]*)?|--delete)(?![\w-])")
 OVERSTRIKE = re.compile(r".\x08")
+HELP_ENV_KEEP = ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE")
+MISSING_OPERATION_CODES = (2, 252)
+MISSING_OPERATION_STDERR = re.compile(r"invalid choice|usage:", re.I)
 GLOBAL_FLAGS = frozenset({
     "--debug", "--endpoint-url", "--no-verify-ssl", "--no-paginate", "--output", "--query", "--profile", "--region", "--version",
     "--color", "--no-sign-request", "--ca-bundle", "--cli-read-timeout", "--cli-connect-timeout", "--cli-binary-format",
@@ -83,6 +91,27 @@ def _code_lines(commands):
                 yield line
 
 
+def _strip_quotes(line):
+    """The line without quoted text (words inside strings are not commands or flags); $(...) inside double quotes stays."""
+    out, i = [], 0
+    while i < len(line):
+        if line[i] == "'":
+            end = line.find("'", i + 1)
+            out.append("''")
+            i = len(line) if end == -1 else end + 1
+        elif line[i] == '"' and (match := DOUBLE_QUOTED.match(line, i)):
+            out.append('"' + " ".join(SUBSTITUTION.findall(match.group(1))) + '"')
+            i = match.end()
+        else:
+            out.append(line[i])
+            i += 1
+    return "".join(out)
+
+
+def _code_text(commands):
+    return "\n".join(_strip_quotes(line) for line in _code_lines(commands))
+
+
 def _test_label(test):
     name = test.get("name") or ""
     if test.get("tool") == "drata":
@@ -112,7 +141,7 @@ def _placeholder_issues(texts):
 
 
 def _hygiene_issues(commands):
-    lines = "\n".join(_code_lines(commands))
+    lines = _code_text(commands)
     issues = []
     if HEREDOC.search(lines):
         issues.append(_issue("higiene", "usa '<<' (heredoc): pegado en CloudShell queda esperando el terminador"))
@@ -123,12 +152,11 @@ def _hygiene_issues(commands):
 
 def _destructive_operations(commands):
     found = []
-    for line in _code_lines(commands):
+    for line in _code_text(commands).splitlines():
         for service, operation in AWS_OPERATION.findall(line):
-            if operation.startswith(DESTRUCTIVE_PREFIXES) or operation in REPLACING_OPERATIONS:
+            if operation.startswith(DESTRUCTIVE_PREFIXES) or operation in REPLACING_OPERATIONS or (service, operation) in DESTRUCTIVE_PAIRS:
                 found.append(f"{service} {operation}")
-        if FORCE_FLAG.search(line):
-            found.append("--force")
+        found += DESTRUCTIVE_FLAG.findall(line)
     return sorted(set(found))
 
 
@@ -187,16 +215,28 @@ def _aws_invocations(commands):
         yield words[1], words[2], flags
 
 
+def _help_env():
+    env = {k: os.environ[k] for k in HELP_ENV_KEEP if k in os.environ}
+    return {**env, "PAGER": "cat", "AWS_PAGER": ""}
+
+
 def _help_text(service, operation, runner, cache):
+    """The help text; None when the CLI says the operation does not exist (rc 2/252 plus 'Invalid choice' or 'usage:');
+    "" when the help could not be read for any other reason (groff missing, timeout, empty output): nothing to compare."""
     key = (service, operation)
     if key not in cache:
-        env = dict(os.environ, PAGER="cat", AWS_PAGER="")
         try:
-            proc = runner(["aws", service, operation, "help"], env=env, text=True, capture_output=True, shell=False,
+            proc = runner(["aws", service, operation, "help"], env=_help_env(), text=True, capture_output=True, shell=False,
                           timeout=PROCESS_TIMEOUT)
-            cache[key] = OVERSTRIKE.sub("", proc.stdout or "") if proc.returncode == 0 else None
         except (OSError, subprocess.TimeoutExpired):
-            cache[key] = ""  # help unavailable: nothing to compare against
+            cache[key] = ""
+            return cache[key]
+        if proc.returncode == 0:
+            cache[key] = OVERSTRIKE.sub("", proc.stdout or "").strip()
+        elif proc.returncode in MISSING_OPERATION_CODES and MISSING_OPERATION_STDERR.search(proc.stderr or ""):
+            cache[key] = None
+        else:
+            cache[key] = ""
     return cache[key]
 
 
@@ -217,13 +257,6 @@ def _cli_issues(commands, runner, cache):
 
 
 # ---------------------------------------------------------------- conflict rules
-
-
-def _same_scope(a, b, scope):
-    if scope == "same_resource":
-        return a["resource"]["id"] == b["resource"]["id"]
-    ra, rb = a["resource"].get("region"), b["resource"].get("region")
-    return not ra or not rb or ra == rb
 
 
 def _as_list(value):
@@ -258,17 +291,33 @@ def _rule_hits(rule, fails, all_findings):
                    or any(n in c for n in needles for c in _commands(f))]
         return [(_ids(matched), _ids(matched))] if matched else []
     if "fail" in when:
-        if "and_fail" in when:
-            pool = [f for f in fails if f["check_id"] == when["and_fail"]]
-        else:
-            pool = [f for f in all_findings if f.get("check_id") == when.get("related_check_any") and f.get("status") in ("PASS", "FAIL")]
         hits = []
         for f in (f for f in fails if f["check_id"] in _as_list(when["fail"])):
-            related = [g for g in pool if g["id"] != f["id"] and _same_scope(f, g, scope)]
-            if related:
+            related = _attachment_match(f, when, fails)
+            if related is not None:
                 hits.append(([f["id"]], [f["id"]] + _ids(related)))
         return hits
     return []
+
+
+def _attachments(finding):
+    evidence = finding.get("evidence")
+    items = evidence.get("attachments") if isinstance(evidence, dict) else None
+    return [a for a in items if isinstance(a, dict)] if isinstance(items, list) else []
+
+
+def _attachment_match(finding, when, fails):
+    """None when the finding's security group attachments (evidence.attachments, from the NET evaluators) do not satisfy
+    the rule condition; otherwise the related findings (possibly none). No attachment data means no match."""
+    attachments = _attachments(finding)
+    prefix = when.get("attachment_description_prefix")
+    if prefix:
+        return [] if any(str(a.get("description") or "").startswith(prefix) for a in attachments) else None
+    wanted = when.get("attached_instance_fail") or {}
+    instances = {a["instance_id"] for a in attachments if a.get("instance_id")}
+    related = [g for g in fails if g["check_id"] == wanted.get("check") and g["resource"]["id"] in instances
+               and isinstance(g.get("evidence"), dict) and g["evidence"].get(wanted.get("evidence_true")) is True]
+    return related or None
 
 
 def _apply_rules(rules, fails, all_findings):
@@ -378,17 +427,33 @@ def _inventory_gaps(findings, inventory):
 # ---------------------------------------------------------------- claims
 
 
+CLAIM_FORM = "se esperaba finding_id y status de texto, y message y vault_note de texto o nulos"
+
+
+def _valid_claim(claim):
+    return (isinstance(claim, dict) and isinstance(claim.get("finding_id"), str) and isinstance(claim.get("status"), str)
+            and all(claim.get(k) is None or isinstance(claim[k], str) for k in ("message", "vault_note")))
+
+
 def _claim_issues(claims, per_finding):
-    for claim in claims or []:
-        fid = claim.get("finding_id") if isinstance(claim, dict) else None
-        if fid not in per_finding or claim.get("status") == "OK":
+    """Adds Claude's claims to per_finding; returns warnings for claims that are skipped because of their shape."""
+    if claims is not None and not isinstance(claims, list):
+        return [f"claims ignorados: {CLAIM_FORM} (se esperaba una lista)"]
+    warnings = []
+    for number, claim in enumerate(claims or [], start=1):
+        if not _valid_claim(claim):
+            warnings.append(f"claim {number} ignorado: forma inválida ({CLAIM_FORM})")
             continue
-        state = claim.get("status") if claim.get("status") in RANK else "REVISAR"
+        fid = claim["finding_id"]
+        if fid not in per_finding or claim["status"] == "OK":
+            continue
+        state = claim["status"] if claim["status"] in RANK else "REVISAR"
         message = _one_line(claim.get("message") or "revisión de Claude sin detalle", 600)
         if claim.get("vault_note"):
             message += f" (nota: {_one_line(claim['vault_note'], 200)})"
         per_finding[fid]["issues"].append(_issue("claude", message, source="claude"))
         per_finding[fid]["_floor"] = max(per_finding[fid].get("_floor", "OK"), state, key=RANK.get)
+    return warnings
 
 
 # ---------------------------------------------------------------- entry point
@@ -439,15 +504,19 @@ def verify(findings: dict, inventory: list, rules: list, *, claims: list | None 
     rules_status = {r["id"]: r["status"] for r in rules}
     for fid, issues in rule_issues.items():
         per_finding[fid]["issues"] += issues
-    _claim_issues(claims, per_finding)
+    warnings = _claim_issues(claims, per_finding)
 
     for entry in per_finding.values():
         floor = entry.pop("_floor", "OK")
         entry["status"] = max([floor] + [_issue_state(i, rules_status) for i in entry["issues"] if i["kind"] != "claude"], key=RANK.get)
     order, order_gaps = _apply_order(fails, order_pairs)
+    unavailable = sorted(f"{service} {operation}" for (service, operation), text in cache.items() if text == "")
+    if unavailable:
+        gaps.append(_gap("no_verificado", "ayuda de la CLI no disponible, no se comprobaron operaciones ni flags de: " + ", ".join(unavailable), "aws-cli"))
     summary = {s: sum(1 for e in per_finding.values() if e["status"] == s) for s in RANK}
     result = {"per_finding": per_finding, "conflicts": conflicts, "gaps": gaps + order_gaps, "apply_order": order,
-              "completar_pendientes": pending, "cli_checked": cli_on, "summary": summary}
+              "completar_pendientes": pending, "cli_checked": cli_on and not unavailable, "summary": summary,
+              "warnings": warnings}
     return redact.mask_obj(result)
 
 
@@ -484,7 +553,8 @@ def main(argv=None) -> int:
         return 2
     s = result["summary"]
     print(f"verificación: OK {s['OK']}, REVISAR {s['REVISAR']}, CONFLICTO {s['CONFLICTO']}; "
-          f"{len(result['conflicts'])} conflictos, {len(result['gaps'])} faltantes, {result['completar_pendientes']} valores por completar.")
+          f"{len(result['conflicts'])} conflictos, {len(result['gaps'])} faltantes, {result['completar_pendientes']} valores por completar, "
+          f"{len(result['warnings'])} advertencias.")
     print(f"Detalle en: {run_dir / 'verification.json'}")
     return 0
 

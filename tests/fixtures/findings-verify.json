@@ -38,7 +38,21 @@
         "notes": "Abrir antes un acceso alternativo (Session Manager)."
       },
       "depends_on_me": [],
-      "missing": []
+      "missing": [],
+      "evidence": {
+        "group_name": "acme-notes-ssh",
+        "sources": [
+          "0.0.0.0/0"
+        ],
+        "attachments": [
+          {
+            "eni_id": "eni-0a1b2c3d4e5f60718",
+            "instance_id": "i-0123456789abcdef0",
+            "description": "",
+            "requester_id": null
+          }
+        ]
+      }
     },
     {
       "id": "F-0002",
@@ -67,7 +81,13 @@
         "notes": "Cambio planificado."
       },
       "depends_on_me": [],
-      "missing": []
+      "missing": [],
+      "evidence": {
+        "problems": [
+          "no registrada en Systems Manager"
+        ],
+        "ssm_unreachable": true
+      }
     },
     {
       "id": "F-0003",
@@ -96,7 +116,21 @@
         "notes": "Decidir entre cerrar el 80 o mantener la redirección."
       },
       "depends_on_me": [],
-      "missing": []
+      "missing": [],
+      "evidence": {
+        "group_name": "acme-notes-alb",
+        "sources": [
+          "0.0.0.0/0"
+        ],
+        "attachments": [
+          {
+            "eni_id": "eni-0b2c3d4e5f6071829",
+            "instance_id": null,
+            "description": "ELB app/acme-notes-alb/50dc6c495c0c9188",
+            "requester_id": "amazon-elb"
+          }
+        ]
+      }
     },
     {
       "id": "F-0004",

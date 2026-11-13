@@ -1,10 +1,10 @@
 [
   {
     "id": "CR-001",
-    "when": {"fail": "NET-003", "related_check_any": "TLS-002"},
+    "when": {"fail": "NET-003", "attachment_description_prefix": "ELB app/"},
     "scope": "same_account",
     "status": "CONFLICTO",
-    "message": "Cerrar el puerto 80 rompe la redirección HTTP a HTTPS del balanceador. Alternativa: dejar solo el 443, o excluir el recurso en Drata con la justificación de que el ALB solo redirige.",
+    "message": "Este security group lo usa un Application Load Balancer (interfaz ELB app/): cerrar el puerto 80 rompe la redirección HTTP a HTTPS. Alternativa: dejar solo el 443, o excluir el recurso en Drata con la justificación de que el ALB solo redirige.",
     "order": []
   },
   {
@@ -17,10 +17,10 @@
   },
   {
     "id": "CR-003",
-    "when": {"fail": ["NET-001", "NET-002"], "and_fail": "CMP-006"},
+    "when": {"fail": ["NET-001", "NET-002"], "attached_instance_fail": {"check": "CMP-006", "evidence_true": "ssm_unreachable"}},
     "scope": "same_account",
     "status": "CONFLICTO",
-    "message": "Revocar SSH o RDP sin SSM deja la instancia sin acceso: hay instancias que no están gestionadas por Systems Manager (CMP-006). Primero habilitar SSM.",
+    "message": "Una instancia que usa este security group no está accesible por Systems Manager (CMP-006: no registrada o agente sin conexión): revocar SSH o RDP la deja sin acceso. Primero habilitar SSM.",
     "order": [["CMP-006", "NET-001"], ["CMP-006", "NET-002"]]
   },
   {

@@ -61,11 +61,27 @@ def _eni_regions(responses: dict) -> tuple[set[str], set[str]]:
     return active, answered
 
 
+def _attachments(responses: dict) -> dict[tuple[str, str], list[dict]]:
+    """(region, group id) -> the in-use network interfaces that use the group, as {eni_id, instance_id, description,
+    requester_id}. instance_id is Attachment.InstanceId (None for ENIs not attached to an instance, such as ELB ones)."""
+    found: dict[tuple[str, str], list[dict]] = {}
+    for region, data in responses.get("enis", []):
+        for eni in (data or {}).get("NetworkInterfaces", []):
+            if str(eni.get("Status", "in-use")).lower() != "in-use":
+                continue
+            entry = {"eni_id": eni.get("NetworkInterfaceId"), "instance_id": (eni.get("Attachment") or {}).get("InstanceId"),
+                     "description": eni.get("Description"), "requester_id": eni.get("RequesterId")}
+            for group in eni.get("Groups") or []:
+                found.setdefault((region, group.get("GroupId")), []).append(entry)
+    return found
+
+
 def _group_findings(responses: dict, matches, only_any_address: bool, **extra) -> list[dict]:
     """One entry per security group, attached or not (like Drata, which evaluates every group of a region with active ENIs):
     offender (a matching rule open to a CIDR), not applicable (the region has no in-use interface) or unverified (the
     region's interfaces could not be read)."""
     active, answered = _eni_regions(responses)
+    attachments = _attachments(responses)
     found = []
     for region, data in responses.get("groups", []):
         for sg in (data or {}).get("SecurityGroups", []):
@@ -80,7 +96,7 @@ def _group_findings(responses: dict, matches, only_any_address: bool, **extra) -
             if exposed:
                 sources = sorted({r.get("CidrIp") or r["CidrIpv6"] for e in exposed for r in (e.get("IpRanges") or []) + (e.get("Ipv6Ranges") or [])})
                 found.append(_offender(gid, region, group_name=sg.get("GroupName"), vpc_id=sg.get("VpcId"), ip_permissions=exposed,
-                                       sources=sources, **extra))
+                                       sources=sources, attachments=attachments.get((region, gid), []), **extra))
     return found
 
 
@@ -88,7 +104,8 @@ def _group_findings(responses: dict, matches, only_any_address: bool, **extra) -
 def sg_open_port(responses: dict, params: dict) -> list[dict]:
     """Drata 102 / 228 / 291 and Vanta #33-#34: no ingress rule from 0.0.0.0/0 or ::/0 whose protocol is tcp or all (-1) and
     whose port range contains params["port"], in any security group of a region with in-use ENIs. Source security groups,
-    specific CIDRs and prefix lists pass. detail.ip_permissions is the exact JSON of the offending rules (stable key)."""
+    specific CIDRs and prefix lists pass. detail.ip_permissions is the exact JSON of the offending rules (stable key);
+    detail.attachments lists the in-use ENIs using the group (stable key, read by the fix verification stage)."""
     port = int(params["port"])
     return _group_findings(responses, lambda p: _covers_port(p, port), True, port=port)
 

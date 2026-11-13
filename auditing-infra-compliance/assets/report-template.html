@@ -207,7 +207,7 @@ const I18N = {
          counts: 'Arreglos verificados', pending: 'Valores por completar (__COMPLETAR_…__) pendientes', pendingHint: 'Completarlos antes de pegar los comandos en CloudShell.',
          cliOn: 'Validez de operaciones y flags: comprobada con la ayuda local de la AWS CLI.',
          cliOff: 'Validez de operaciones y flags: no comprobada (correr la verificación con --check-cli y la AWS CLI instalada).',
-         conflicts: 'Conflictos entre arreglos', noConflicts: 'Sin conflictos entre arreglos.', gaps: 'Lo que falta', noGaps: 'Nada faltante detectado.',
+         warnings: 'Advertencias de la verificación', conflicts: 'Conflictos entre arreglos', noConflicts: 'Sin conflictos entre arreglos.', gaps: 'Lo que falta', noGaps: 'Nada faltante detectado.',
          order: 'Orden sugerido de aplicación', orderHint: 'Identidad, logging y detección, claves KMS, cifrado, red, datos, monitoreo, tags e integración; dentro de cada grupo por severidad y los cambios planificados al final. Las reglas de conflicto tienen prioridad.',
          reasons: 'Verificación del arreglo', byClaude: 'revisión de Claude', rule: 'Regla', findings: 'Hallazgos', none: 'sin observaciones',
          status: { OK: 'OK', REVISAR: 'REVISAR', CONFLICTO: 'CONFLICTO' },
@@ -741,6 +741,14 @@ function verifGaps(body) {
   });
   body.appendChild(ul);
 }
+function verifWarnings(body) {
+  const warnings = arr(VERIF.warnings);
+  if (!warnings.length) return;
+  body.appendChild(el('h3', { text: I18N.ver.warnings + ' (' + warnings.length + ')' }));
+  const ul = el('ul', { cls: 'plain' });
+  warnings.forEach(function (w) { ul.appendChild(el('li', { text: oneLine(w) })); });
+  body.appendChild(ul);
+}
 function verifOrder(body) {
   const order = arr(VERIF.apply_order);
   body.appendChild(el('h3', { text: I18N.ver.order + ' (' + order.length + ')' }));
@@ -771,6 +779,7 @@ function renderVerification() {
   verifCounts(body);
   verifConflicts(body);
   verifGaps(body);
+  verifWarnings(body);
   verifOrder(body);
 }
 

@@ -279,26 +279,42 @@ def _check_coverage(check, drata):
 def _rule_check_refs(when):
     """(key, check id) for every check cited in a rule's `when`."""
     refs = []
-    for key in ("all_fail", "any_fail", "fail", "and_fail", "related_check_any"):
+    for key in ("all_fail", "any_fail", "fail"):
         value = when.get(key)
         refs += [(key, v) for v in (value if isinstance(value, list) else [value] if value is not None else [])]
+    attached = when.get("attached_instance_fail")
+    if isinstance(attached, dict) and "check" in attached:
+        refs.append(("attached_instance_fail", attached["check"]))
     return refs
+
+
+def _non_empty_text(value):
+    return isinstance(value, str) and bool(value)
 
 
 def _rule_when_errors(rid, when):
     if not isinstance(when, dict):
         return [f"{rid}: 'when' debe ser un objeto"]
     forms = [k for k in ("all_fail", "any_fail", "fail") if k in when]
-    errors = []
     if len(forms) != 1:
         return [f"{rid}: 'when' requiere exactamente una de all_fail, any_fail o fail"]
-    if forms[0] == "fail" and sum(k in when for k in ("and_fail", "related_check_any")) != 1:
-        errors.append(f"{rid}: 'when.fail' requiere exactamente una de and_fail o related_check_any")
+    errors = []
+    conditions = [k for k in ("attachment_description_prefix", "attached_instance_fail") if k in when]
+    if forms[0] == "fail" and len(conditions) != 1:
+        errors.append(f"{rid}: 'when.fail' requiere exactamente una de attachment_description_prefix o attached_instance_fail")
+    if forms[0] != "fail" and conditions:
+        errors.append(f"{rid}: {conditions[0]} solo se usa con 'when.fail'")
     for key, value in when.items():
         if key == "command_contains":
-            if not (isinstance(value, list) and all(isinstance(v, str) and v for v in value)):
+            if not (isinstance(value, list) and all(_non_empty_text(v) for v in value)):
                 errors.append(f"{rid}: when.command_contains debe ser lista de textos no vacios")
-        elif key not in ("all_fail", "any_fail", "fail", "and_fail", "related_check_any"):
+        elif key == "attachment_description_prefix":
+            if not _non_empty_text(value):
+                errors.append(f"{rid}: when.attachment_description_prefix debe ser un texto no vacio")
+        elif key == "attached_instance_fail":
+            if not (isinstance(value, dict) and _non_empty_text(value.get("check")) and _non_empty_text(value.get("evidence_true"))):
+                errors.append(f"{rid}: when.attached_instance_fail requiere {{check, evidence_true}} no vacios")
+        elif key not in ("all_fail", "any_fail", "fail"):
             errors.append(f"{rid}: when.{key} desconocido")
     return errors
 
