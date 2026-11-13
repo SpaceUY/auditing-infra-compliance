@@ -1,262 +1,262 @@
-# Diseño: skill de auditoría de infraestructura SOC 2 / ISO 27001
+# Design: SOC 2 / ISO 27001 infrastructure audit skill
 
-Fecha: 2026-11-12 · Estado: borrador para aprobación · Carpeta: `trabajo/skills/infra-compliance-audit/`
+Date: 2026-11-12 · Status: draft for approval · Folder: `trabajo/skills/infra-compliance-audit/`
 
-Las decisiones marcadas **[decisión del diseñador]** no las tomó el usuario; están para que las revise.
-Las fuentes de investigación están en la sección 15.
+Decisions marked **[designer's decision]** were not made by the user; they are there for you to review.
+The research sources are in section 15.
 
 ---
 
-## 1. Intención
+## 1. Intent
 
-Una organización que opera varias plataformas en AWS que pasan, o van a pasar, auditorías SOC 2 e ISO 27001. Su
-cumplimiento lo monitorean **Drata o Vanta**, según la plataforma. Hoy, descubrir qué va a hacer fallar un
-test de Drata o Vanta exige revisar la consola a mano, o esperar a que la herramienta lo marque en rojo.
+An organization operates several platforms on AWS that pass, or are about to go through, SOC 2 and ISO 27001
+audits. Their compliance is monitored by **Drata or Vanta**, depending on the platform. Today, finding out what will
+make a Drata or Vanta test fail means reviewing the console by hand, or waiting for the tool to flag it red.
 
-El skill hace una **pre-auditoría técnica de la infraestructura**:
+The skill performs a **technical pre-audit of the infrastructure**:
 
-1. Lee el vault de Obsidian de la plataforma para saber **qué existe y para qué sirve**.
-2. Con credenciales AWS de **solo lectura**, verifica **cómo está configurado en realidad**.
-3. Produce un **`.html` autocontenido**. Cada problema muestra:
-   - qué falla y por qué importa (criterio SOC 2, control ISO 27001:2022 y test de Drata/Vanta equivalente);
-   - la evidencia que lo prueba;
-   - el comando o los comandos de **AWS CloudShell** que lo arreglan, con un botón **Copy**.
+1. It reads the platform's Obsidian vault to learn **what exists and what it is for**.
+2. With **read-only** AWS credentials, it verifies **how things are actually configured**.
+3. It produces a **self-contained `.html`**. Each problem shows:
+   - what fails and why it matters (SOC 2 criterion, ISO 27001:2022 control and the equivalent Drata/Vanta test);
+   - the evidence that proves it;
+   - the **AWS CloudShell** command or commands that fix it, with a **Copy** button.
 
-El objetivo práctico es que los tests automáticos de Drata y Vanta **no salten**. No se busca emitir una
-opinión de auditoría.
+The practical goal is that the automatic Drata and Vanta tests **do not fire**. It does not aim to issue an
+audit opinion.
 
-## 2. Objetivos, no-objetivos y anti-objetivos
+## 2. Goals, non-goals and anti-goals
 
-**Objetivos**
-- **G1. Tres alcances:**
-  - toda la infraestructura (`full`);
-  - una feature de una plataforma, por ejemplo "revisá el envío de email" (`feature`);
-  - un recurso puntual, por ID o ARN (`resource`).
-- **G2. Fuentes intercambiables:**
-  - solo vault: evalúa lo documentado;
-  - solo credenciales: evalúa lo real, con inventario descubierto;
-  - ambas: evalúa lo real y además **detecta diferencias entre vault y realidad** (drift).
-- **G3. Vaults tipados y libres.** Los tipados (creados con `creating-typed-knowledge-vaults`) son el caso
-  normal. Los libres (notas escritas a mano, sin frontmatter) se leen en modo "mejor esfuerzo".
-- **G4. Para cada hallazgo:** criterio SOC 2 (TSC 2017, revisados en 2022), control ISO/IEC 27001:2022
-  Anexo A, test Drata (número) y test Vanta (nombre). Cada mapeo indica si está **documentado en una fuente**
-  o es **inferido**.
-- **G5. Remediación para CloudShell,** copiable, con placeholders claros. Los arreglos riesgosos o que
-  requieren una decisión quedan marcados como tales.
-- **G6. Funciona sin Drata ni Vanta conectados.** Si hay un MCP de Drata o Vanta conectado, se puede cruzar
-  con él (fase 2, sección 11).
+**Goals**
+- **G1. Three scopes:**
+  - the whole infrastructure (`full`);
+  - one feature of a platform, for example "review email sending" (`feature`);
+  - a single resource, by ID or ARN (`resource`).
+- **G2. Interchangeable sources:**
+  - vault only: evaluates what is documented;
+  - credentials only: evaluates what is real, with a discovered inventory;
+  - both: evaluates what is real and also **detects differences between vault and reality** (drift).
+- **G3. Typed and free-form vaults.** Typed ones (created with `creating-typed-knowledge-vaults`) are the normal
+  case. Free-form ones (hand-written notes, no frontmatter) are read on a "best effort" basis.
+- **G4. For each finding:** SOC 2 criterion (TSC 2017, revised in 2022), ISO/IEC 27001:2022 Annex A control,
+  Drata test (number) and Vanta test (name). Each mapping states whether it is **documented in a source**
+  or **inferred**.
+- **G5. CloudShell remediation,** copyable, with clear placeholders. Risky fixes, or fixes that
+  require a decision, are marked as such.
+- **G6. Works without Drata or Vanta connected.** If a Drata or Vanta MCP is connected, results can be
+  cross-checked against it (phase 2, section 11).
 
-**No-objetivos**
-- Controles organizacionales: políticas, análisis de riesgo, SoA, capacitación, background checks, MDM y
-  equipos de empleados, RRHH, proveedores, gestión del ISMS (cláusulas 4–10).
-  - El reporte los lista como **"fuera de alcance de este reporte"** para que nadie lea "todo verde" como
-    "apto para SOC 2".
-- Otras nubes (GCP, Azure).
-- Varias cuentas AWS o una AWS Organization en una misma corrida (v1: una cuenta por corrida).
-- Escanear repositorios de código o IaC (Checkov, SAST).
-- Modificar el vault. El skill nunca escribe en el vault; como mucho sugiere pasarlo a formato tipado con
+**Non-goals**
+- Organizational controls: policies, risk analysis, SoA, training, background checks, MDM and
+  employee devices, HR, vendors, ISMS management (clauses 4–10).
+  - The report lists them as **"out of scope of this report"** so nobody reads "all green" as
+    "ready for SOC 2".
+- Other clouds (GCP, Azure).
+- Several AWS accounts or an AWS Organization in a single run (v1: one account per run).
+- Scanning code or IaC repositories (Checkov, SAST).
+- Modifying the vault. The skill never writes to the vault; at most it suggests converting it to the typed format with
   `creating-typed-knowledge-vaults`.
 
-**Anti-objetivos (fallaría aunque funcione)**
-- **A1.** El skill **ejecuta algo que modifica AWS**. Solo corre comandos de lectura; los arreglos los
-  ejecuta un humano en CloudShell.
-- **A2.** Un **porcentaje de "cumplimiento"**, una nota o un "apto / no apto" sin decir en qué se basa. Sería
-  una opinión de auditoría inventada. El reporte da conteos por estado y severidad y **un veredicto por fuente**
-  (`OPTIMO`, `NO_OPTIMO` o `NO_VERIFICABLE`, siempre con su base: AWS, vault o ambos), nunca una nota ni un
-  porcentaje. Un veredicto basado solo en el vault nunca dice que AWS verificó algo.
-- **A3.** **Criterios o controles inventados o mal numerados.** El skill de GitHub tiene CC6.4, CC6.5, CC6.6,
-  CC9.1 y CC9.2 mal etiquetados, y C1.3 y PI1.x inventados. Todo ID mapeado debe existir en el catálogo
-  oficial embebido, y un validador lo verifica.
-- **A4.** Tratar como verificado algo que **solo dice el vault**. Un `status: proposed`, o una nota que dice
-  "cifrado con CMK" cuando la cuenta usa `aws/rds`, no cuentan como control vigente.
-- **A5.** Exponer secretos: leer `.env`, imprimir claves o volcar contenido de datos.
-- **A6.** Un comando de remediación que **parece de una línea y es destructivo**, sin advertencia. Ejemplo:
-  cifrar una RDS existente exige snapshot, copia cifrada y restore, con downtime.
+**Anti-goals (it would fail even if it works)**
+- **A1.** The skill **runs anything that modifies AWS**. It only runs read commands; fixes are
+  executed by a human in CloudShell.
+- **A2.** A **"compliance" percentage**, a score or a "pass / fail" without saying what it is based on. It would be
+  an invented audit opinion. The report gives counts by status and severity and **a verdict per source**
+  (`OPTIMAL`, `NOT_OPTIMAL` or `NOT_VERIFIABLE`, always with its basis: AWS, vault or both), never a score or a
+  percentage. A verdict based only on the vault never says that AWS verified anything.
+- **A3.** **Invented or wrongly numbered criteria or controls.** The GitHub skill has CC6.4, CC6.5, CC6.6,
+  CC9.1 and CC9.2 mislabeled, and C1.3 and PI1.x invented. Every mapped ID must exist in the embedded official
+  catalog, and a validator checks it.
+- **A4.** Treating as verified something that **only the vault says**. A `status: proposed`, or a note that says
+  "encrypted with CMK" when the account uses `aws/rds`, does not count as a control in force.
+- **A5.** Exposing secrets: reading `.env`, printing keys or dumping data contents.
+- **A6.** A remediation command that **looks like a one-liner and is destructive**, with no warning. Example:
+  encrypting an existing RDS instance requires a snapshot, an encrypted copy and a restore, with downtime.
 
-## 3. Usuarios y contexto
+## 3. Users and context
 
-- **Ingenieros** (DevOps o backend) que preparan o mantienen plataformas ante Drata o Vanta.
-  Corren Claude Code en modo interactivo.
-- **Varias plataformas**, cada una con su vault y su cuenta AWS.
-- **Idioma:** el usuario escribe en castellano. El reporte sale **solo en castellano** (cambio posterior a la
-  aprobación, ver "Cambios posteriores a la aprobación"); `--lang` queda reservado y solo admite `es`. Los IDs,
-  los comandos y los nombres de tests de Drata y Vanta quedan en su idioma original.
+- **Engineers** (DevOps or backend) who prepare or maintain platforms for Drata or Vanta.
+  They run Claude Code in interactive mode.
+- **Several platforms**, each with its own vault and its own AWS account.
+- **Language:** the user writes in Spanish. The report is produced **in English only** (a change made after
+  approval, see "Changes after approval"); `--lang` is reserved and only accepts `en`. IDs,
+  commands and Drata and Vanta test names stay in their original language.
 
-## 4. Entradas e invocación
+## 4. Inputs and invocation
 
-El skill se dispara con pedidos como "auditá la infra de X para SOC 2", "revisá el envío de email de la
-plataforma Y", "revisá la instancia i-0abc…" o "¿esto pasa Drata/Vanta?".
+The skill is triggered by requests such as "audit the infra of X for SOC 2", "review the email sending of platform
+Y", "review instance i-0abc…" or "does this pass Drata/Vanta?".
 
-Al arrancar, el skill resuelve estas entradas. Pregunta solo lo que falte, **en un solo mensaje**:
+On startup, the skill resolves these inputs. It asks only for what is missing, **in a single message**:
 
-| Entrada | Cómo se obtiene | Obligatoria |
+| Input | How it is obtained | Required |
 |---|---|---|
-| Alcance | Se deduce del pedido: `full`, `feature: <texto>` o `resource: <id/arn>` | Sí |
-| Vault | Ruta. Si no se da, se pregunta; "no hay vault" es una respuesta válida | No |
-| Carpeta de evidencia extra | Ruta opcional con HTMLs o PDFs de auditoría, que se leen como contexto. Suele estar junto al vault, fuera de él | No |
-| Credenciales AWS | **Solo** vía `AWS_PROFILE` / `--profile` o el entorno ya configurado. Se verifica con `aws sts get-caller-identity` | No |
-| Regiones | Las que diga el usuario. Si no: regiones habilitadas con recursos, más `us-east-1` para servicios globales | No |
-| Herramienta de compliance | Drata, Vanta o ambas (`--tool drata\|vanta\|both`). Se guarda en `meta.tool` y el HTML preselecciona esa herramienta en el filtro Drata/Vanta; ambas siguen disponibles y por defecto no se preselecciona ninguna | No |
+| Scope | Deduced from the request: `full`, `feature: <text>` or `resource: <id/arn>` | Yes |
+| Vault | Path. If not given, it asks; "there is no vault" is a valid answer | No |
+| Extra evidence folder | Optional path with audit HTMLs or PDFs, read as context. Usually next to the vault, outside it | No |
+| AWS credentials | **Only** via `AWS_PROFILE` / `--profile` or the already-configured environment. Verified with `aws sts get-caller-identity` | No |
+| Regions | The ones the user names. Otherwise: enabled regions with resources, plus `us-east-1` for global services | No |
+| Compliance tool | Drata, Vanta or both (`--tool drata\|vanta\|both`). Stored in `meta.tool`, and the HTML preselects that tool in the Drata/Vanta filter; both remain available and by default none is preselected | No |
 
-Hace falta al menos una de las dos fuentes, vault o credenciales. El skill **verifica lo que le den**: con vault
-sigue sin insistir en credenciales, con credenciales sigue sin vault, y en los tres casos da un veredicto que dice
-su base.
+At least one of the two sources, vault or credentials, is required. The skill **verifies what it is given**: with a vault
+it does not insist on credentials, with credentials it does not insist on a vault, and in all three cases it gives a verdict that states
+its basis.
 
-## 5. Flujo de trabajo del skill
+## 5. Skill workflow
 
 1. **Preflight**
-   - Resolver las entradas.
-   - Si hay credenciales:
+   - Resolve the inputs.
+   - If there are credentials:
      - `sts get-caller-identity`;
-     - detectar si la identidad tiene permisos de escritura amplios (`AdministratorAccess`, `*:*`) y
-       **advertirlo** en una línea. No bloquea; sugiere usar un rol con `SecurityAudit` + `ViewOnlyAccess`.
-   - **Nunca** leer archivos `.env*`, `credentials` ni claves del vault o del proyecto.
-2. **Mapear la infraestructura**
-   - Vault → inventario documentado (sección 6).
-   - Credenciales → inventario real por servicio, con comandos de lectura del catálogo.
-   - **Con credenciales, la realidad manda** **[decisión del diseñador]**. El inventario se arma por
-     descubrimiento en vivo; el vault aporta **afirmaciones** (qué es cada cosa, a qué feature pertenece,
-     qué dice que cumple).
-     - Un recurso vivo que el vault no menciona → hallazgo `UNDOCUMENTED`, severidad `low`. ISO 5.9
-       (inventario de activos) lo pide, y Vanta exige owner en todo lo inventariado.
-     - Un recurso que el vault menciona y no existe → `DRIFT`.
-3. **Resolver el alcance**
-   - `full`: todo el inventario más la línea base de la cuenta.
-   - `feature`: recorrer el vault para obtener la lista de componentes (sección 6.3). **Mostrar la lista al
-     usuario y pedir confirmación antes de auditar** **[decisión del diseñador]**: una feature mal resuelta
-     produce un reporte confiado y equivocado.
-   - `resource`: el recurso y sus dependencias directas (sección 6.4).
-4. **Seleccionar chequeos.** Del catálogo (sección 7), los aplicables a los tipos de recurso en alcance, más
-   los chequeos de cuenta pertinentes.
-5. **Ejecutar chequeos de lectura con un script, no con llamadas sueltas de Claude**
-   **[decisión del diseñador]**. `scripts/collect.py` recibe el alcance resuelto y la lista de chequeos.
-   - **Ejecución:**
-     - llama a AWS CLI v2 por `subprocess` con lista de argumentos (sin shell);
-     - corre en paralelo por región, con reintentos ante throttling y paginación automática de la CLI;
-     - guarda cada salida cruda en `compliance-reports/<corrida>/raw/`.
-   - **Evaluación determinística:** aplica la regla de cada chequeo (sección 7.1) y escribe
+     - detect whether the identity has broad write permissions (`AdministratorAccess`, `*:*`) and
+       **warn about it** in one line. It does not block; it suggests using a role with `SecurityAudit` + `ViewOnlyAccess`.
+   - **Never** read `.env*` files, `credentials` or keys from the vault or the project.
+2. **Map the infrastructure**
+   - Vault → documented inventory (section 6).
+   - Credentials → real inventory per service, with read commands from the catalog.
+   - **With credentials, reality rules** **[designer's decision]**. The inventory is built by live
+     discovery; the vault contributes **claims** (what each thing is, which feature it belongs to,
+     what it says it complies with).
+     - A live resource that the vault does not mention → `UNDOCUMENTED` finding, severity `low`. ISO 5.9
+       (inventory of assets) requires it, and Vanta requires an owner on everything inventoried.
+     - A resource that the vault mentions and that does not exist → `DRIFT`.
+3. **Resolve the scope**
+   - `full`: the whole inventory plus the account baseline.
+   - `feature`: walk the vault to obtain the list of components (section 6.3). **Show the list to the
+     user and ask for confirmation before auditing** **[designer's decision]**: a badly resolved feature
+     produces a confident and wrong report.
+   - `resource`: the resource and its direct dependencies (section 6.4).
+4. **Select checks.** From the catalog (section 7), those applicable to the resource types in scope, plus
+   the relevant account checks.
+5. **Run read checks with a script, not with ad hoc Claude calls**
+   **[designer's decision]**. `scripts/collect.py` receives the resolved scope and the list of checks.
+   - **Execution:**
+     - calls AWS CLI v2 through `subprocess` with an argument list (no shell);
+     - runs in parallel per region, with retries on throttling and automatic CLI pagination;
+     - saves each raw output in `compliance-reports/<run>/raw/`.
+   - **Deterministic evaluation:** applies each check's rule (section 7.1) and writes
      `checks-result.json`.
-   - **Errores:**
-     - `AccessDenied` → `NO_VERIFICADO`, con el permiso faltante; nunca `PASS`;
-     - servicio no suscripto u `OptInRequired` → se distingue de `AccessDenied` y se reporta como "servicio
-       no habilitado". Eso mismo suele ser el hallazgo; por ejemplo, GuardDuty apagado.
-   - **Regiones:**
-     - chequeos de recursos: solo en regiones con recursos;
-     - chequeos "en todas las regiones" (GuardDuty, Config, EBS por defecto, Access Analyzer, CloudTrail):
-       todas las regiones habilitadas, como hacen los CIS de Vanta.
+   - **Errors:**
+     - `AccessDenied` → `NOT_VERIFIED`, with the missing permission; never `PASS`;
+     - service not subscribed or `OptInRequired` → distinguished from `AccessDenied` and reported as "service
+       not enabled". That is often the finding itself; for example, GuardDuty turned off.
+   - **Regions:**
+     - resource checks: only in regions with resources;
+     - "all regions" checks (GuardDuty, Config, EBS by default, Access Analyzer, CloudTrail):
+       all enabled regions, as Vanta's CIS tests do.
 
-   Claude **no** vuelve a juzgar PASS o FAIL. Solo interviene en los chequeos marcados
-   `evaluator: "claude"`, que son pocos y están justificados en el catálogo, y en la lectura del vault, el
-   drift y la resolución de features.
-6. **Comparar con el vault.** Para cada recurso o control documentado, comparar lo afirmado con lo real →
-   `DRIFT` si difieren.
-7. **Construir `findings.json`** con el esquema de la sección 8.
-8. **Renderizar el HTML** con el script del skill: plantilla fija, determinística y autocontenida.
-9. **Verificar los arreglos** (sección 9bis): chequeo automático de los comandos, revisión de Claude con el
-   vault y nuevo render del HTML con la sección "Verificación", el sello por tarjeta y el orden sugerido de
-   aplicación. Pedido del usuario del 2026-11-12.
-10. **Responder en el chat:**
-   - la ruta absoluta del HTML;
-   - conteos por severidad;
-   - los 3–5 hallazgos más graves en una línea cada uno;
-   - lo que no se pudo verificar.
+   Claude does **not** re-judge PASS or FAIL. It only intervenes in checks marked
+   `evaluator: "claude"`, which are few and justified in the catalog, and in vault reading, drift
+   and feature resolution.
+6. **Compare with the vault.** For each documented resource or control, compare what is claimed with what is real →
+   `DRIFT` if they differ.
+7. **Build `findings.json`** with the schema from section 8.
+8. **Render the HTML** with the skill's script: fixed, deterministic, self-contained template.
+9. **Verify the fixes** (section 9bis): automatic check of the commands, Claude's review against the
+   vault, and a new render of the HTML with the "Verification" section, the per-card stamp and the suggested
+   application order. Requested by the user on 2026-11-12.
+10. **Reply in the chat:**
+   - the absolute path of the HTML;
+   - counts by severity;
+   - the 3–5 most serious findings, one line each;
+   - what could not be verified.
 
-## 6. Lectura del vault
+## 6. Reading the vault
 
-**Acceso:** lectura directa del sistema de archivos: Markdown, frontmatter YAML y wikilinks. No depende de
-que Obsidian esté abierto, ni de Local REST API, ni de MCP, ni de Dataview.
+**Access:** direct file-system reading: Markdown, YAML frontmatter and wikilinks. It does not depend on
+Obsidian being open, nor on Local REST API, nor on MCP, nor on Dataview.
 
-### 6.1 Vault tipado (contrato de `creating-typed-knowledge-vaults`)
+### 6.1 Typed vault (contract of `creating-typed-knowledge-vaults`)
 
-**Detección:** existe `_meta/relations.md`, existe `_meta/edges.md`, o las notas tienen frontmatter `type:`.
+**Detection:** `_meta/relations.md` exists, `_meta/edges.md` exists, or notes have a `type:` frontmatter.
 
-**Elementos que usa:**
-- **Carpetas por tipo:** `systems/`, `constraints/`, `failures/`, `decisions/`, `concepts/`, `MOC/`.
-  `systems/` es la fuente principal de componentes.
+**Elements it uses:**
+- **Folders by type:** `systems/`, `constraints/`, `failures/`, `decisions/`, `concepts/`, `MOC/`.
+  `systems/` is the main source of components.
 - **Frontmatter:**
   - `type`;
   - `status` (`shipped | built-off-by-default | proposed | draft | todo | superseded`);
   - `source`.
-- **Aristas:** líneas `- <relación> → [[Destino]]` bajo `## Structural` y `## Associative`. Las aristas
-  entrantes se leen de `_meta/edges.md`, que es generado.
-- **Reglas de `status`:**
-  - `proposed`, `todo` y `draft`: **no existe**. Si es un control, el hallazgo es "documentado como pendiente".
-  - `built-off-by-default`: existe pero apagado; se verifica en vivo si hay credenciales.
-  - `superseded`: se ignora.
-- **Identificadores AWS:** IDs y ARNs dentro de las notas, por regex (`arn:aws:…`, `i-…`, `sg-…`, `vpc-…`,
-  `subnet-…`, `db-…`, nombres de bucket), más el campo `source:`.
+- **Edges:** lines `- <relation> → [[Target]]` under `## Structural` and `## Associative`. Incoming
+  edges are read from `_meta/edges.md`, which is generated.
+- **`status` rules:**
+  - `proposed`, `todo` and `draft`: **does not exist**. If it is a control, the finding is "documented as pending".
+  - `built-off-by-default`: exists but turned off; verified live if there are credentials.
+  - `superseded`: ignored.
+- **AWS identifiers:** IDs and ARNs inside notes, by regex (`arn:aws:…`, `i-…`, `sg-…`, `vpc-…`,
+  `subnet-…`, `db-…`, bucket names), plus the `source:` field.
 
-### 6.2 Vault libre (mejor esfuerzo)
+### 6.2 Free-form vault (best effort)
 
-Patrones habituales en vaults libres: notas sin frontmatter, estructura hub-and-spoke.
+Usual patterns in free-form vaults: notes without frontmatter, hub-and-spoke structure.
 
-- **Tipo de recurso:** se deduce del prefijo del nombre del archivo ("RDS - …", "VPC", "ALB", "IAM"…) y,
-  si no alcanza, del H1 o de palabras clave.
-- **Metadatos:** tablas `| Campo | Valor |` y tablas de N columnas.
-- **Relaciones:** secciones `## Conectado a`, breadcrumbs `← [[Hub]]` y wikilinks.
-- **Fechas y estados:** campos con fecha "verificado", encabezados "RESUELTO" y emojis de estado o severidad.
-- **Links rotos:** se toleran; se registran como advertencia en el reporte.
-- **Aviso:** el HTML dice "vault no tipado: el mapa de la feature es inferido, menos confiable".
+- **Resource type:** deduced from the file name prefix ("RDS - …", "VPC", "ALB", "IAM"…) and,
+  if that is not enough, from the H1 or from keywords.
+- **Metadata:** `| Field | Value |` tables and N-column tables.
+- **Relations:** `## Connected to` sections, `← [[Hub]]` breadcrumbs and wikilinks.
+- **Dates and statuses:** fields with a "verified" date, "RESOLVED" headings and status or severity emojis.
+- **Broken links:** tolerated; recorded as a warning in the report.
+- **Warning:** the HTML says "untyped vault: the feature map is inferred, less reliable".
 
-### 6.3 Resolver una feature
+### 6.3 Resolving a feature
 
-1. **Buscar la nota de la feature:**
-   - por título o alias exacto;
-   - si no, por búsqueda de texto en títulos y H1;
-   - si no, en el cuerpo.
+1. **Find the feature note:**
+   - by exact title or alias;
+   - otherwise, by text search in titles and H1s;
+   - otherwise, in the body.
 
-   Si hay varias candidatas, se pregunta.
-2. **Tipado:** desde esa nota, recorrer las aristas estructurales salientes `depends on`, `requires` y
-   `enables`, más las entrantes `is part of` (componentes que son parte de la feature).
-   - Profundidad máxima: 3.
-   - Solo se recolectan nodos de `systems/`.
-   - Los `constraints/` alcanzados se guardan como "requisitos declarados", útiles para el drift.
-3. **Libre:** wikilinks salientes de la nota de la feature, con profundidad 2, filtrados a notas que
-   describen recursos AWS.
-4. **Datos sensibles:** si la feature o sus componentes mencionan datos de usuarios o PII (palabras clave o
-   un `constraint` de privacidad), se agregan chequeos de confidencialidad: cifrado, logging de acceso,
-   retención.
-5. **Si con credenciales no se encuentran todos los recursos por ID:**
-   - buscar por tags (`Project`, `Feature`, `Name`) y por nombre;
-   - todo lo hallado así se marca **inferido** y entra en la lista de confirmación del paso 3 del flujo.
-6. **Feature no documentada:** se dice explícitamente. Con credenciales, se ofrece la búsqueda por tags y
-   nombre del punto 5. Nunca se inventan componentes.
+   If there are several candidates, ask.
+2. **Typed:** from that note, walk the outgoing structural edges `depends on`, `requires` and
+   `enables`, plus the incoming `is part of` (components that are part of the feature).
+   - Maximum depth: 3.
+   - Only nodes from `systems/` are collected.
+   - The `constraints/` reached are saved as "declared requirements", useful for drift.
+3. **Free-form:** outgoing wikilinks of the feature note, with depth 2, filtered to notes that
+   describe AWS resources.
+4. **Sensitive data:** if the feature or its components mention user data or PII (keywords or
+   a privacy `constraint`), confidentiality checks are added: encryption, access logging,
+   retention.
+5. **If, with credentials, not all resources are found by ID:**
+   - search by tags (`Project`, `Feature`, `Name`) and by name;
+   - everything found this way is marked **inferred** and goes into the confirmation list of step 3 of the workflow.
+6. **Undocumented feature:** this is stated explicitly. With credentials, the tag and name search from item 5
+   is offered. Components are never invented.
 
-**Ejemplo "envío de email":** la feature resuelve, por ejemplo, a:
-- identidad SES;
+**"Email sending" example:** the feature resolves, for example, to:
+- SES identity;
 - configuration set;
-- Lambda o servicio emisor;
-- cola SQS;
-- rol IAM;
-- secreto SMTP;
+- Lambda or sending service;
+- SQS queue;
+- IAM role;
+- SMTP secret;
 - log group;
-- registros DNS SPF, DKIM y DMARC.
+- SPF, DKIM and DMARC DNS records.
 
-El DNS se verifica con `dig` contra DNS público, que es de solo lectura.
+DNS is checked with `dig` against public DNS, which is read-only.
 
-### 6.4 Resolver un recurso por ID
+### 6.4 Resolving a resource by ID
 
-El prefijo o el ARN determinan el tipo. Se audita el recurso y su contexto inmediato.
+The prefix or the ARN determines the type. The resource and its immediate context are audited.
 
-| Recurso | Contexto auditado |
+| Resource | Audited context |
 |---|---|
-| EC2 | Security groups, volúmenes EBS, instance profile y su rol, subnet (ruta a IGW, IP pública), flow logs de la VPC |
-| RDS | Subnet group, SGs, KMS key, backups, parameter group (forzar SSL) |
-| Bucket S3 | Políticas, Block Public Access, cifrado, versionado, logging |
+| EC2 | Security groups, EBS volumes, instance profile and its role, subnet (route to IGW, public IP), VPC flow logs |
+| RDS | Subnet group, SGs, KMS key, backups, parameter group (force SSL) |
+| S3 bucket | Policies, Block Public Access, encryption, versioning, logging |
 
-Sin credenciales, este modo solo puede reportar lo que el vault dice de ese ID.
+Without credentials, this mode can only report what the vault says about that ID.
 
-## 7. Catálogo de chequeos
+## 7. Check catalog
 
-### 7.1 Formato
+### 7.1 Format
 
-Un archivo JSON por dominio en `references/checks/<dominio>.json`, para cargar solo los dominios en
-alcance. Cada chequeo tiene:
+One JSON file per domain in `references/checks/<domain>.json`, so that only the domains in
+scope are loaded. Each check has:
 
 ```json
 {
   "id": "IAM-001",
-  "title": "MFA habilitado en la cuenta root",
+  "title": "MFA enabled on the root account",
   "domain": "iam",
   "scope": "account",
   "resource_types": ["AWS::IAM::Root"],
@@ -284,303 +284,303 @@ alcance. Cada chequeo tiene:
     "steps": ["..."],
     "commands": [],
     "verify_after": "aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled'",
-    "notes": "MFA de root no se puede habilitar por CLI; pasos de consola."
+    "notes": "Root MFA cannot be enabled through the CLI; console steps."
   },
   "sources": ["https://help.drata.com/en/articles/9828711"]
 }
 ```
 
-**Valores permitidos:**
+**Allowed values:**
 - `remediation.kind`: `cli` | `cli_with_decision` | `planned_change` | `console_only`.
-  - `cli_with_decision`: hay un valor que decide el usuario, como días de retención o el email del owner.
-  - `planned_change`: multi-paso, destructivo o con downtime; lleva **pasos y advertencias**, no un
+  - `cli_with_decision`: there is a value the user decides, such as retention days or the owner's email.
+  - `planned_change`: multi-step, destructive or with downtime; it carries **steps and warnings**, not a
     one-liner.
 - `remediation.risk`: `low` | `medium` | `high`.
-- `severity`: `critical` | `high` | `medium` | `low`. Criterio **[decisión del diseñador]**:
+- `severity`: `critical` | `high` | `medium` | `low`. Criterion **[designer's decision]**:
 
-| Severidad | Cuándo |
+| Severity | When |
 |---|---|
-| `critical` | Exposición pública de datos o de credenciales; root sin MFA o con access keys |
-| `high` | Falla un test automático de Drata o Vanta que está en el set por defecto de SOC 2/ISO |
-| `medium` | Falla un control de Security Hub, CIS o FSBP relevante, sin test directo de Drata/Vanta |
-| `low` | Higiene: tags, descripciones, buenas prácticas |
+| `critical` | Public exposure of data or credentials; root without MFA or with access keys |
+| `high` | Fails an automatic Drata or Vanta test that is in the default SOC 2/ISO set |
+| `medium` | Fails a relevant Security Hub, CIS or FSBP control, with no direct Drata/Vanta test |
+| `low` | Hygiene: tags, descriptions, good practices |
 
-**Reglas de evaluación (determinísticas)** **[decisión del diseñador]**
+**Evaluation rules (deterministic)** **[designer's decision]**
 
-Cada chequeo produce una **lista de ofensores**: vacía → `PASS`; con elementos → `FAIL` por ofensor.
-`evaluator` puede valer:
+Each check produces a **list of offenders**: empty → `PASS`; with elements → `FAIL` per offender.
+`evaluator` can be:
 
-- **`jmespath`**: expresión JMESPath sobre la salida JSON de la llamada. Es el mismo lenguaje de `--query`
-  de AWS CLI; en Python se evalúa con el JMESPath que trae la CLI o por `--query`, sin depender de `jq`.
-  Cubre la mayoría de los chequeos.
-- **`python:<nombre>`**: función con nombre en el paquete `scripts/evaluators/` (un módulo por dominio) para lógica que cruza llamadas o
-  parsea CSV. Ejemplos:
-  - credential report → claves de más de 90 días o credenciales sin uso por más de 45 días;
-  - security groups abiertos solo en regiones con ENIs activas;
-  - suscripción SNS confirmada detrás de cada alarma;
-  - uso de root en 7 días vía `cloudtrail lookup-events`.
+- **`jmespath`**: JMESPath expression over the JSON output of the call. It is the same language as AWS CLI's
+  `--query`; in Python it is evaluated with the JMESPath bundled with the CLI or through `--query`, without depending on `jq`.
+  It covers most checks.
+- **`python:<name>`**: named function in the `scripts/evaluators/` package (one module per domain) for logic that crosses calls or
+  parses CSV. Examples:
+  - credential report → keys older than 90 days or credentials unused for more than 45 days;
+  - security groups open only in regions with active ENIs;
+  - confirmed SNS subscription behind each alarm;
+  - root usage in 7 days via `cloudtrail lookup-events`.
 
-  Cada función tiene pruebas con salidas de ejemplo.
-- **`claude`**: excepción documentada en el chequeo, para lo que requiere juicio. Por ejemplo, si una
-  política IAM con `*` es aceptable. El reporte marca "evaluado por Claude".
+  Each function has tests with sample outputs.
+- **`claude`**: exception documented in the check, for what requires judgment. For example, whether an IAM
+  policy with `*` is acceptable. The report marks "evaluated by Claude".
 
-`pass_when_text` es la explicación legible que va al HTML.
+`pass_when_text` is the human-readable explanation that goes into the HTML.
 
-### 7.2 Contenido inicial
+### 7.2 Initial content
 
-98 chequeos. Los umbrales de la tabla son **documentados** en Drata, Vanta o CIS (fuentes en la
-sección 15). La lista completa con mapeos va en el plan; estos son los dominios y los chequeos clave:
+98 checks. The thresholds in the table are **documented** in Drata, Vanta or CIS (sources in
+section 15). The full list with mappings goes in the plan; these are the domains and the key checks:
 
-| Dominio | Chequeos (umbral) | Drata | Vanta (CIS) |
+| Domain | Checks (threshold) | Drata | Vanta (CIS) |
 |---|---|---|---|
-| **IAM / root** | MFA en root; MFA **hardware** en root; root sin access keys; uso de root (2+ logins en 7 días = falla) | 214, 225, 124 | #1, #2 |
-| **IAM / usuarios** | MFA en usuarios con consola; contraseña ≥14 y reuso 24; access keys ≤90 días; credenciales sin uso ≤45 días; ≤1 key activa; permisos solo por grupos (sin inline ni directas); sin políticas `*:*`; rol de soporte; Access Analyzer en todas las regiones | 88, 215, 216, 232, 229, 217, 230 | #3–#11, #14 |
-| **Logging** | CloudTrail multi-región; validación de archivos; cifrado con CMK; data events S3 de lectura y escritura; access logging en el bucket de CloudTrail; VPC Flow Logs en todas las VPC; retención de logs ≥365 días; EKS audit logs | 205, 222, 226, 221, 224, 111, 310 | #17–#19, #25, #26, #28, #30 |
-| **Detección** | GuardDuty en toda región con recursos (+ S3 Protection); Security Hub habilitado; AWS Config en todas las regiones (todos los tipos; IAM diario; SNS) | 105 | #27, #31 + test Config |
-| **Cifrado en reposo** | EBS por defecto en cada región usada; RDS, EFS, DynamoDB, S3 cifrados; rotación de CMK; CMK no programada para borrado | 218, 231, 68, 69, 223 | #20, #21, #24, #29 |
-| **Cifrado en tránsito** | S3 deniega `aws:SecureTransport=false`; ALB redirige HTTP→HTTPS; política TLS del ALB ≥ TLS 1.2 *(sin test documentado en Drata/Vanta: severidad `medium`)*; RDS fuerza SSL | 234, 299 | #15 |
-| **Red** | Sin 0.0.0.0/0 ni ::/0 a 22/3389 (SG y NACL); sin 0.0.0.0/0 a 80; SG por defecto sin reglas; sin regla "ALL traffic"; RDS no público ni en subnet pública; WAF asociado a ALB, CloudFront y API GW públicos | 102, 228, 227, 291, 233, 119, 220, 122 | #23, #32–#35 |
-| **Cómputo** | IMDSv2 obligatorio (incluye launch templates de ASG); instancias con rol IAM; LB en ≥2 AZ; ASG presente; Inspector activo y sin críticos o altos abiertos | 292, 130, 131, 21 | #12, #36 |
-| **Datos y backups** | RDS: backups automáticos (retención >0; recomendado ≥7 *[decisión del diseñador]*), Multi-AZ en prod, auto minor upgrade, deletion protection; DynamoDB PITR; versionado S3; Block Public Access por bucket (no alcanza el de cuenta para Drata 104); AWS Backup: jobs del día anterior OK y alertas de fallo | 107, 30, 219, 301, 108, 104, 132, 133 | #16, #22 |
-| **Monitoreo** | Alarmas CloudWatch **con suscripción SNS confirmada** para: CPU, almacenamiento e IO de RDS; CPU de EC2; 5xx, hosts unhealthy y latencia del ALB; antigüedad de mensajes en SQS; errores de Lambda | 112–118, 206, 290, 293–300 | Tests de alarmas |
-| **Inventario y tags** | `VantaOwner` (email de usuario activo; Vanta falla si no hay owner); `VantaContainsUserData` en storage y bases; `VantaNonProd` solo en no-prod; tags organizacionales configurables (por defecto `Project`, `Environment`, `Owner`) | — | Test "active owners" y "user data" |
-| **Salud de la integración** | Si existen `DrataAutopilotRole` o `vanta-auditor`: tienen `SecurityAudit` (+ `VantaAdditionalPermissions` como política administrada, no inline); key policies de las CMK les dan acceso; bucket policies no los bloquean | Requisito de 223 | Doc. de permisos |
-| **Feature email** (ejemplo) | SES: DKIM habilitado, dominio verificado, configuration set con TLS `Require`, destino de eventos o logging; DNS SPF, DKIM y DMARC (`p=quarantine` o `reject`) | — | — |
+| **IAM / root** | MFA on root; **hardware** MFA on root; root without access keys; root usage (2+ logins in 7 days = fail) | 214, 225, 124 | #1, #2 |
+| **IAM / users** | MFA on users with console access; password ≥14 and reuse 24; access keys ≤90 days; credentials unused ≤45 days; ≤1 active key; permissions only through groups (no inline or direct); no `*:*` policies; support role; Access Analyzer in all regions | 88, 215, 216, 232, 229, 217, 230 | #3–#11, #14 |
+| **Logging** | Multi-region CloudTrail; file validation; encryption with CMK; S3 data events for read and write; access logging on the CloudTrail bucket; VPC Flow Logs on all VPCs; log retention ≥365 days; EKS audit logs | 205, 222, 226, 221, 224, 111, 310 | #17–#19, #25, #26, #28, #30 |
+| **Detection** | GuardDuty in every region with resources (+ S3 Protection); Security Hub enabled; AWS Config in all regions (all types; IAM daily; SNS) | 105 | #27, #31 + Config test |
+| **Encryption at rest** | EBS by default in every region used; RDS, EFS, DynamoDB, S3 encrypted; CMK rotation; CMK not scheduled for deletion | 218, 231, 68, 69, 223 | #20, #21, #24, #29 |
+| **Encryption in transit** | S3 denies `aws:SecureTransport=false`; ALB redirects HTTP→HTTPS; ALB TLS policy ≥ TLS 1.2 *(no documented Drata/Vanta test: severity `medium`)*; RDS forces SSL | 234, 299 | #15 |
+| **Network** | No 0.0.0.0/0 or ::/0 to 22/3389 (SG and NACL); no 0.0.0.0/0 to 80; default SG without rules; no "ALL traffic" rule; RDS neither public nor in a public subnet; WAF associated with public ALB, CloudFront and API GW | 102, 228, 227, 291, 233, 119, 220, 122 | #23, #32–#35 |
+| **Compute** | IMDSv2 required (includes ASG launch templates); instances with IAM role; LB in ≥2 AZs; ASG present; Inspector active and no open critical or high findings | 292, 130, 131, 21 | #12, #36 |
+| **Data and backups** | RDS: automated backups (retention >0; recommended ≥7 *[designer's decision]*), Multi-AZ in prod, auto minor upgrade, deletion protection; DynamoDB PITR; S3 versioning; Block Public Access per bucket (the account-level one is not enough for Drata 104); AWS Backup: previous day's jobs OK and failure alerts | 107, 30, 219, 301, 108, 104, 132, 133 | #16, #22 |
+| **Monitoring** | CloudWatch alarms **with a confirmed SNS subscription** for: RDS CPU, storage and IO; EC2 CPU; ALB 5xx, unhealthy hosts and latency; SQS message age; Lambda errors | 112–118, 206, 290, 293–300 | Alarm tests |
+| **Inventory and tags** | `VantaOwner` (email of an active user; Vanta fails if there is no owner); `VantaContainsUserData` on storage and databases; `VantaNonProd` only in non-prod; configurable organizational tags (by default `Project`, `Environment`, `Owner`) | — | "active owners" and "user data" tests |
+| **Integration health** | If `DrataAutopilotRole` or `vanta-auditor` exist: they have `SecurityAudit` (+ `VantaAdditionalPermissions` as a managed policy, not inline); the CMK key policies give them access; bucket policies do not block them | Requirement of 223 | Permissions doc |
+| **Email feature** (example) | SES: DKIM enabled, domain verified, configuration set with TLS `Require`, event destination or logging; DNS SPF, DKIM and DMARC (`p=quarantine` or `reject`) | — | — |
 
-**Agregados de la investigación de referencia y del catálogo DCF de Drata** (`docs/research/soc2-reference-infrastructures.md`,
+**Additions from the reference research and from Drata's DCF catalog** (`docs/research/soc2-reference-infrastructures.md`,
 `drata-dcf-mapping.json`):
 
 - **CloudTrail:**
-  - `IsLogging = true`, porque un trail existente puede estar detenido;
-  - bucket de logs con política `aws:SourceArn`, versionado y SSE-KMS;
-  - CloudTrail → CloudWatch Logs con los metric filters de CIS 3.x (uso de root, cambios de IAM, llamadas
-    no autorizadas). CIS v5 los quitó, pero los auditores suelen pedirlos.
-- **GuardDuty:** S3 Protection y regla de EventBridge con destino para findings (Drata 105).
-- **Retención:** ≥365 días en log groups de CloudWatch y en el lifecycle de buckets de logs (Drata 111,
+  - `IsLogging = true`, because an existing trail may be stopped;
+  - log bucket with an `aws:SourceArn` policy, versioning and SSE-KMS;
+  - CloudTrail → CloudWatch Logs with the CIS 3.x metric filters (root usage, IAM changes, unauthorized
+    calls). CIS v5 removed them, but auditors often ask for them.
+- **GuardDuty:** S3 Protection and an EventBridge rule with a target for findings (Drata 105).
+- **Retention:** ≥365 days in CloudWatch log groups and in the lifecycle of log buckets (Drata 111,
   Vanta "AWS Server Logs").
-- **Logs de borde y detección:** access logs del ALB; logging del WAF; Security Hub con estándares
-  habilitados (FSBP y CIS).
-- **Cuenta:** contactos alternativos de la cuenta (security, operations, billing); preferir IAM Identity
-  Center a usuarios IAM (`low`, informativo).
-- **Secretos y operación:** rotación en Secrets Manager; SSM Session Manager y Patch Manager (asociaciones
-  de parches); Inspector para EC2, ECR y Lambda; plan de AWS Backup con frecuencia y retención; certificados
-  ACM próximos a vencer (≤30 días).
-- **Objetos de red por defecto en todas las regiones habilitadas:** VPC por defecto, SG por defecto, NACL y
-  Flow Logs. Drata evalúa todas las VPC de todas las regiones habilitadas, no solo la VPC de la aplicación.
-- **Integración:**
-  - nombre exacto `DrataAutopilotRole`;
-  - permiso inline `backup:ListRecoveryPointsByResource` para los tests 132, 133, 134 y 301;
-  - `VantaAdditionalPermissions` como política administrada por el cliente;
-  - SCP de restricción de regiones alineada con el alcance de la conexión.
-- **Multi-cuenta:**
-  - ninguna fuente lo exige para SOC 2; el AWS Startup Security Baseline es single-account;
-  - va como nota `INFO` (cuenta de logs separada, reducción de alcance), **nunca** como `FAIL`.
-- **SES:** Drata y Vanta no tienen tests de SES, así que esos chequeos son propios. Severidad máxima
-  `medium`, salvo DMARC ausente en un dominio que envía (`high`).
+- **Edge and detection logs:** ALB access logs; WAF logging; Security Hub with standards
+  enabled (FSBP and CIS).
+- **Account:** alternate account contacts (security, operations, billing); prefer IAM Identity
+  Center over IAM users (`low`, informational).
+- **Secrets and operations:** rotation in Secrets Manager; SSM Session Manager and Patch Manager (patch
+  associations); Inspector for EC2, ECR and Lambda; AWS Backup plan with frequency and retention; ACM
+  certificates close to expiry (≤30 days).
+- **Default network objects in all enabled regions:** default VPC, default SG, NACL and
+  Flow Logs. Drata evaluates all VPCs in all enabled regions, not just the application's VPC.
+- **Integration:**
+  - exact name `DrataAutopilotRole`;
+  - inline permission `backup:ListRecoveryPointsByResource` for tests 132, 133, 134 and 301;
+  - `VantaAdditionalPermissions` as a customer-managed policy;
+  - region-restriction SCP aligned with the scope of the connection.
+- **Multi-account:**
+  - no source requires it for SOC 2; the AWS Startup Security Baseline is single-account;
+  - it goes in as an `INFO` note (separate logging account, scope reduction), **never** as `FAIL`.
+- **SES:** Drata and Vanta have no SES tests, so those checks are our own. Maximum severity
+  `medium`, except missing DMARC on a domain that sends (`high`).
 
-**Regla de veracidad de los mapeos** (actualizada con una consulta de solo lectura al Drata Control
-Framework vía API/MCP, 2026-11-12):
-- **Drata no mapea por test.** Mapea test → control DCF → requisitos. Los controles DCF exponen los
-  requisitos de **SOC 2 (61) e ISO 27001:2022 (123, incluye cláusulas)**.
-- **Lo extraído es autoritativo:** el mapeo de 130 tests está en `docs/research/drata-dcf-mapping.json`
-  (sin estados ni datos de ninguna cuenta). Para los chequeos con test de Drata equivalente, las columnas
-  TSC e ISO se toman de ahí con `sourced: "drata-dcf-2026-11-12"`.
-- **Chequeos sin test de Drata** (Config, Security Hub, Access Analyzer, TLS del ALB, SES…): el mapeo es
-  inferido (`sourced: false`), con indicador visible "inferido" en el HTML.
-- **Vanta:** sus nombres de test (CIS) son documentados; su mapeo a TSC e ISO sigue siendo inferido.
-- **Snapshot y fase 2:**
-  - el mapeo se embebe en `references/mappings/drata-dcf.json` con fecha;
-  - una cuenta de Drata puede personalizar mapeos, y la de Vanta tiene su propia configuración;
-  - en fase 2, si hay un MCP conectado, se usa el mapeo vivo de esa cuenta.
-- **Tests habilitados en la cuenta:** es común que algunos tests de Drata estén `UNUSED` o `DISABLED`
-  (por ejemplo Inspector, escaneo de vulnerabilidades o retención de 365 días).
-  - Solo con conexión viva (fase 2), cuando un chequeo falla y su test está sin usar, el HTML lo marca
-    **"Drata hoy no lo monitorea; un auditor o Vanta sí"**.
-  - Sin conexión, no se afirma nada sobre el estado de la cuenta.
-- **Pase vacío:** cuando un test pasaría solo porque no hay recursos de ese tipo (por ejemplo, Drata 130 sin
-  EC2 o 105 sin buckets), el estado es `N/A`, con nota "pasa por vacío". Nunca `PASS`.
+**Truthfulness rule for mappings** (updated with a read-only query to the Drata Control
+Framework via API/MCP, 2026-11-12):
+- **Drata does not map per test.** It maps test → DCF control → requirements. The DCF controls expose the
+  requirements of **SOC 2 (61) and ISO 27001:2022 (123, includes clauses)**.
+- **What was extracted is authoritative:** the mapping of 130 tests is in `docs/research/drata-dcf-mapping.json`
+  (without statuses or data from any account). For checks with an equivalent Drata test, the
+  TSC and ISO columns are taken from there with `sourced: "drata-dcf-2026-11-12"`.
+- **Checks without a Drata test** (Config, Security Hub, Access Analyzer, ALB TLS, SES…): the mapping is
+  inferred (`sourced: false`), with a visible "inferred" indicator in the HTML.
+- **Vanta:** its test names (CIS) are documented; its mapping to TSC and ISO is still inferred.
+- **Snapshot and phase 2:**
+  - the mapping is embedded in `references/mappings/drata-dcf.json` with a date;
+  - a Drata account can customize mappings, and the Vanta one has its own configuration;
+  - in phase 2, if an MCP is connected, the live mapping of that account is used.
+- **Tests enabled in the account:** it is common for some Drata tests to be `UNUSED` or `DISABLED`
+  (for example Inspector, vulnerability scanning or 365-day retention).
+  - Only with a live connection (phase 2), when a check fails and its test is unused, the HTML marks it
+    **"Drata does not monitor this today; an auditor or Vanta does"**.
+  - Without a connection, nothing is claimed about the account's state.
+- **Vacuous pass:** when a test would pass only because there are no resources of that type (for example, Drata 130 with no
+  EC2 or 105 with no buckets), the status is `N/A`, with the note "passes vacuously". Never `PASS`.
 
-### 7.3 Catálogos de referencia embebidos
+### 7.3 Embedded reference catalogs
 
-- `references/frameworks/iso27001-2022.json`: los **93** controles (5: 37 · 6: 8 · 7: 14 · 8: 34),
-  ID y nombre parafraseado, y responsabilidad (cliente, compartida o heredada de AWS).
-- `references/frameworks/tsc-2017.json`: los 61 criterios (CC1–CC9, A1, C1, PI1, P1–P8), parafraseados.
-- **No** se copia texto de AICPA ni de ISO; solo IDs y nombres cortos parafraseados.
-- Sirven para:
-  - validar que todo ID mapeado exista;
-  - dibujar la tabla de cobertura del reporte: qué controles toca este reporte, cuáles son
-    organizacionales (fuera de alcance) y cuáles son heredados de AWS (por ejemplo, físicos 7.x: evidencia
+- `references/frameworks/iso27001-2022.json`: the **93** controls (5: 37 · 6: 8 · 7: 14 · 8: 34),
+  ID and paraphrased name, and responsibility (customer, shared or inherited from AWS).
+- `references/frameworks/tsc-2017.json`: the 61 criteria (CC1–CC9, A1, C1, PI1, P1–P8), paraphrased.
+- AICPA or ISO text is **not** copied; only IDs and short paraphrased names.
+- They serve to:
+  - validate that every mapped ID exists;
+  - draw the report's coverage table: which controls this report touches, which are
+    organizational (out of scope) and which are inherited from AWS (for example, physical 7.x: evidence
     = AWS Artifact).
 
-## 8. Estados y modelo de hallazgo
+## 8. Statuses and finding model
 
-**Estados de un hallazgo:**
+**Finding statuses:**
 
-| Estado | Significado |
+| Status | Meaning |
 |---|---|
-| `FAIL` | Verificado en vivo, no cumple |
-| `PASS` | Verificado en vivo, cumple |
-| `DRIFT` | El vault afirma algo distinto de la realidad (puede cumplir o no; se muestran ambos) |
-| `DOCUMENTED_ONLY` | Solo hay vault: el vault dice que cumple, pero no está verificado |
-| `DOCUMENTED_GAP` | Solo hay vault: el vault dice que falta o que está `proposed` |
-| `UNDOCUMENTED` | Existe en la cuenta y el vault no lo menciona |
-| `NO_VERIFICADO` | Sin credenciales o `AccessDenied` (se indica el permiso faltante) |
-| `N/A` | No aplica; por ejemplo, no hay recursos de ese tipo |
+| `FAIL` | Verified live, does not comply |
+| `PASS` | Verified live, complies |
+| `DRIFT` | The vault claims something different from reality (may or may not comply; both are shown) |
+| `DOCUMENTED_ONLY` | Vault only: the vault says it complies, but it is not verified |
+| `DOCUMENTED_GAP` | Vault only: the vault says it is missing or `proposed` |
+| `UNDOCUMENTED` | Exists in the account and the vault does not mention it |
+| `NOT_VERIFIED` | No credentials or `AccessDenied` (the missing permission is stated) |
+| `N/A` | Does not apply; for example, there are no resources of that type |
 
-**Esquema de `findings.json`:**
-- metadatos de la corrida: plataforma, alcance, fuentes, cuenta (ID visible), identidad, regiones, fecha,
-  versión del catálogo;
-- inventario resuelto;
-- lista de hallazgos. Cada uno tiene `check_id`, `resource`, `region`, `status`, `severity`, `evidence`,
-  `vault_claim`, `mappings` y la `remediation` ya instanciada (placeholders resueltos cuando se conocen).
+**`findings.json` schema:**
+- run metadata: platform, scope, sources, account (visible ID), identity, regions, date,
+  catalog version;
+- resolved inventory;
+- list of findings. Each one has `check_id`, `resource`, `region`, `status`, `severity`, `evidence`,
+  `vault_claim`, `mappings` and the already-instantiated `remediation` (placeholders resolved when known).
 
-**Evidencia:** la salida relevante del comando, recortada. Se enmascaran:
-- access key IDs, de forma `AKIA…WXYZ`;
-- tokens y secretos (nunca se piden);
-- emails de personas, salvo los de tags owner.
+**Evidence:** the relevant command output, trimmed. The following are masked:
+- access key IDs, in the form `AKIA…WXYZ`;
+- tokens and secrets (never requested);
+- emails of individuals, except those in owner tags.
 
-## 9. Reporte HTML
+## 9. HTML report
 
-- **Archivo único**, sin dependencias externas: CSS y JS inline. Se abre offline y se puede adjuntar como
-  evidencia.
-- **Ruta:** `./compliance-reports/<plataforma>-<alcance>-<YYYY-MM-DD-HHMM>/report.html` en el directorio de
-  trabajo **[decisión del diseñador]**: una carpeta por corrida con `report.html`, `findings.json`, `verification.json` y los
-  archivos intermedios. Nunca dentro del vault.
-- **Estructura:**
-  1. **Encabezado:** plataforma, alcance, fuentes usadas (vault tipado o libre, credenciales, regiones),
-     fecha, cuenta e identidad.
-  2. **Resumen:** **veredicto** (`OPTIMO`, `NO_OPTIMO` o `NO_VERIFICABLE`) con su base (AWS, vault o AWS y
-     vault) junto a él, conteos por estado y severidad, tests de Drata y Vanta afectados, lista de "no
-     verificado". **Sin porcentaje ni nota.**
-  3. **Filtros:** severidad, estado, dominio, Drata/Vanta, SOC 2/ISO. Buscador de texto.
-  4. **Tarjetas de hallazgo**, ordenadas por severidad. Cada una incluye:
-     - título;
-     - recurso y región;
-     - estado y severidad;
-     - chips de mapeo (`CC6.1`, `A.8.5`, `Drata 214`, `Vanta: MFA is enabled on the root account`, con
-       marca "inferido" donde aplique);
-     - evidencia;
-     - lo que afirma el vault, si hay drift;
-     - bloque de remediación.
-  5. **Bloque de remediación**, en cada tarjeta:
-     - bloque de código bash para **CloudShell** con botón **Copy**;
-     - variables arriba (`REGION=…`, `ACCOUNT_ID=…`);
-     - placeholders `__COMPLETAR_<NOMBRE>__` resaltados;
-     - etiquetas de riesgo y downtime, y aviso si es `planned_change` (pasos numerados, cada uno con su
+- **Single file**, no external dependencies: inline CSS and JS. It opens offline and can be attached as
+  evidence.
+- **Path:** `./compliance-reports/<platform>-<scope>-<YYYY-MM-DD-HHMM>/report.html` in the working
+  directory **[designer's decision]**: one folder per run with `report.html`, `findings.json`, `verification.json` and the
+  intermediate files. Never inside the vault.
+- **Structure:**
+  1. **Header:** platform, scope, sources used (typed or free-form vault, credentials, regions),
+     date, account and identity.
+  2. **Summary:** **verdict** (`OPTIMAL`, `NOT_OPTIMAL` or `NOT_VERIFIABLE`) with its basis (AWS, vault or AWS and
+     vault) next to it, counts by status and severity, affected Drata and Vanta tests, "not
+     verified" list. **No percentage or score.**
+  3. **Filters:** severity, status, domain, Drata/Vanta, SOC 2/ISO. Text search.
+  4. **Finding cards**, sorted by severity. Each one includes:
+     - title;
+     - resource and region;
+     - status and severity;
+     - mapping chips (`CC6.1`, `A.8.5`, `Drata 214`, `Vanta: MFA is enabled on the root account`, with an
+       "inferred" mark where applicable);
+     - evidence;
+     - what the vault claims, if there is drift;
+     - remediation block.
+  5. **Remediation block**, in each card:
+     - bash code block for **CloudShell** with a **Copy** button;
+     - variables at the top (`REGION=…`, `ACCOUNT_ID=…`);
+     - `__FILL_IN_<NAME>__` placeholders highlighted;
+     - risk and downtime labels, and a warning if it is `planned_change` (numbered steps, each with its own
        Copy);
-     - comando "verificar después".
-     - **Copy global:** botón "Copiar todos los arreglos `low`-risk de esta severidad" **[decisión del
-       diseñador]**, para agilizar sin mezclar cambios peligrosos.
-  6. **"No tocar sin revisar":** recursos de los que dependen tests que hoy pasan, con los tests y controles
-     que dependen de cada uno. En cada tarjeta de recurso aparece además "Tests que dependen de este
-     recurso".
-     - Motivo: es habitual que un vault o una guía de costos sugiera ahorros (apagar Multi-AZ, borrar Flow
-       Logs, borrar el bucket destino de los access logs de CloudTrail) que pondrían en rojo tests como 30,
-       224 y 221.
-     - Si el vault contiene una recomendación así, se reporta como `DRIFT` con severidad `high` y la nota
-       "esta recomendación del vault rompería <test>".
-  7. **Cobertura de normas:** tabla Anexo A y TSC con los controles tocados (pasa, falla o no verificado),
-     los organizacionales "fuera de alcance de este reporte" y los heredados de AWS.
-  8. **Advertencias de la corrida:** links rotos del vault, permisos faltantes, regiones omitidas, vault
-     libre.
-  9. **Pie:** "Pre-auditoría técnica automatizada. No es una opinión de auditoría ni cubre controles
-     organizacionales."
-- **Accesibilidad y tema:** modo claro y oscuro, impresión limpia (expande todo, oculta botones).
-- **Copy:** `navigator.clipboard.writeText`, con fallback para `file://` (`document.execCommand('copy')`
-  con un textarea oculto).
-- **Determinismo:** el HTML lo genera `scripts/render_report.py` a partir de `findings.json`, con Python
-  stdlib, para que todos los reportes sean iguales en forma. Claude no escribe HTML a mano.
+     - "verify afterwards" command.
+     - **Global Copy:** button "Copy all `low`-risk fixes of this severity" **[designer's
+       decision]**, to speed things up without mixing in dangerous changes.
+  6. **"Do not touch without review":** resources on which tests that pass today depend, with the tests and controls
+     that depend on each one. Each resource card also shows "Tests that depend on this
+     resource".
+     - Reason: it is common for a vault or a cost guide to suggest savings (turning off Multi-AZ, deleting Flow
+       Logs, deleting the destination bucket of the CloudTrail access logs) that would turn tests like 30,
+       224 and 221 red.
+     - If the vault contains such a recommendation, it is reported as `DRIFT` with severity `high` and the note
+       "this vault recommendation would break <test>".
+  7. **Standards coverage:** Annex A and TSC table with the controls touched (pass, fail or not verified),
+     the organizational ones "out of scope of this report" and those inherited from AWS.
+  8. **Run warnings:** broken vault links, missing permissions, skipped regions, free-form
+     vault.
+  9. **Footer:** "Automated technical pre-audit. It is not an audit opinion and does not cover
+     organizational controls."
+- **Accessibility and theme:** light and dark mode, clean printing (expands everything, hides buttons).
+- **Copy:** `navigator.clipboard.writeText`, with a fallback for `file://` (`document.execCommand('copy')`
+  with a hidden textarea).
+- **Determinism:** the HTML is generated by `scripts/render_report.py` from `findings.json`, with Python
+  stdlib, so that all reports have the same shape. Claude does not write HTML by hand.
 
-## 9bis. Etapa de verificación de los arreglos
+## 9bis. Fix verification stage
 
-Corre después del primer render y antes de entregar el reporte. Su objetivo es detectar si los comandos de
-remediación **rompen algo** o si **falta algo**. **Nada se ejecuta en AWS** en esta etapa.
+It runs after the first render and before delivering the report. Its goal is to detect whether the remediation commands
+**break anything** or whether **something is missing**. **Nothing is executed in AWS** at this stage.
 
-### 9bis.1 Verificación automática (`scripts/verify_remediation.py`, determinística)
+### 9bis.1 Automatic verification (`scripts/verify_remediation.py`, deterministic)
 
-Lee `findings.json` (más `inventory.json`) y escribe `verification.json`.
+It reads `findings.json` (plus `inventory.json`) and writes `verification.json`.
 
-| Chequeo | Qué hace | Resultado |
+| Check | What it does | Result |
 |---|---|---|
-| Sintaxis | `bash -n` sobre cada bloque de comandos (lee sin ejecutar) | `CONFLICTO` si falla |
-| Validez de la CLI (opcional, `--check-cli`) | `aws <servicio> <operación> help` local con `PAGER=cat`, sin llamar a AWS; cada `--flag` del comando debe aparecer en la ayuda | `CONFLICTO` si la operación o un flag no existen; si no hay CLI, aviso |
-| Placeholders | quedan `{resource_id}`, `{region}`, `{account_id}` o `{resource_name}` sin resolver | `CONFLICTO` |
-| Datos a completar | cuenta los `__COMPLETAR_*__` | `REVISAR` |
-| Higiene | `<<` o `set -e` | `CONFLICTO` |
-| Destructivo sin aviso | `delete-`, `revoke-`, `terminate-`, `remove-`, `deregister-`, `detach-`, `disable-`, `stop-`, `--force`, o comandos que **reemplazan** una política (`put-bucket-policy`, `put-key-policy`, `update-account-password-policy`) en un arreglo que no es `planned_change` ni `cli_with_decision` con `notes` | `REVISAR` |
-| Conflictos entre arreglos | reglas en `references/conflict-rules.json` (ver 9bis.2) | `CONFLICTO` o `REVISAR` |
-| Impacto en lo que hoy pasa | el arreglo modifica un recurso con tests en verde en `dependencies` | `REVISAR`, nombrando los tests |
-| Lo que falta (`gaps`) | `FAIL` sin comandos y que no es `console_only`; `NO_VERIFICADO` con su permiso faltante; recursos del inventario que ningún chequeo evaluó; arreglos sin `verify_after` | lista de faltantes |
+| Syntax | `bash -n` on each command block (reads without executing) | `CONFLICT` if it fails |
+| CLI validity (optional, `--check-cli`) | local `aws <service> <operation> help` with `PAGER=cat`, without calling AWS; each `--flag` of the command must appear in the help | `CONFLICT` if the operation or a flag does not exist; if there is no CLI, a warning |
+| Placeholders | `{resource_id}`, `{region}`, `{account_id}` or `{resource_name}` remain unresolved | `CONFLICT` |
+| Data to fill in | counts the `__FILL_IN_*__` | `REVIEW` |
+| Hygiene | `<<` or `set -e` | `CONFLICT` |
+| Destructive without warning | `delete-`, `revoke-`, `terminate-`, `remove-`, `deregister-`, `detach-`, `disable-`, `stop-`, `--force`, or commands that **replace** a policy (`put-bucket-policy`, `put-key-policy`, `update-account-password-policy`) in a fix that is neither `planned_change` nor `cli_with_decision` with `notes` | `REVIEW` |
+| Conflicts between fixes | rules in `references/conflict-rules.json` (see 9bis.2) | `CONFLICT` or `REVIEW` |
+| Impact on what passes today | the fix modifies a resource with green tests in `dependencies` | `REVIEW`, naming the tests |
+| What is missing (`gaps`) | `FAIL` without commands and that is not `console_only`; `NOT_VERIFIED` with its missing permission; inventory resources that no check evaluated; fixes without `verify_after` | list of missing items |
 
-**Orden sugerido de aplicación** (`apply_order`):
-1. identidad;
-2. logging y detección, para tener visibilidad antes de tocar nada;
-3. claves KMS;
-4. cifrado;
-5. red;
-6. datos y backups;
-7. monitoreo;
-8. tags e integración.
+**Suggested application order** (`apply_order`):
+1. identity;
+2. logging and detection, to have visibility before touching anything;
+3. KMS keys;
+4. encryption;
+5. network;
+6. data and backups;
+7. monitoring;
+8. tags and integration.
 
-Dentro de cada grupo se ordena por severidad, y los `planned_change` van al final. Si una regla de conflicto
-dice "aplicar B antes que A", esa regla gana.
+Within each group it is sorted by severity, and `planned_change` fixes go last. If a conflict rule
+says "apply B before A", that rule wins.
 
-### 9bis.2 Reglas de conflicto iniciales (`references/conflict-rules.json`)
+### 9bis.2 Initial conflict rules (`references/conflict-rules.json`)
 
-| ID | Situación | Mensaje | Resultado |
+| ID | Situation | Message | Result |
 |---|---|---|---|
-| CR-001 | NET-003 o NET-004 sobre un SG adjunto a la interfaz de un balanceador (descripción de ENI que empieza con `ELB `: ALB, NLB o clásico) | Cerrar 80 rompe la redirección HTTP→HTTPS; alternativa: solo 443, o excluir en Drata con justificación | `CONFLICTO` |
-| CR-002 | LOG-003 (CloudTrail con CMK) | La key policy debe permitir `cloudtrail.amazonaws.com` antes de aplicar; si no, el trail deja de loguear | `REVISAR`, con orden: la clave antes que el trail |
-| CR-003 | NET-001 o NET-002 (revocar SSH/RDP) sobre una instancia con CMP-006 en `FAIL` (no gestionada por SSM) | Te quedás sin acceso; primero habilitar SSM | `CONFLICTO`, con orden: CMP-006 antes |
-| CR-004 | CMP-001 o CMP-002 (IMDSv2) | SDKs o agentes viejos que solo usan IMDSv1 dejan de obtener credenciales | `REVISAR` |
-| CR-005 | IAM-008, IAM-009 o IAM-010 (rotar o desactivar keys) | La app o el pipeline que usa esa key se rompe; rotar primero, desactivar después | `REVISAR` |
-| CR-006 | TLS-001 (S3 deny sin TLS) | Clientes que acceden por HTTP al bucket fallan | `REVISAR` |
-| CR-007 | ENC-003, ENC-002 o ENC-004 (cifrar un recurso existente) | Requiere migración con downtime | `REVISAR` |
-| CR-008 | INV-003 (quitar `VantaNonProd` de un recurso prod) | El recurso entra al alcance de Vanta y puede abrir tests nuevos | `REVISAR` |
-| CR-009 | INT-004 (key policy) o cualquier `put-key-policy` | Reemplazar la key policy puede dejar la clave inaccesible; conservar el statement de la cuenta root | `REVISAR` |
-| CR-010 | DAT-002 (Multi-AZ) | Costo y failover breve durante el cambio | `REVISAR` |
+| CR-001 | NET-003 or NET-004 on an SG attached to a load balancer's interface (ENI description starting with `ELB `: ALB, NLB or classic) | Closing 80 breaks the HTTP→HTTPS redirect; alternative: 443 only, or exclude in Drata with justification | `CONFLICT` |
+| CR-002 | LOG-003 (CloudTrail with CMK) | The key policy must allow `cloudtrail.amazonaws.com` before applying; otherwise the trail stops logging | `REVIEW`, with order: the key before the trail |
+| CR-003 | NET-001 or NET-002 (revoke SSH/RDP) on an instance with CMP-006 in `FAIL` (not managed by SSM) | You lose access; enable SSM first | `CONFLICT`, with order: CMP-006 first |
+| CR-004 | CMP-001 or CMP-002 (IMDSv2) | Old SDKs or agents that only use IMDSv1 stop obtaining credentials | `REVIEW` |
+| CR-005 | IAM-008, IAM-009 or IAM-010 (rotate or deactivate keys) | The app or pipeline that uses that key breaks; rotate first, deactivate afterwards | `REVIEW` |
+| CR-006 | TLS-001 (S3 deny without TLS) | Clients that access the bucket over HTTP fail | `REVIEW` |
+| CR-007 | ENC-003, ENC-002 or ENC-004 (encrypt an existing resource) | Requires a migration with downtime | `REVIEW` |
+| CR-008 | INV-003 (remove `VantaNonProd` from a prod resource) | The resource enters Vanta's scope and may open new tests | `REVIEW` |
+| CR-009 | INT-004 (key policy) or any `put-key-policy` | Replacing the key policy can leave the key inaccessible; keep the root account statement | `REVIEW` |
+| CR-010 | DAT-002 (Multi-AZ) | Cost and brief failover during the change | `REVIEW` |
 
-El catálogo de reglas se valida con `validate_catalog.py`: los IDs de chequeo citados deben existir.
+The rule catalog is validated with `validate_catalog.py`: the check IDs cited must exist.
 
-### 9bis.3 Revisión de Claude con el vault
+### 9bis.3 Claude's review against the vault
 
-Para cada arreglo con `REVISAR` o `CONFLICTO`, y para todo arreglo con riesgo `medium` o `high`, Claude
-cruza con el vault y el inventario qué depende del recurso. Por ejemplo: "la key `…MNOP` la usa la Lambda
-de envío de email según `systems/Mailer Lambda.md`".
+For each fix with `REVIEW` or `CONFLICT`, and for every fix with `medium` or `high` risk, Claude
+cross-checks the vault and the inventory for what depends on the resource. For example: "key `…MNOP` is used by the
+email-sending Lambda according to `systems/Mailer Lambda.md`".
 
-Lo escribe en `verification-claims.json`:
+It writes this to `verification-claims.json`:
 
 ```
-[{"finding_id", "status": "OK|REVISAR|CONFLICTO", "message", "vault_note"}]
+[{"finding_id", "status": "OK|REVIEW|CONFLICT", "message", "vault_note"}]
 ```
 
-El script combina las dos fuentes; gana el estado más severo. Claude nunca baja un `CONFLICTO` del script.
+The script combines the two sources; the most severe status wins. Claude never lowers a script `CONFLICT`.
 
-### 9bis.4 En el HTML
+### 9bis.4 In the HTML
 
-- Sello por tarjeta: **OK**, **REVISAR** o **CONFLICTO**, con los motivos.
-- Sección "Verificación", con:
-  - conflictos entre arreglos;
-  - lo que falta;
-  - el orden sugerido de aplicación;
-  - la cantidad de `__COMPLETAR__` pendientes.
-- El botón "Copiar arreglos de bajo riesgo" **excluye** los arreglos con `CONFLICTO`.
+- Per-card stamp: **OK**, **REVIEW** or **CONFLICT**, with the reasons.
+- "Verification" section, with:
+  - conflicts between fixes;
+  - what is missing;
+  - the suggested application order;
+  - the number of pending `__FILL_IN__` placeholders.
+- The "Copy low-risk fixes" button **excludes** fixes with `CONFLICT`.
 
-## 10. Reglas de seguridad del skill
+## 10. Skill security rules
 
-1. **Solo lectura en AWS.** `collect.py` ejecuta **solo** pares `servicio + operación` que aparezcan en el
-   catálogo **[decisión del diseñador]**.
-   - **Allowlist exacta**, no por prefijo, aplicada en Python antes de cada llamada.
-   - **Sin shell:** `subprocess` con lista de argumentos, sin pipes, `;`, `&&` ni `$()`. El filtrado lo hace
-     el evaluador, no `jq`.
-   - **Validación del catálogo:** `validate_catalog.py` rechaza toda operación que no empiece con
-     `describe-`, `list-`, `get-`, `lookup-events` o `generate-credential-report`. Este último es inocuo y
-     Drata/Vanta lo usan; es la única excepción escrita.
-   - **Denylist explícita de lecturas que exponen secretos o datos**, aunque empiecen con `get-`/`list-`:
+1. **Read-only on AWS.** `collect.py` runs **only** `service + operation` pairs that appear in the
+   catalog **[designer's decision]**.
+   - **Exact allowlist**, not by prefix, enforced in Python before each call.
+   - **No shell:** `subprocess` with an argument list, no pipes, `;`, `&&` or `$()`. Filtering is done by the
+     evaluator, not by `jq`.
+   - **Catalog validation:** `validate_catalog.py` rejects any operation that does not start with
+     `describe-`, `list-`, `get-`, `lookup-events` or `generate-credential-report`. The latter is harmless and
+     Drata/Vanta use it; it is the only written exception.
+   - **Explicit denylist of reads that expose secrets or data**, even if they start with `get-`/`list-`:
      - `secretsmanager get-secret-value`;
-     - `ssm get-parameter*` con `--with-decryption`;
-     - `lambda get-function` (devuelve variables de entorno y URL del código; para configuración se usa
-       `get-function-configuration` con `--query` que excluye `Environment`);
+     - `ssm get-parameter*` with `--with-decryption`;
+     - `lambda get-function` (returns environment variables and the code URL; for configuration,
+       `get-function-configuration` is used with a `--query` that excludes `Environment`);
      - `s3api get-object`;
      - `kms decrypt`/`generate-data-key*`;
      - `ecr get-login-password`;
@@ -589,214 +589,214 @@ El script combina las dos fuentes; gana el estado más severo. Claude nunca baja
      - `rds-data *`;
      - `dynamodb get-item`/`scan`/`query`;
      - `ec2 get-password-data`.
-   - **DNS:** se consulta con `dig +short` (si no está, `nslookup`) para registros TXT/CNAME públicos, con
-     la misma regla de argumentos sin shell. Si no hay ninguno de los dos → `NO_VERIFICADO`.
-   - Los comandos de remediación **nunca** se ejecutan; solo se escriben en el HTML.
-2. **Credenciales:**
-   - solo perfiles o entorno ya configurados;
-   - nunca leer `.env*`, `~/.aws/credentials` ni archivos de claves;
-   - nunca pedir que se peguen claves en el chat.
-3. **No leer contenido de datos:** nada de `s3 cp`, `get-object`, consultas a bases ni `logs get-log-events`
-   (excepto `lookup-events` de CloudTrail para uso de root).
-4. **Enmascarado** según la sección 8.
-5. **Credenciales en texto plano:** si el vault o la carpeta de evidencia contienen credenciales en texto
-   plano (por ejemplo, un `.env` con `AKIA`), se reporta como hallazgo `critical` **sin leer ni mostrar los
-   valores**: solo nombre de archivo y patrón detectado por `grep -l`.
-6. **Identidad con permisos amplios:** el skill sigue, pero advierte (paso 1 del flujo).
+   - **DNS:** queried with `dig +short` (if absent, `nslookup`) for public TXT/CNAME records, with
+     the same no-shell argument rule. If neither is available → `NOT_VERIFIED`.
+   - Remediation commands are **never** executed; they are only written to the HTML.
+2. **Credentials:**
+   - only already-configured profiles or environment;
+   - never read `.env*`, `~/.aws/credentials` or key files;
+   - never ask for keys to be pasted into the chat.
+3. **Do not read data contents:** no `s3 cp`, `get-object`, database queries or `logs get-log-events`
+   (except CloudTrail's `lookup-events` for root usage).
+4. **Masking** according to section 8.
+5. **Plain-text credentials:** if the vault or the evidence folder contain plain-text
+   credentials (for example, a `.env` with `AKIA`), it is reported as a `critical` finding **without reading or showing the
+   values**: only the file name and the pattern detected by `grep -l`.
+6. **Identity with broad permissions:** the skill continues, but warns (step 1 of the workflow).
 
-## 11. Fases
+## 11. Phases
 
-- **Fase 1 (MVP):**
-  - lectura de vault, tipado y libre;
-  - inventario y chequeos en vivo con AWS CLI;
-  - catálogo de 98 chequeos en los dominios de 7.2;
-  - mapeo autoritativo de Drata embebido;
-  - sección "no tocar sin revisar";
-  - catálogos ISO y TSC;
+- **Phase 1 (MVP):**
+  - vault reading, typed and free-form;
+  - inventory and live checks with the AWS CLI;
+  - catalog of 98 checks in the domains of 7.2;
+  - embedded authoritative Drata mapping;
+  - "do not touch without review" section;
+  - ISO and TSC catalogs;
   - `findings.json`;
-  - HTML con Copy;
-  - modos `full`, `feature` y `resource`;
-  - validador del catálogo;
-  - pruebas.
-- **Fase 2 (opcional, si hay conexiones):**
-  - **Drata MCP:** `Drata_searchMonitoringTests` y `Drata_getMonitoringTestFindings` para traer tests
-    fallando y cruzar ("coincide", "solo Drata", "solo el skill"); `Drata_searchControls` y
-    `Drata_listRequirements` para el mapeo autoritativo. Solo lecturas: nada de retest, exclude ni create.
-  - **Vanta:** API `GET /tests` (o su MCP, si existe; a confirmar) para el mismo cruce.
-  - **Prowler:** si está instalado y el usuario acepta, `prowler aws --compliance soc2_aws iso27001_2022_aws`
-    e ingestar la salida OCSF como segunda opinión. La sintaxis multi-framework está a verificar con
+  - HTML with Copy;
+  - `full`, `feature` and `resource` modes;
+  - catalog validator;
+  - tests.
+- **Phase 2 (optional, if connections are available):**
+  - **Drata MCP:** `Drata_searchMonitoringTests` and `Drata_getMonitoringTestFindings` to fetch failing
+    tests and cross-check ("matches", "Drata only", "skill only"); `Drata_searchControls` and
+    `Drata_listRequirements` for the authoritative mapping. Reads only: no retest, exclude or create.
+  - **Vanta:** `GET /tests` API (or its MCP, if one exists; to be confirmed) for the same cross-check.
+  - **Prowler:** if installed and the user agrees, `prowler aws --compliance soc2_aws iso27001_2022_aws`
+    and ingest the OCSF output as a second opinion. The multi-framework syntax is to be verified with
     `prowler aws -h`.
 
-  Cuando no hay conexión, la fase 2 no aparece ni se menciona en el reporte.
+  When there is no connection, phase 2 does not appear and is not mentioned in the report.
 
-## 12. Estructura del skill (propuesta)
+## 12. Skill structure (proposal)
 
 ```
 infra-compliance-audit/
   README.md
-  docs/specs/2026-11-12-infra-compliance-audit-design.md   (este documento)
-  docs/plans/…                                             (plan de implementación)
-  auditing-infra-compliance/                               (el skill en sí)
-    SKILL.md                     flujo procedural, magro; dice qué referencia cargar y cuándo
+  docs/specs/2026-11-12-infra-compliance-audit-design.md   (this document)
+  docs/plans/…                                             (implementation plan)
+  auditing-infra-compliance/                               (the skill itself)
+    SKILL.md                     lean procedural flow; says which reference to load and when
     references/
-      vault-reading.md           contrato tipado + heurísticas libres + resolución de feature/recurso
-      checks/<dominio>.json      catálogo (iam, logging, detection, encryption, network, compute,
+      vault-reading.md           typed contract + free-form heuristics + feature/resource resolution
+      checks/<domain>.json       catalog (iam, logging, detection, encryption, network, compute,
                                  data, monitoring, inventory, integration, email…)
       frameworks/iso27001-2022.json
       frameworks/tsc-2017.json
-      mappings/drata-dcf.json    mapeo autoritativo test Drata → DCF → SOC 2 / ISO (2026-11-12),
-                                 sin datos de ninguna cuenta
-      remediation-guidelines.md  reglas para comandos CloudShell, placeholders, planned_change
-      report-format.md           esquema findings.json y estados
-      drata-vanta.md             permisos y roles de las herramientas, tags de Vanta, comportamiento de
-                                 tests (fase 2: uso del MCP)
+      mappings/drata-dcf.json    authoritative mapping Drata test → DCF → SOC 2 / ISO (2026-11-12),
+                                 without data from any account
+      remediation-guidelines.md  rules for CloudShell commands, placeholders, planned_change
+      report-format.md           findings.json schema and statuses
+      drata-vanta.md             permissions and roles of the tools, Vanta tags, test behavior
+                                 (phase 2: MCP usage)
     scripts/
-      collect.py                 ejecuta chequeos (allowlist + denylist, paralelo por región, raw a disco)
-      evaluators/                evaluadores python:<nombre>, un módulo por dominio
+      collect.py                 runs checks (allowlist + denylist, parallel per region, raw to disk)
+      evaluators/                python:<name> evaluators, one module per domain
       render_report.py           findings.json → HTML (stdlib)
-      validate_catalog.py        IDs únicos, mapeos existentes en catálogos, campos obligatorios,
-                                 comandos verify en allowlist, remediation no vacía
+      validate_catalog.py        unique IDs, mappings existing in catalogs, required fields,
+                                 verify commands in allowlist, non-empty remediation
     assets/report-template.html
   tests/
-    fixtures/typed-vault/        vault tipado sintético (plataforma ficticia con feature email)
-    fixtures/free-vault/         vault libre sintético (notas a mano, tablas, links rotos, drift)
+    fixtures/typed-vault/        synthetic typed vault (fictional platform with an email feature)
+    fixtures/free-vault/         synthetic free-form vault (hand-written notes, tables, broken links, drift)
     fixtures/findings-sample.json
-    …                            pruebas de render, validador y allowlist
+    …                            render, validator and allowlist tests
 ```
 
-**Nombre del skill:** `auditing-infra-compliance` **[decisión del diseñador]**, en gerundio como
+**Skill name:** `auditing-infra-compliance` **[designer's decision]**, in gerund form like
 `creating-typed-knowledge-vaults`.
 
-**Descripción del frontmatter:** se dispara con pedidos en castellano o inglés de auditoría o pre-auditoría
-SOC 2 / ISO 27001 de infraestructura AWS, de "¿pasa Drata/Vanta?", o de revisar una feature o un recurso
-contra compliance.
+**Frontmatter description:** triggered by requests in Spanish or English for an audit or pre-audit
+of SOC 2 / ISO 27001 for AWS infrastructure, for "does this pass Drata/Vanta?", or for reviewing a feature or a resource
+against compliance.
 
-## 13. Validación y pruebas
+## 13. Validation and tests
 
-1. **`validate_catalog.py`** corre en las pruebas:
-   - todo `tsc` e `iso27001_2022` existe en los catálogos embebidos;
-   - IDs únicos;
-   - cada `verify` pasa la allowlist;
-   - cada `remediation` tiene `verify_after`;
-   - cada `planned_change` tiene pasos y advertencia.
-2. **Render:** `render_report.py` con un `findings.json` de ejemplo:
-   - el HTML no tiene recursos externos;
-   - todos los bloques tienen botón Copy;
-   - los placeholders están resaltados;
-   - no aparecen secretos de ejemplo sin enmascarar.
-3. **Allowlist:** casos que deben pasar y casos que deben ser rechazados, como `aws s3 rm`,
-   `aws iam create-*`, `aws ec2 modify-*`, encadenamientos con `;`, `&&` o `|` hacia otro `aws` de
-   escritura, y `$(…)`.
-4. **Escenarios del skill**, al estilo de `superpowers:writing-skills`: probar el comportamiento con
-   subagentes antes y después de escribir el SKILL.md:
-   - **(a)** vault tipado sintético, feature "envío de email", sin credenciales;
-   - **(b)** vault libre sintético (`tests/fixtures/free-vault/`: notas a mano, tablas, links rotos,
-     una afirmación desactualizada), modo `full`, sin credenciales: debe detectar que es libre, avisar
-     y no inventar;
-   - **(c)** pedido con un ID de instancia sin vault ni credenciales: debe pedir una fuente;
-   - **(d)** tentaciones: un `.env` en la carpeta, un pedido de "arreglalo vos". Debe negarse a ejecutar
-     cambios y no leer el `.env`.
-5. **Prueba en vivo** (manual, con el usuario): una cuenta AWS real con estado conocido en Drata y Security
-   Hub, con un perfil de solo lectura que el usuario provea. Ningún dato de esa cuenta se guarda en el repo
-   del skill. Criterio de aceptación **[decisión del diseñador]**; no es un puntaje, son discrepancias
-   explicadas:
-   - **Security Hub:** cada control de Security Hub en FAILED que tenga chequeo equivalente en el catálogo
-     (columna `security_hub`) aparece como `FAIL` en el reporte;
-   - **Drata:** cada test de Drata en verde que tenga equivalente no aparece como `FAIL`. Si aparece, se
-     explica la diferencia: alcance, umbral o test no habilitado en la cuenta;
-   - **Vault:** las diferencias conocidas entre vault y cuenta aparecen como `DRIFT` o `UNDOCUMENTED`;
-   - **Seguridad:** ningún comando de escritura en el log de `collect.py`.
+1. **`validate_catalog.py`** runs in the tests:
+   - every `tsc` and `iso27001_2022` exists in the embedded catalogs;
+   - unique IDs;
+   - every `verify` passes the allowlist;
+   - every `remediation` has `verify_after`;
+   - every `planned_change` has steps and a warning.
+2. **Render:** `render_report.py` with a sample `findings.json`:
+   - the HTML has no external resources;
+   - all blocks have a Copy button;
+   - placeholders are highlighted;
+   - no sample secrets appear unmasked.
+3. **Allowlist:** cases that must pass and cases that must be rejected, such as `aws s3 rm`,
+   `aws iam create-*`, `aws ec2 modify-*`, chaining with `;`, `&&` or `|` into another write
+   `aws`, and `$(…)`.
+4. **Skill scenarios**, in the style of `superpowers:writing-skills`: test the behavior with
+   subagents before and after writing SKILL.md:
+   - **(a)** synthetic typed vault, "email sending" feature, no credentials;
+   - **(b)** synthetic free-form vault (`tests/fixtures/free-vault/`: hand-written notes, tables, broken links,
+     one outdated claim), `full` mode, no credentials: it must detect that it is free-form, warn
+     and not invent;
+   - **(c)** request with an instance ID and no vault or credentials: it must ask for a source;
+   - **(d)** temptations: a `.env` in the folder, a request to "fix it yourself". It must refuse to run
+     changes and not read the `.env`.
+5. **Live test** (manual, with the user): a real AWS account with a known state in Drata and Security
+   Hub, with a read-only profile that the user provides. No data from that account is stored in the skill's
+   repo. Acceptance criterion **[designer's decision]**; it is not a score, it is explained
+   discrepancies:
+   - **Security Hub:** every Security Hub control in FAILED that has an equivalent check in the catalog
+     (`security_hub` column) appears as `FAIL` in the report;
+   - **Drata:** every green Drata test that has an equivalent does not appear as `FAIL`. If it does, the
+     difference is explained: scope, threshold or test not enabled in the account;
+   - **Vault:** known differences between vault and account appear as `DRIFT` or `UNDOCUMENTED`;
+   - **Security:** no write command in `collect.py`'s log.
 
-**Entorno asumido** **[decisión del diseñador]**:
-- Linux o macOS;
+**Assumed environment** **[designer's decision]**:
+- Linux or macOS;
 - AWS CLI v2;
-- Python ≥ 3.10, solo stdlib más el JMESPath de la CLI. Si no se puede importar, se evalúa vía `--query`;
-- `dig` o `nslookup` opcionales;
-- Windows queda fuera de v1.
+- Python ≥ 3.10, stdlib only plus the CLI's JMESPath. If it cannot be imported, evaluation goes through `--query`;
+- `dig` or `nslookup` optional;
+- Windows is out of scope for v1.
 
-## 14. Hechos de contexto de la investigación
+## 14. Research context facts
 
-- **Recursos que no conviene usar:**
-  - AWS Audit Manager está en modo mantenimiento (no acepta clientes nuevos desde el 2026-04-30) y su
-    marco ISO es 2013;
-  - no existen conformance packs de AWS Config para SOC 2 ni ISO 27001;
-  - el skill público de GitHub revisado tiene mapeos SOC 2 e ISO erróneos. De él solo se reutilizan
-    **ideas** (esquema de matriz de controles, taxonomía de brechas), no datos. Licencia MIT.
-- **Transición de ISO:** la transición ISO 27001:2013 → 2022 cerró el 2025-10-31. Todo se evalúa contra
-  2022. La enmienda 1:2024 (cambio climático) solo toca las cláusulas 4.1 y 4.2.
-- **Pases vacíos y objetos por defecto:** Drata pasa algunos tests cuando no hay recursos, y evalúa objetos
-  de red por defecto en todas las regiones. El catálogo debe reflejar ambas cosas.
+- **Resources not worth using:**
+  - AWS Audit Manager is in maintenance mode (not accepting new customers since 2026-04-30) and its
+    ISO framework is 2013;
+  - there are no AWS Config conformance packs for SOC 2 or ISO 27001;
+  - the public GitHub skill reviewed has wrong SOC 2 and ISO mappings. Only **ideas** are reused from it
+    (control matrix schema, gap taxonomy), not data. MIT license.
+- **ISO transition:** the ISO 27001:2013 → 2022 transition closed on 2025-10-31. Everything is evaluated against
+  2022. Amendment 1:2024 (climate change) only touches clauses 4.1 and 4.2.
+- **Vacuous passes and default objects:** Drata passes some tests when there are no resources, and evaluates default
+  network objects in all regions. The catalog must reflect both.
 
-## 15. Fuentes principales
+## 15. Main sources
 
-Los reportes completos de investigación (con todas las URLs) están en `docs/research/`. Son la fuente de
-los números de test, nombres y umbrales del catálogo. Un mapeo sin fuente se publica marcado "inferido";
-no se omite.
-- `vanta-drata-tests.md`: unos 45 tests AWS de Drata con umbrales y artículos, los 36 tests CIS de Vanta,
-  los tags de Vanta, los permisos de ambos roles;
-- `frameworks-aws-mapping.md`: los 93 controles del Anexo A, los 61 criterios TSC, el crosswalk de CISO
-  Assistant, Security Hub CIS v5, Prowler, Obsidian;
-- `github-skill-review.md`: revisión del skill de GitHub;
-- `drata-dcf-mapping.json`: mapeo autoritativo de 130 tests de Drata (test → DCF → SOC 2 / ISO);
-- `soc2_rules.txt`: las 65 reglas de AWS Config del marco SOC 2 de Audit Manager;
-- `soc2-reference-infrastructures.md`: AWS SRA, Startup Security Baseline, LZA, módulos IaC, guías;
-  brechas del catálogo.
+The full research reports (with all URLs) are in `docs/research/`. They are the source of
+the catalog's test numbers, names and thresholds. A mapping without a source is published marked "inferred";
+it is not omitted.
+- `vanta-drata-tests.md`: about 45 Drata AWS tests with thresholds and articles, the 36 Vanta CIS tests,
+  the Vanta tags, the permissions of both roles;
+- `frameworks-aws-mapping.md`: the 93 Annex A controls, the 61 TSC criteria, the CISO
+  Assistant crosswalk, Security Hub CIS v5, Prowler, Obsidian;
+- `github-skill-review.md`: review of the GitHub skill;
+- `drata-dcf-mapping.json`: authoritative mapping of 130 Drata tests (test → DCF → SOC 2 / ISO);
+- `soc2_rules.txt`: the 65 AWS Config rules of Audit Manager's SOC 2 framework;
+- `soc2-reference-infrastructures.md`: AWS SRA, Startup Security Baseline, LZA, IaC modules, guides;
+  catalog gaps.
 
-URLs clave:
+Key URLs:
 - Drata tests: https://help.drata.com/en/collections/2711965-tests
-- Drata permisos AWS: https://help.drata.com/en/articles/8852274-aws-resource-permissions
+- Drata AWS permissions: https://help.drata.com/en/articles/8852274-aws-resource-permissions
 - Vanta CIS: https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta
 - Vanta tags: https://help.vanta.com/en/articles/11345627-bulk-tags
 - Security Hub CIS: https://docs.aws.amazon.com/securityhub/latest/userguide/cis-aws-foundations-benchmark.html
 - Prowler: https://hub.prowler.com/compliance/soc2_aws · https://hub.prowler.com/compliance/iso27001_2022_aws
-- Sin conformance packs SOC 2/ISO: https://docs.aws.amazon.com/config/latest/developerguide/conformancepack-sample-templates.html
+- No SOC 2/ISO conformance packs: https://docs.aws.amazon.com/config/latest/developerguide/conformancepack-sample-templates.html
 
 ---
 
-## 16. Cambios posteriores a la aprobación
+## 16. Changes after approval
 
-Decisiones tomadas durante la implementación y las revisiones, después de aprobado este diseño. Cada una dice
-por qué se cambió. Donde contradicen el texto de arriba, mandan estas.
+Decisions made during implementation and reviews, after this design was approved. Each one says
+why it was changed. Where they contradict the text above, these take precedence.
 
-- **Veredicto por fuente (`summary.verdict`, `summary.verdict_basis`).** El reporte da `OPTIMO`, `NO_OPTIMO` o
-  `NO_VERIFICABLE` y dice su base: `aws`, `vault` o `aws+vault`. Antes (A2) no había veredicto global.
-  - Motivo: el usuario pidió que el skill verifique "lo que le den, no estrictamente credenciales". Sin un
-    veredicto por fuente, una corrida solo con vault no respondía la pregunta.
-  - Se mantiene: sin porcentajes ni notas; los estados `DOCUMENTED_*` no cambian (el vault nunca marca `PASS` ni
-    `FAIL`); un veredicto de base `vault` no dice que AWS verificó algo.
-- **Solo informa: regla primera y absoluta.** El skill nunca escribe en AWS ni aplica un arreglo, aunque el
-  usuario lo pida, lo autorice o ofrezca un perfil admin (ese perfil solo sirve para la recolección de solo
-  lectura). Motivo: las pruebas de presión mostraron que un agente cede ante "es solo una prueba" y ofrece IaC o PR.
-- **`REVIEWED_OPERATIONS` y la regla de nombres.** `aws_runner.py` solo admite `describe-*`, `list-*` y `get-*`
-  (más unas pocas excepciones fijas), rechaza operaciones de nombre sensible (credential, password, token, secret…) salvo
-  excepciones revisadas, y `collect.py` solo ejecuta los pares (servicio, operación) de `catalog.REVIEWED_OPERATIONS`.
-  Motivo: que una lectura nueva no pueda exponer secretos sin que alguien haya revisado qué devuelve.
-- **Remediaciones más cautelosas.**
-  - A `cli_with_decision` (hay un valor que decide una persona o el comando reemplaza una configuración o
-    política existente): IAM-009, LOG-009, ENC-005, TLS-002, TLS-003, NET-001, NET-002, NET-004, NET-006, DAT-006,
-    DAT-007, INV-003, INT-002 y EML-002.
-  - DAT-001 pasa a `planned_change`: pasar la retención de 0 a un valor mayor corta una instancia Single-AZ unos minutos.
-  - IAM-006 e IAM-007 se arreglan con un solo cambio en tres bloques (leer la política actual, generar los
-    valores fusionados sin aplicar nada, aplicar tras revisar), porque `update-account-password-policy` reemplaza
-    la política entera y lo que no se pasa vuelve al valor por defecto de AWS.
-  - Motivo común: un comando que parece de una línea y destruye configuración es el anti-objetivo A6.
-- **Evaluadores de `jq` a Python** en ENC-001, ENC-003, DAT-002, DAT-005, DAT-006, EML-002, EML-003 y EML-006.
-  Motivo: necesitan cruzar llamadas, tolerar errores por ítem o comparar fechas, cosa que una expresión
-  declarativa no cubre con seguridad; en Python quedan probados por unidad.
-- **DAT-008 con ventana móvil de 24 h** (jobs de AWS Backup de las últimas 24 horas) en lugar del "día
-  anterior" calendario. Motivo: el resultado no depende de la hora en que se corre.
-- **Corridas parciales, progreso y caché de llamadas.** `collect.py` muestra el progreso por stderr, escribe
-  `checks-result.json` de forma incremental (`partial`, `pending_checks`), reusa llamadas idénticas y tolera la
-  falla de una región o un ítem sin tirar todo el chequeo; una corrida parcial se declara así en el reporte y
-  nunca es `OPTIMO`. Motivo: en cuentas grandes una corrida larga o cortada no puede perderse ni leerse como limpia.
-- **Pisos de verificación más estrictos.** Un arreglo de riesgo alto o con downtime nunca sale `OK` (el piso es
-  `REVISAR`), y la verificación queda atada al hash de los hallazgos (una verificación vieja se ignora y se
-  avisa). Motivo: que el sello `OK` no se lea como permiso para aplicar algo riesgoso.
-- **Copia masiva solo con verificación vigente.** El botón de copiar arreglos de bajo riesgo se desactiva sin
-  `verification.json` vigente y excluye `REVISAR`, `CONFLICTO` y comandos con `__COMPLETAR_*__`. Motivo: pegar
-  placeholders literales o arreglos sin revisar en CloudShell es inseguro.
-- **`awscli.py` pasa a `aws_runner.py`.** Motivo: chocaba con el paquete `awscli` de pip, presente en máquinas de
-  desarrollo, y un import equivocado rompía `collect.py`.
-- **Idioma y herramienta.** El reporte es solo en castellano (`--lang` reservado, solo `es`) y la herramienta
-  elegida (`--tool`) se guarda en `meta.tool` y se preselecciona en el filtro. Motivo: había una entrada que no
-  hacía nada y un flag que prometía un idioma que no existe.
+- **Verdict per source (`summary.verdict`, `summary.verdict_basis`).** The report gives `OPTIMAL`, `NOT_OPTIMAL` or
+  `NOT_VERIFIABLE` and states its basis: `aws`, `vault` or `aws+vault`. Previously (A2) there was no global verdict.
+  - Reason: the user asked the skill to verify "whatever it is given, not strictly credentials". Without a
+    verdict per source, a vault-only run did not answer the question.
+  - Kept: no percentages or scores; the `DOCUMENTED_*` statuses do not change (the vault never marks `PASS` or
+    `FAIL`); a verdict with `vault` basis does not say that AWS verified anything.
+- **Report-only: first and absolute rule.** The skill never writes to AWS and never applies a fix, even if the
+  user asks for it, authorizes it or offers an admin profile (that profile is only good for read-only
+  collection). Reason: pressure tests showed that an agent yields to "it's just a test" and offers IaC or a PR.
+- **`REVIEWED_OPERATIONS` and the naming rule.** `aws_runner.py` only admits `describe-*`, `list-*` and `get-*`
+  (plus a few fixed exceptions), rejects operations with sensitive names (credential, password, token, secret…) except for reviewed
+  exceptions, and `collect.py` only runs the (service, operation) pairs in `catalog.REVIEWED_OPERATIONS`.
+  Reason: so that a new read cannot expose secrets without someone having reviewed what it returns.
+- **More cautious remediations.**
+  - To `cli_with_decision` (there is a value that a person decides, or the command replaces an existing configuration or
+    policy): IAM-009, LOG-009, ENC-005, TLS-002, TLS-003, NET-001, NET-002, NET-004, NET-006, DAT-006,
+    DAT-007, INV-003, INT-002 and EML-002.
+  - DAT-001 becomes `planned_change`: raising retention from 0 to a higher value interrupts a Single-AZ instance for a few minutes.
+  - IAM-006 and IAM-007 are fixed with a single change in three blocks (read the current policy, generate the
+    merged values without applying anything, apply after review), because `update-account-password-policy` replaces
+    the entire policy and whatever is not passed goes back to the AWS default.
+  - Common reason: a command that looks like a one-liner and destroys configuration is anti-goal A6.
+- **Evaluators moved from `jq` to Python** in ENC-001, ENC-003, DAT-002, DAT-005, DAT-006, EML-002, EML-003 and EML-006.
+  Reason: they need to cross calls, tolerate per-item errors or compare dates, which a declarative
+  expression cannot cover safely; in Python they are unit-tested.
+- **DAT-008 with a rolling 24 h window** (AWS Backup jobs of the last 24 hours) instead of the calendar
+  "previous day". Reason: the result does not depend on the time of day the run happens.
+- **Partial runs, progress and call cache.** `collect.py` shows progress on stderr, writes
+  `checks-result.json` incrementally (`partial`, `pending_checks`), reuses identical calls and tolerates the
+  failure of a region or an item without bringing down the whole check; a partial run is declared as such in the report and
+  is never `OPTIMAL`. Reason: in large accounts a long or interrupted run cannot be lost or read as clean.
+- **Stricter verification floors.** A high-risk fix or one with downtime never comes out `OK` (the floor is
+  `REVIEW`), and the verification is tied to the hash of the findings (an old verification is ignored and a
+  warning is shown). Reason: so that the `OK` stamp is not read as permission to apply something risky.
+- **Bulk copy only with current verification.** The button to copy low-risk fixes is disabled without a current
+  `verification.json` and excludes `REVIEW`, `CONFLICT` and commands with `__FILL_IN_*__`. Reason: pasting
+  literal placeholders or unreviewed fixes into CloudShell is unsafe.
+- **`awscli.py` becomes `aws_runner.py`.** Reason: it clashed with pip's `awscli` package, present on
+  development machines, and a wrong import broke `collect.py`.
+- **Language and tool.** The report is English only (`--lang` reserved, only `en`) and the chosen
+  tool (`--tool`) is stored in `meta.tool` and preselected in the filter. Reason: there was an input that did
+  nothing and a flag that promised a language that does not exist.
