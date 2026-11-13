@@ -11,7 +11,8 @@ computed from (`findings_digest`): when it does not match findings.json (or has 
 (the page shows a warning) and the CLI prints a warning. meta.vault.path is reduced to the vault folder name.
 
 Usage: render_report.py <findings.json> [--verification <verification.json>] [-o <report.html>]
-(default output: report.html next to findings.json)
+(default output: report.html next to findings.json). When a vault-index.json sits next to findings.json, an output inside the vault
+root it records is refused (`error:` + exit 2).
 """
 
 import argparse
@@ -39,6 +40,15 @@ def verification_is_stale(findings: dict, verification: dict | None) -> bool:
     if not isinstance(verification, dict):
         return False
     return verification.get("findings_digest") != assemble_findings.findings_digest(findings)
+
+
+def _vault_root(source: Path):
+    """The vault root recorded by vault_index.py in the vault-index.json next to findings.json; None when it is not there or unreadable."""
+    try:
+        index = json.loads(source.with_name("vault-index.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return index.get("root") if isinstance(index, dict) else None
 
 
 def _vault_folder(findings: dict) -> dict:
@@ -81,6 +91,7 @@ def main(argv=None) -> int:
         print(f"error: {source} does not exist: run assemble_findings.py before generating the report", file=sys.stderr)
         return 2
     try:
+        assemble_findings.refuse_inside_vault(output, _vault_root(source), "the report output")
         findings = json.loads(source.read_text(encoding="utf-8"))
         verification = json.loads(Path(args.verification).read_text(encoding="utf-8")) if args.verification else None
         html = render(findings, TEMPLATE_PATH.read_text(encoding="utf-8"), verification)

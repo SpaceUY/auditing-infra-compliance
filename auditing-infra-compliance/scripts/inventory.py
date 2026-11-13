@@ -69,6 +69,7 @@ def _to_item(type_, spec, raw, region, account_id=None, partition=None):
     tags = _tags(paths.extract(raw, spec["tags_path"]))
     name = _first(raw, spec["name_path"]) or tags.get("Name") or item_id
     arn = _first(raw, spec["arn_path"]) or _built_arn(type_, item_id, region, account_id, partition)
+    arn = arn.removesuffix(":*")  # describe-log-groups returns "...:log-group:NAME:*"; the tagging API takes the ARN without the suffix
     return {"type": type_, "id": item_id, "arn": arn, "name": name, "region": region, "tags": tags}
 
 

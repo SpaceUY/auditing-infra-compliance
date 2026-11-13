@@ -104,7 +104,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "low",
         "downtime": false,
         "steps": [
@@ -116,7 +116,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# creates the detector; if the region already has one (for example a disabled one), it re-enables it with S3 Protection\nDETECTOR_ID=$(aws guardduty list-detectors --region \"$REGION\" --query 'DetectorIds[0]' --output text) || DETECTOR_ID=\"READ_FAILED\"\nif [ \"$DETECTOR_ID\" = \"READ_FAILED\" ]; then echo \"STOPPED: could not list the GuardDuty detectors (guardduty:ListDetectors); nothing was changed\"; elif [ -z \"$DETECTOR_ID\" ] || [ \"$DETECTOR_ID\" = \"None\" ]; then aws guardduty create-detector --enable --region \"$REGION\" --features '[{\"Name\":\"S3_DATA_EVENTS\",\"Status\":\"ENABLED\"}]'; else aws guardduty update-detector --detector-id \"$DETECTOR_ID\" --enable --features '[{\"Name\":\"S3_DATA_EVENTS\",\"Status\":\"ENABLED\"}]' --region \"$REGION\"; fi"
         ],
         "verify_after": "aws guardduty get-detector --detector-id \"$(aws guardduty list-detectors --region \"{region}\" --query 'DetectorIds[0]' --output text)\" --region \"{region}\" --query '{Status: Status, S3: Features[?Name==`S3_DATA_EVENTS`].Status | [0]}'",
-        "notes": "No downtime. Cost: 30-day free trial and then GuardDuty charges by volume of analyzed events (CloudTrail, flow logs, DNS and, with S3 Protection, S3 data events); in a region with no activity the cost is minimal. Findings from regions with no resources have low severity: enabling them anyway closes the gap of unmonitored regions that the AWS security baseline recommends. The detector is per region: repeat the command in each offending region."
+        "notes": "Decision (cost): GuardDuty is billed by analyzed volume after the 30-day trial, and S3 Protection by S3 data events; confirm the cost before enabling it in each region. No downtime. Cost: 30-day free trial and then GuardDuty charges by volume of analyzed events (CloudTrail, flow logs, DNS and, with S3 Protection, S3 data events); in a region with no activity the cost is minimal. Findings from regions with no resources have low severity: enabling them anyway closes the gap of unmonitored regions that the AWS security baseline recommends. The detector is per region: repeat the command in each offending region."
       },
       "sources": [
         "https://help.drata.com/en/articles/4778757-test-105-threat-detection-in-place",
@@ -127,7 +127,7 @@
     },
     {
       "id": "DET-002",
-      "title": "GuardDuty has S3 Protection enabled (if the account has S3 buckets)",
+      "title": "GuardDuty has S3 Protection enabled (if the account has S3 buckets; N/A without them)",
       "scope": "account",
       "resource_types": [],
       "account_context_for": [
@@ -164,7 +164,7 @@
             "s3_bucket"
           ]
         },
-        "pass_when_text": "Every enabled detector has S3_DATA_EVENTS=ENABLED. If the account has no S3 buckets it passes, like Drata test 105. With no enabled detector at all it fails: there is no S3 Protection.",
+        "pass_when_text": "Every enabled detector has S3_DATA_EVENTS=ENABLED. If the account has no S3 buckets the check is N/A (reason: no S3 buckets in scope), never a PASS with nothing evaluated. With no enabled detector at all it fails: there is no S3 Protection.",
         "needs": [
           "guardduty:ListDetectors",
           "guardduty:GetDetector"
@@ -192,7 +192,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "low",
         "downtime": false,
         "steps": [
@@ -204,7 +204,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDETECTOR_ID=$(aws guardduty list-detectors --region \"$REGION\" --query 'DetectorIds[0]' --output text) && aws guardduty update-detector --detector-id \"$DETECTOR_ID\" --features '[{\"Name\":\"S3_DATA_EVENTS\",\"Status\":\"ENABLED\"}]' --region \"$REGION\""
         ],
         "verify_after": "aws guardduty get-detector --detector-id \"$(aws guardduty list-detectors --region \"{region}\" --query 'DetectorIds[0]' --output text)\" --region \"{region}\" --query 'Features[?Name==`S3_DATA_EVENTS`]'",
-        "notes": "No downtime. Cost: GuardDuty charges S3 Protection per million S3 data events analyzed; on buckets with heavy object traffic it can be significant. Drata 105 requires S3 Protection together with GuardDuty active in the regions with resources."
+        "notes": "Decision (cost): S3 Protection is billed per million S3 data events analyzed and can be significant on buckets with heavy traffic; confirm the cost before enabling it. No downtime. Cost: GuardDuty charges S3 Protection per million S3 data events analyzed; on buckets with heavy object traffic it can be significant. Drata 105 requires S3 Protection together with GuardDuty active in the regions with resources."
       },
       "sources": [
         "https://help.drata.com/en/articles/4778757-test-105-threat-detection-in-place",
@@ -349,7 +349,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "low",
         "downtime": false,
         "steps": [
@@ -360,7 +360,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# if Security Hub is already enabled in the region it only enables the standard; if not, it enables it first (and the standard is enabled only if that succeeded)\nif aws securityhub describe-hub --region \"$REGION\" > /dev/null 2>&1; then HUB_READY=1; else aws securityhub enable-security-hub --no-enable-default-standards --region \"$REGION\" && HUB_READY=1; fi\n[ \"$HUB_READY\" = \"1\" ] && aws securityhub batch-enable-standards --standards-subscription-requests '[{\"StandardsArn\":\"arn:aws:securityhub:{region}::standards/aws-foundational-security-best-practices/v/1.0.0\"}]' --region \"$REGION\""
         ],
         "verify_after": "aws securityhub get-enabled-standards --region \"{region}\" --query 'StandardsSubscriptions[].[StandardsArn,StandardsStatus]'",
-        "notes": "No downtime. Security Hub controls depend on AWS Config with the recorder active (see DET-005): without it, the controls have no data. Cost: charged per security check run and per ingested finding, with a 30-day trial. To add CIS in addition to FSBP, also enable its standard. It must be repeated in every region with resources; cross-region aggregation is optional and is not evaluated by this check."
+        "notes": "Decision (cost): Security Hub is billed per security check and per ingested finding after the 30-day trial; confirm the cost before enabling it. No downtime. Security Hub controls depend on AWS Config with the recorder active (see DET-005): without it, the controls have no data. Cost: charged per security check run and per ingested finding, with a 30-day trial. To add CIS in addition to FSBP, also enable its standard. It must be repeated in every region with resources; cross-region aggregation is optional and is not evaluated by this check."
       },
       "sources": [
         "https://help.vanta.com/en/articles/11345518-cis-foundation-benchmarks-available-in-vanta",
@@ -544,7 +544,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "low",
         "downtime": false,
         "steps": [
@@ -555,7 +555,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws inspector2 enable --resource-types EC2 ECR LAMBDA --region \"$REGION\""
         ],
         "verify_after": "aws inspector2 batch-get-account-status --region \"{region}\" --query 'accounts[].resourceState'",
-        "notes": "No downtime. Cost: Inspector charges per scanned EC2 instance, per ECR image (on push and on each re-scan) and per Lambda function, with a 15-day trial. Agent-based EC2 scanning needs the instance to be managed by Systems Manager (see CMP-006). Security Hub controls Inspector.3 and .4 additionally ask for Lambda code scanning, which this check does not require. Vanta takes the Inspector and ECR findings for its critical vulnerabilities test; the SLA is configured in the Vanta app."
+        "notes": "Decision (cost): Inspector is a billable service (per scanned EC2 instance, per ECR image and per Lambda function after the trial); confirm the budget and the resource types before enabling it. No downtime. Cost: Inspector charges per scanned EC2 instance, per ECR image (on push and on each re-scan) and per Lambda function, with a 15-day trial. Agent-based EC2 scanning needs the instance to be managed by Systems Manager (see CMP-006). Security Hub controls Inspector.3 and .4 additionally ask for Lambda code scanning, which this check does not require. Vanta takes the Inspector and ECR findings for its critical vulnerabilities test; the SLA is configured in the Vanta app."
       },
       "sources": [
         "https://help.drata.com/en/articles/4776909",

@@ -34,7 +34,7 @@ EVALUATORS: dict[str, Evaluator] = {}
 def register(name: str) -> Callable[[Evaluator], Evaluator]:
     def decorator(fn: Evaluator) -> Evaluator:
         if name in EVALUATORS:
-            raise ValueError(f"evaluador duplicado: {name}")
+            raise ValueError(f"duplicate evaluator: {name}")
         EVALUATORS[name] = fn
         return fn
 

@@ -221,7 +221,7 @@
         ]
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "medium",
         "downtime": false,
         "steps": [
@@ -232,7 +232,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\naws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --auto-minor-version-upgrade --region \"$REGION\""
         ],
         "verify_after": "aws rds describe-db-instances --db-instance-identifier \"{resource_id}\" --region \"{region}\" --query 'DBInstances[0].AutoMinorVersionUpgrade'",
-        "notes": "The change is immediate and has no downtime, but from then on RDS applies minor versions in the maintenance window (PreferredMaintenanceWindow) and that upgrade can restart the database (in Multi-AZ, a failover). Review the window. If an application depends on a specific minor version, test in staging first. --apply-immediately is not used so as not to apply other pending changes."
+        "notes": "Decision: automatic minor upgrades will restart the database (in Multi-AZ, a failover) in the maintenance window; confirm that the window is acceptable and that the application tolerates the restart. The change is immediate and has no downtime, but from then on RDS applies minor versions in the maintenance window (PreferredMaintenanceWindow) and that upgrade can restart the database (in Multi-AZ, a failover). Review the window. If an application depends on a specific minor version, test in staging first. --apply-immediately is not used so as not to apply other pending changes."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828785",
@@ -369,7 +369,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "low",
         "downtime": false,
         "steps": [
@@ -380,7 +380,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws dynamodb update-continuous-backups --table-name \"{resource_id}\" --point-in-time-recovery-specification PointInTimeRecoveryEnabled=true --region \"$REGION\""
         ],
         "verify_after": "aws dynamodb describe-continuous-backups --table-name \"{resource_id}\" --region \"{region}\" --query 'ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus'",
-        "notes": "No downtime or performance impact, and reversible with PointInTimeRecoveryEnabled=false (the history is lost). Cost: charged per GB of the table (continuous backup, 35 days of retention). Drata additionally needs the inline permission backup:ListRecoveryPointsByResource on the DrataAutopilotRole role to evaluate this test."
+        "notes": "Decision (cost): PITR is billed per GB of the table for the whole 35-day window; confirm the cost for large tables before enabling it. No downtime or performance impact, and reversible with PointInTimeRecoveryEnabled=false (the history is lost). Cost: charged per GB of the table (continuous backup, 35 days of retention). Drata additionally needs the inline permission backup:ListRecoveryPointsByResource on the DrataAutopilotRole role to evaluate this test."
       },
       "sources": [
         "https://help.drata.com/en/articles/9999538",
@@ -806,18 +806,19 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Decide the scope: which resources the plan protects (by tag or by ARN), the destination vault, the AWS Backup role and the retention (35 days is a common value).",
+          "Decide the scope: which resources the plan protects (by tag or by ARN), the destination vault, the AWS Backup role and the retention in days (35 is a common value). The first block creates a daily rule at 05:00 UTC.",
           "If there is no plan, create it with a daily rule and assign the resources to it (first block).",
-          "If there are plans but none has a compliant daily rule (detail.plans), look at the rules of the chosen plan (second block) and add a daily rule with update-backup-plan (third block).",
+          "If there are plans but none has a compliant daily rule (detail.plans), save the chosen plan to a file and show it (second block, read-only), generate the merged plan with the new daily rule added (third block, applies nothing) and, once reviewed, apply it with update-backup-plan (fourth block).",
           "Verify with get-backup-plan that the daily rule exists with the chosen retention."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\nVAULT_NAME=\"__FILL_IN_VAULT_NAME__\"\nROLE_ARN=\"__FILL_IN_BACKUP_ROLE_ARN__\"\nRESOURCE_ARN=\"__FILL_IN_RESOURCE_ARN__\"\nPLAN_ID=$(aws backup create-backup-plan --backup-plan \"{\\\"BackupPlanName\\\":\\\"$PLAN_NAME\\\",\\\"Rules\\\":[{\\\"RuleName\\\":\\\"diario\\\",\\\"TargetBackupVaultName\\\":\\\"$VAULT_NAME\\\",\\\"ScheduleExpression\\\":\\\"cron(0 5 ? * * *)\\\",\\\"Lifecycle\\\":{\\\"DeleteAfterDays\\\":35}}]}\" --region \"$REGION\" --query 'BackupPlanId' --output text) && aws backup create-backup-selection --backup-plan-id \"$PLAN_ID\" --backup-selection \"{\\\"SelectionName\\\":\\\"$PLAN_NAME-resources\\\",\\\"IamRoleArn\\\":\\\"$ROLE_ARN\\\",\\\"Resources\\\":[\\\"$RESOURCE_ARN\\\"]}\" --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\n# read-only: current rules of the plan\nPLAN_ID=$(aws backup list-backup-plans --region \"$REGION\" --query \"BackupPlansList[?BackupPlanName=='$PLAN_NAME'].BackupPlanId | [0]\" --output text) && aws backup get-backup-plan --backup-plan-id \"$PLAN_ID\" --region \"$REGION\" --query 'BackupPlan.Rules'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_ID=\"__FILL_IN_PLAN_ID__\"\n# update-backup-plan REPLACES the whole plan: the JSON must contain the current rules plus the new daily rule\nPLAN_JSON='__FILL_IN_PLAN_JSON__'\naws backup update-backup-plan --backup-plan-id \"$PLAN_ID\" --backup-plan \"$PLAN_JSON\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\nVAULT_NAME=\"__FILL_IN_VAULT_NAME__\"\nROLE_ARN=\"__FILL_IN_BACKUP_ROLE_ARN__\"\nRESOURCE_ARN=\"__FILL_IN_RESOURCE_ARN__\"\nRETENTION_DAYS=\"__FILL_IN_RETENTION_DAYS__\"\n# daily rule at 05:00 UTC with the chosen retention (a whole number of days, at least 7)\nPLAN_ID=$(aws backup create-backup-plan --backup-plan \"{\\\"BackupPlanName\\\":\\\"$PLAN_NAME\\\",\\\"Rules\\\":[{\\\"RuleName\\\":\\\"daily\\\",\\\"TargetBackupVaultName\\\":\\\"$VAULT_NAME\\\",\\\"ScheduleExpression\\\":\\\"cron(0 5 ? * * *)\\\",\\\"Lifecycle\\\":{\\\"DeleteAfterDays\\\":$RETENTION_DAYS}}]}\" --region \"$REGION\" --query 'BackupPlanId' --output text) && aws backup create-backup-selection --backup-plan-id \"$PLAN_ID\" --backup-selection \"{\\\"SelectionName\\\":\\\"$PLAN_NAME-resources\\\",\\\"IamRoleArn\\\":\\\"$ROLE_ARN\\\",\\\"Resources\\\":[\\\"$RESOURCE_ARN\\\"]}\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\n# read-only: saves the whole current plan (without the output-only RuleId of each rule) to a file and shows it; on any error it deletes the file and stops, and the third block cannot continue\nPLAN_ID=$(aws backup list-backup-plans --region \"$REGION\" --query \"BackupPlansList[?BackupPlanName=='$PLAN_NAME'].BackupPlanId | [0]\" --output text) && aws backup get-backup-plan --backup-plan-id \"$PLAN_ID\" --region \"$REGION\" --query BackupPlan --output json > \"backup-plan-$PLAN_NAME.json\" && python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); [r.pop(\"RuleId\",None) for r in p[\"Rules\"]]; json.dump(p,open(sys.argv[1],\"w\"),indent=2)' \"backup-plan-$PLAN_NAME.json\" && echo \"PLAN_ID=$PLAN_ID\" && cat \"backup-plan-$PLAN_NAME.json\" || { rm -f \"backup-plan-$PLAN_NAME.json\"; echo \"STOPPED: could not read the plan; do not continue\"; }",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\nVAULT_NAME=\"__FILL_IN_VAULT_NAME__\"\nRETENTION_DAYS=\"__FILL_IN_RETENTION_DAYS__\"\n# applies nothing: adds a daily rule (05:00 UTC) to the plan saved by the second block, keeps every existing rule and shows the result\n[ -s \"backup-plan-$PLAN_NAME.json\" ] || echo \"STOPPED: backup-plan-$PLAN_NAME.json is missing; run the second block first\"\npython3 -c 'import json,sys; f,vault,days=sys.argv[1:4]; assert \"__FILL_IN_\" not in vault+days, \"fill in VAULT_NAME and RETENTION_DAYS\"; p=json.load(open(f)); assert \"daily\" not in [r[\"RuleName\"] for r in p[\"Rules\"]], \"a rule named daily already exists: rename it in the file by hand\"; p[\"Rules\"].append({\"RuleName\":\"daily\",\"TargetBackupVaultName\":vault,\"ScheduleExpression\":\"cron(0 5 ? * * *)\",\"Lifecycle\":{\"DeleteAfterDays\":int(days)}}); json.dump(p,open(f[:-5]+\"-new.json\",\"w\"),indent=2)' \"backup-plan-$PLAN_NAME.json\" \"$VAULT_NAME\" \"$RETENTION_DAYS\" && cat \"backup-plan-$PLAN_NAME-new.json\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\nPLAN_ID=\"__FILL_IN_PLAN_ID__\"\n# update-backup-plan REPLACES the whole plan: apply only the merged and reviewed file, never a hand-written plan; PLAN_ID is printed by the second block\naws backup update-backup-plan --backup-plan-id \"$PLAN_ID\" --backup-plan \"file://backup-plan-$PLAN_NAME-new.json\" --region \"$REGION\""
         ],
         "verify_after": "aws backup list-backup-plans --region \"{region}\" --query 'BackupPlansList[].[BackupPlanName,BackupPlanId]'",
-        "notes": "update-backup-plan replaces the entire plan (each call creates a new version): if the JSON omits an existing rule, that rule is lost; always start from the output of the second block. A plan without a backup selection protects nothing: the first block also creates the resource assignment, which can be done by tag. Cost: recovery points take up storage for the whole retention. The AWS Backup role needs the AWSBackupServiceRolePolicyForBackup policy. 7 days is a catalog design criterion, not a Drata or Vanta one."
+        "notes": "update-backup-plan replaces the entire plan (each call creates a new version): if the JSON omits an existing rule, that rule is lost; that is why the second block saves the whole current plan to a file, the third adds the daily rule to it and only the reviewed result is applied (fourth block). The retention (RETENTION_DAYS) is a decision, not a default. A plan without a backup selection protects nothing: the first block also creates the resource assignment, which can be done by tag. The merge script stops if a rule named daily already exists. The commands use python3, which CloudShell has installed. Cost: recovery points take up storage for the whole retention. The AWS Backup role needs the AWSBackupServiceRolePolicyForBackup policy. 7 days is a catalog design criterion, not a Drata or Vanta one."
       },
       "sources": [
         "https://docs.aws.amazon.com/aws-backup/latest/devguide/about-backup-plans.html",

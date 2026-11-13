@@ -1,6 +1,6 @@
-# Review: alirezarezvani/claude-skills — SOC 2 and ISO 27001 skills (ra-qm-team)
+# Review: a public community skills repository — SOC 2 and ISO 27001 skills (ra-qm-team)
 
-Source: https://github.com/alirezarezvani/claude-skills (main, fetched 2026-11-12 via GitHub API + raw URLs).
+Source: a public community skills repository on GitHub (main branch, fetched 2026-11-12 via the GitHub API and raw URLs).
 Source reviewed read-only from the public repository (nothing executed).
 
 NOTE on paths: the URL in the brief (ra-qm-team/skills/soc2-compliance) is correct. The repo also mirrors skills into .codex/, .gemini/, .hermes/, .vibe/ and a plugin wrapper dir; the canonical copy is ra-qm-team/skills/*. A second, separate SOC 2 item exists at compliance-os/skills/soc2-audit-prep (a 6 KB "six forcing questions" command, no controls catalog).

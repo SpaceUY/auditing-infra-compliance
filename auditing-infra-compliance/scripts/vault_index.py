@@ -3,8 +3,12 @@
 Only regular *.md files are read (FIFOs, sockets and symlinks are skipped; so are notes whose name is sensitive,
 e.g. *credentials*.md, which are only listed); dotfiles and dotdirs are skipped (.obsidian/plugins is only listed),
 symlinks are not followed and the top-level _meta/ folder (relations, generated edges) is not indexed as notes.
-Everything textual that enters the index (title, headings, kv, links, edges, sources) goes through redact.mask;
-detected secrets are reported by path and pattern only. Sensitive files (.env, .env.*, *.pem, *.key, *credentials*) found
+Everything textual that enters the index (title, headings, kv, links, edges, sources) goes through redact.mask, and every
+path (notes, secrets_detected, broken_links, truncated_notes, sensitive_files) is valid UTF-8 (undecodable bytes become U+FFFD)
+with secret-shaped names masked; the real file is still opened by comparing the public form of each note path. The index is
+written through a temporary file and a rename, so a failure leaves no partial file ("error: ..." on stderr, exit 2).
+Detected secrets are reported by path and pattern only. Sensitive files (SENSITIVE_NAMES: .env*, *.env, *.pem, *.key, *.pfx, *.p12,
+*.jks, *.keystore, *.tfvars, terraform.tfstate*, id_rsa, id_ed25519, id_ecdsa, *credentials*, and *secret* except notes) found
 anywhere in the vault tree (except .git) are listed by NAME only in `sensitive_files` ({path, reason}) and never opened.
 
 CLI:
@@ -31,7 +35,8 @@ import redact
 
 EDGE = re.compile(r"^- (?P<rel>[a-z ]+) → \[\[(?P<target>[^\]|#]+)", re.M)
 WIKILINK = re.compile(r"(?<!!)\[\[([^\]|#]+)")
-HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
+# no `\s*$` after a lazy quantifier (quadratic on a long whitespace run): the text runs to the end of the line and is stripped in Python
+HEADING = re.compile(r"^(#{1,6})[ \t]+(\S.*)$", re.M)
 SECTION = re.compile(r"^#{1,6}\s+(Structural|Associative)\s*$", re.I)
 KEY_VALUE = re.compile(r"^([A-Za-z_][\w-]*):[ \t]*(.*)$")
 SEPARATOR_ROW = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
@@ -84,15 +89,41 @@ def _note_files(vault):
 SENSITIVE_SKIP_DIRS = frozenset({".git", "node_modules"})
 
 
+# The one list of sensitive file names, matched case-insensitively on the file name: (kind, names, reason, applies to notes). A note
+# (.md) is treated as sensitive only by the rules marked True: "AWS Secrets Manager.md" is documentation, not a secret.
+SENSITIVE_NAMES = (
+    ("prefix", (".env",), ".env file", True),  # .env, .env.production, .env-prod, .envrc
+    ("suffix", (".env",), ".env file", True),  # prod.env
+    ("suffix", (".pem", ".key"), "private key file (.pem/.key)", True),
+    ("suffix", (".pfx", ".p12", ".jks", ".keystore"), "certificate or key store (.pfx/.p12/.jks/.keystore)", True),
+    ("suffix", (".tfvars",), "Terraform variables file (.tfvars)", True),
+    ("prefix", ("terraform.tfstate",), "Terraform state file (terraform.tfstate*)", True),
+    ("exact", ("id_rsa", "id_ed25519", "id_ecdsa"), "SSH private key (id_rsa, id_ed25519, id_ecdsa)", True),
+    ("contains", ("credentials",), "name containing 'credentials'", True),
+    ("contains", ("secret",), "name containing 'secret'", False),
+)
+_SENSITIVE_TESTS = {"prefix": lambda lower, names: lower.startswith(names), "suffix": lambda lower, names: lower.endswith(names),
+                    "exact": lambda lower, names: lower in names, "contains": lambda lower, names: any(n in lower for n in names)}
+
+
 def _sensitive_reason(name):
     lower = name.lower()
-    if lower == ".env" or lower.startswith(".env."):
-        return ".env file"
-    if lower.endswith((".pem", ".key")):
-        return "private key file (.pem/.key)"
-    if "credentials" in lower:
-        return "name containing 'credentials'"
+    is_note = lower.endswith(".md")
+    for kind, names, reason, applies_to_notes in SENSITIVE_NAMES:
+        if (applies_to_notes or not is_note) and _SENSITIVE_TESTS[kind](lower, names):
+            return reason
     return None
+
+
+def _clean(text):
+    """A path or file name as valid UTF-8: bytes that are not (a Latin-1 name from a zip, say) become U+FFFD instead of the lone
+    surrogates that os.walk leaves in the str and that json cannot encode."""
+    return os.fsencode(text).decode("utf-8", "replace")
+
+
+def _public_path(rel):
+    """The vault-relative path as it is written to the index: valid UTF-8 and with secret-shaped file names masked."""
+    return redact.mask_secrets(_clean(rel))
 
 
 def _sensitive_files(vault):
@@ -103,8 +134,7 @@ def _sensitive_files(vault):
         for name in sorted(files):
             reason = _sensitive_reason(name)
             if reason:
-                rel = (Path(dirpath) / name).relative_to(vault).as_posix()
-                found.append({"path": redact.mask_secrets(rel), "reason": reason})
+                found.append({"path": _public_path((Path(dirpath) / name).relative_to(vault).as_posix()), "reason": reason})
     return sorted(found, key=lambda item: item["path"])
 
 
@@ -113,7 +143,7 @@ def _plugins(vault):
     if not root.is_dir():
         return []
     with os.scandir(root) as entries:
-        return sorted(e.name for e in entries if e.is_dir(follow_symlinks=False))
+        return sorted(_clean(e.name) for e in entries if e.is_dir(follow_symlinks=False))
 
 
 def _split_frontmatter(text):
@@ -210,14 +240,14 @@ def _link_name(target):
 
 def _parse_note(vault, path):
     text = _read(path)
-    rel = path.relative_to(vault).as_posix()
+    rel = _public_path(path.relative_to(vault).as_posix())  # the real path is only used to open the file (see _real_path)
     fields, body = _split_frontmatter(text)
     mask = redact.mask
     lines = body.splitlines()
     parents = _links([line for line in lines if line.lstrip().startswith(BREADCRUMB)])
     links = _links([line for line in lines if not line.lstrip().startswith(BREADCRUMB)])
     note = {
-        "path": rel, "title": mask(path.stem),
+        "path": rel, "title": mask(_clean(path.stem)),
         "type": mask(fields["type"]) if isinstance(fields.get("type"), str) else None,
         "status": mask(fields["status"]) if isinstance(fields.get("status"), str) else None,
         "source": [mask(s) for s in _as_list(fields.get("source"))],
@@ -227,7 +257,7 @@ def _parse_note(vault, path):
         "parents": [mask(link) for link in parents],
         "aws_ids": _aws_ids(text),
         "kv": {mask(k): mask(v) for k, v in _kv(body).items()},
-        "headings": [mask(f"{m.group(1)} {m.group(2)}") for m in HEADING.finditer(body)],
+        "headings": [mask(f"{m.group(1)} {m.group(2).strip()}") for m in HEADING.finditer(body)],
         "inferred_type": None,
     }
     return note, links + parents, _secrets(text)
@@ -238,22 +268,22 @@ def build_index(vault: Path) -> dict:
     if not vault.is_dir():
         raise ValueError(f"the vault does not exist or is not a directory: {vault}")
     files = _note_files(vault)
-    notes, raw_links, secrets, truncated = [], {}, [], []
+    notes, raw_links, secrets, truncated = [], [], [], []
     for path in files:
         note, links, patterns = _parse_note(vault, path)
         notes.append(note)
         if _is_truncated(path):
             truncated.append(note["path"])
-        raw_links[note["path"]] = links
+        raw_links.append((note["path"], links))
         secrets += [{"path": note["path"], "pattern": p} for p in patterns]
     meta = vault / "_meta"
     typed = (meta / "relations.md").is_file() or (meta / "edges.md").is_file() or (
         bool(notes) and 2 * sum(1 for n in notes if n["type"]) >= len(notes))
     if not typed:
         for note, path in zip(notes, files):
-            note["inferred_type"] = _inferred_type(path.stem)
-    names = {_key(path.stem) for path in files} | {_key(a) for note in notes for a in note["aliases"]}
-    broken = [{"from": rel, "target": redact.mask(target)} for rel, links in raw_links.items() for target in links
+            note["inferred_type"] = _inferred_type(_clean(path.stem))
+    names = {_key(_clean(path.stem)) for path in files} | {_key(a) for note in notes for a in note["aliases"]}
+    broken = [{"from": rel, "target": redact.mask(target)} for rel, links in raw_links for target in links
               if not NON_NOTE_LINK.search(target) and _key(target) not in names]
     return {"kind": "typed" if typed else "free", "root": str(vault), "notes": notes, "broken_links": broken,
             "secrets_detected": secrets, "sensitive_files": _sensitive_files(vault),
@@ -272,9 +302,18 @@ def _key(text):
     return _norm(_link_name(text))
 
 
+def _real_path(root, public):
+    """The file an index path stands for. The index holds masked, valid-UTF-8 paths (see _public_path), so a note whose real name
+    differs is found by comparing the public form of every note path."""
+    path = root / public
+    if path.is_symlink() or path.is_file():
+        return path
+    return next((p for p in _note_files(root.resolve()) if _public_path(p.relative_to(root.resolve()).as_posix()) == public), path)
+
+
 def _body(index, note):
     root = Path(index["root"])
-    path = root / note["path"]
+    path = _real_path(root, note["path"])
     if path.is_symlink() or not path.is_file():
         return ""
     try:
@@ -468,6 +507,17 @@ def _inside(path, folder):
         return False
 
 
+def _write_atomic(output, text):
+    """Encode first, write a temporary file next to the output and rename it: a failure leaves no partial index (and keeps an old one)."""
+    data = text.encode("utf-8")
+    temp = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+    try:
+        temp.write_bytes(data)
+        os.replace(temp, output)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Vault index and feature resolution (read-only)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -493,7 +543,11 @@ def main(argv=None) -> int:
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 2
-        output.write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        try:
+            _write_atomic(output, json.dumps(index, indent=2, ensure_ascii=False) + "\n")
+        except (ValueError, OSError) as exc:  # UnicodeEncodeError is a ValueError
+            print(f"error: could not write the index to {output}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
         kind = "Typed vault" if index["kind"] == "typed" else "Free-form (untyped) vault, the component map is inferred and less reliable"
         print(f"{kind}: {len(index['notes'])} notes, {len(index['broken_links'])} broken links, "
               f"{len(index['secrets_detected'])} secrets detected (masked), "

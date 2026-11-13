@@ -46,7 +46,12 @@ const document = {
 };
 const navigator = { clipboard: { writeText: (text) => { copied.push(text); return Promise.resolve(); } } };
 
-vm.runInNewContext(scripts[1][2], { document, navigator, setTimeout: () => 0, console });
+// optional localStorage seed: DOM_LOCAL_STORAGE='{"key": "value"}' (without it the page sees no storage at all)
+const seed = process.env.DOM_LOCAL_STORAGE;
+const store = seed ? JSON.parse(seed) : {};
+const localStorage = seed ? { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } } : undefined;
+
+vm.runInNewContext(scripts[1][2], { document, navigator, localStorage, setTimeout: () => 0, console });
 
 async function click(button) {
   const before = copied.length;
@@ -70,6 +75,7 @@ async function click(button) {
   console.log(JSON.stringify({ bulk, cards, stale: { hidden: stale.hidden, text: stale.textContent },
                                verdict: { hidden: verdict.hidden, cls: verdict.className, text: verdict.textContent },
                                toolFilter: registry['f-tool'] ? registry['f-tool'].value : null,
+                               statusFilter: registry['f-status'] ? registry['f-status'].value : null, storage: store,
                                summary: registry['summary-body'].textContent, cardsText: registry.cards.textContent,
                                coverage: registry['coverage-body'].textContent, bulkText: registry['bulk-body'].textContent,
                                verification: registry.verification.hidden ? '' : registry['verification-body'].textContent,

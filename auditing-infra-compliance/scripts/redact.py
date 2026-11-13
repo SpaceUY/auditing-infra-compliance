@@ -21,11 +21,23 @@
   is ambiguous (names, key aliases, descriptions) and is masked only when the value is key-like (20+ characters with upper, lower and a
   digit, or 32+ letters and digits). A `Clave | Valor` table is a key-value list and is left alone. Not covered: a bare `- password hunter2` with no
   separator (indistinguishable from prose). Every scan is linear: the value of a label is examined once and the scan resumes after it.
+- more labels: pass / DB_PASS / passphrase (password family), contraseña / password / pwd followed by a connector and up to 3 words
+  (`contraseña de root:`, `password for the db:`), private_key, psk, auth_key (one word values of 8+ characters), clave / clave secreta
+  (one word, 8+ characters, not a plain lowercase word); a bare `pass` or `clave` only with ":" or "=" (never in a table cell) and a
+  bare `pass` never with a number ("pass: 12" is a count). `AWS_SECRET_ACCESS_KEY <value>` / `secret_key <value>` separated by a space
+  (the value must be key-like).
+- token shapes without any label (TOKEN_SHAPES): GitHub ghp_/gho_/ghu_/ghs_/ghr_ and github_pat_, Slack xoxa/b/p/r/s tokens and
+  `hooks.slack.com/services/...` webhooks, Stripe sk_live_ / rk_live_, Google AIza keys, JWTs (three dot-separated segments, the first
+  two starting with eyJ), STS session tokens (FwoGZXIvYXdz..., IQoJb3JpZ2lu...)
+- command lines and headers: `curl -u user:pass` / `--user`, `mysql... -pPASS` (glued), `sshpass -p PASS`, `Authorization: Basic <b64>`;
+  placeholders (`user:password`) and references (`$PASS`) are not credentials
 - PEM private-key blocks (BEGIN ... PRIVATE KEY through END, or to the end of the text when unterminated)
 - emails -> first char + "***@domain", except those listed in keep_emails (e.g. VantaOwner owners)
 
 `mask_secrets` is `mask` without the email rule. `mask` is idempotent. `mask_obj` applies it to every string value and
-every string key of nested dicts/lists/tuples and replaces the value of secret-named keys outright.
+every string key of nested dicts/lists/tuples and replaces the value of secret-named keys outright (strings and whole containers), as
+well as the Value of name/value pairs whose name is secret (Key/Value, Name/Value, OptionName/Value, ParameterKey/ParameterValue,
+Variable/Value).
 `detect` names the secret patterns present in a text (used by vault_index).
 """
 
@@ -54,21 +66,50 @@ CONFIGURE_SET = re.compile(
     rf"(?i)(\bconfigure[ \t]+set[ \t]+(?:[^\s]+[ \t]+){{0,3}}?\w{{0,20}}{_LABEL}\w{{0,40}}[ \t]+)(?!-)[^\s\"',;|`*\\]+")
 # CLI form: --secret-access-key <value> (the "=" form is covered above)
 CLI_FLAG = re.compile(rf"(?i)(--{_LABEL}[ \t]+)(?!-)[^\s\"',;|`*\\]+")
+# `AWS_SECRET_ACCESS_KEY <value>` / `secret_key <value>` separated by a space only: the value must look like a key (as for the bare
+# `Secret` label), otherwise "secret key rotation ..." would match. Scoped flag: the lookaheads of _KEYLIKE are case sensitive.
+SPACE_SECRET = re.compile(rf"(?<![\w-])((?i:(?:aws[_-]?)?secret[_-]?(?:access[_-]?)?key)[ \t]+){_KEYLIKE}")
+
+# Well-known token shapes, masked and detected without any label. Every pattern is linear: a literal prefix, then one character class
+# run (a failed attempt scans less than the minimum length), or a lookbehind that keeps the start of a long run from being retried
+# inside it (JWT segments).
+TOKEN_SHAPES = (
+    ("github_token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}|\bgithub_pat_[A-Za-z0-9_]{50,}")),
+    ("slack_token", re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}")),
+    ("stripe_key", re.compile(r"\b[sr]k_live_[A-Za-z0-9]{16,}")),
+    ("google_api_key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}")),
+    ("jwt", re.compile(r"(?<![\w-])eyJ[\w-]{8,}\.eyJ[\w-]{8,}\.[\w-]{8,}")),
+    ("aws_session_token", re.compile(r"(?<![A-Za-z0-9/+=])(?:FwoGZXIvYXdz|IQoJb3JpZ2lu)[A-Za-z0-9/+=]{80,}")),
+    ("slack_webhook", re.compile(r"(?<=hooks\.slack\.com/services/)[A-Za-z0-9_/-]{8,}")),
+)
 
 # ---- labelled credentials (passwords, api keys, tokens, client secrets). Everything here is line oriented and linear: the label
 # regex has bounded prefix/suffix, values are located with str.find or a single regex match, and the scan resumes after each match.
-_CRED_WORD = r"(?:password|passwd|pwd|contrase[ñn]a|api[_ -]?key|apikey|token|client[_ -]?secret)"
+# Password words may be followed by a connector and up to 3 words before the separator ("contraseña de root:", "password for the db:");
+# the connector keeps prose such as "password in the vault:" out. `pass` and `clave` are weak labels (see _family): the scan only
+# accepts them with a ":" or "=" separator.
+_WORD_TAIL = r"[A-Za-z0-9_-]{0,20}"
+_CRED_WORD = (rf"(?:(?:password|passwd|pwd|passphrase|contrase[ñn]a){_WORD_TAIL}"  # flat alternatives: the regex engine can skip by first letter
+              r"(?:[ \t]+(?:de|del|para|for|of)(?:[ \t]+[A-Za-z0-9_-]{1,20}){1,3})?"
+              rf"|pass{_WORD_TAIL}|api[_ -]?key{_WORD_TAIL}|apikey{_WORD_TAIL}|token{_WORD_TAIL}|client[_ -]?secret{_WORD_TAIL}"
+              rf"|private[_-]?key{_WORD_TAIL}|psk{_WORD_TAIL}|auth[_-]?key{_WORD_TAIL}|clave{_WORD_TAIL}(?:[ \t]+secreta)?)")
 CRED_LABEL = re.compile(
-    rf"(?i)({_CRED_WORD}[A-Za-z0-9_-]{{0,20}})([*`'\"\\ \t]*[:=|][ \t*]*)")
+    rf"(?i)({_CRED_WORD})([*`'\"\\ \t]*[:=|][ \t*]*)")
 _LABEL_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
 CLI_PASSWORD = re.compile(r"(?i)(?<![\w-])(--[A-Za-z0-9-]{0,40}(?:password|passwd|pwd)[A-Za-z0-9-]{0,10})([ \t]+)(?=[^\s-])")
 BEARER = re.compile(r"(?i)(?<![\w-])(bearer[ \t]+)([A-Za-z0-9._~+/=-]{8,})")
 URL_USERINFO = re.compile(r"(?i)(?<![\w+.-])([a-z][a-z0-9+.-]{1,15}://[^\s:/@?#\[\]]{1,64}:)([^\s/@]{1,200})(?=@)")
+_CLI_VALUE = r"""(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"']+))"""
+BASIC_AUTH = re.compile(r"""(?i)(?<![\w-])authorization["']?[ \t]*[:=][ \t]*["']?basic[ \t]+([A-Za-z0-9+/=]{8,})""")
+CURL_USER = re.compile(rf"""(?<![\w-])(?:-u|--user)(?:[ \t]+|=)["']?[^\s:"']{{1,64}}:{_CLI_VALUE}""")
+SSHPASS_P = re.compile(rf"""(?i)(?<![\w-])sshpass[ \t]+-p[ \t]*{_CLI_VALUE}""")
+MYSQL_P = re.compile(r"""(?<=[ \t])-p(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"'-][^\s"']*))""")
+_PATTERN_NAMES = {"clave": "password"}  # pattern name reported by detect() when it differs from the label family
 _OPENING_QUOTE = re.compile(r"""\\*["'`]""")
 _WORD_VALUE = re.compile(r"""[^\s"',;|`*\\]*""")
 _SHELL_WORD = re.compile(r"""[^\s;|&]+""")
 _LABEL_TOKEN = re.compile(r"[A-Z]+(?![^\W\d_A-Z])|[A-Z]?[^\W\d_A-Z]+|\d+")
-PASSWORD_WORDS = frozenset({"password", "passwd", "pwd", "contraseña", "contrasena"})
+PASSWORD_WORDS = frozenset({"password", "passwd", "pwd", "passphrase", "contraseña", "contrasena"})
 # a label with one of these words is a setting, a location or a status, not a secret (password_policy, PasswordFile, ...)
 NOT_SECRET_WORDS = frozenset({
     "policy", "policies", "length", "age", "expiry", "expiration", "expire", "expires", "expired", "complexity", "reuse", "history",
@@ -114,7 +155,8 @@ REFERENCE_VALUE = re.compile(
 # beginnings of the reference values they skip.
 LABEL_FORMS = ("password", "passwd", "pwd", "contraseña", "contrasena", "api_key", "api key", "apikey", "token", "client_secret",
                "client secret", "DBPassword", "MasterUserPassword", "access_token", "x-amz-security-token", "aws_secret_access_key",
-               "SecretAccessKey", "session_token", "secret", "--master-user-password")
+               "SecretAccessKey", "session_token", "secret", "--master-user-password", "DB_PASS", "private_key", "clave secreta",
+               "contraseña de root")
 REFERENCE_PREFIXES = ("/", "$", "${", "{{", "<", "[[", "arn:", "ssm:", "!Ref", "var.", "data.aws_", "module.", "en Secrets Manager",
                       "in Secrets Manager", "stored in", "almacenada en", "se guarda en", "guardada en", "Parameter Store", "Vault",
                       "1Password", "true", "N/A", "-", "(en")
@@ -143,16 +185,24 @@ def _label_tokens(label):
     return [t.lower() for t in _LABEL_TOKEN.findall(label)]
 
 
-def _family(tokens):
-    """password | token | api_key | client_secret for a credential label, None for settings, locations and unrelated labels."""
-    if any(t in PASSWORD_WORDS for t in tokens):
+def _family(tokens, loose=False):
+    """password | token | api_key | client_secret | private_key | psk (| clave when loose) for a credential label, None for settings,
+    locations and unrelated labels. A bare `pass` or `clave` is only a credential label in running text (loose): DB_PASS is one
+    anywhere, but a table cell "pass" is a test result and a key named `clave` is a Spanish word."""
+    if any(t in PASSWORD_WORDS for t in tokens) or (tokens[-1:] == ["pass"] and (loose or len(tokens) > 1)):
         return None if NOT_SECRET_WORDS.intersection(tokens) else "password"
     if tokens[-1:] == ["token"]:
         return "token"
-    if tokens[-1:] == ["apikey"] or tokens[-2:] == ["api", "key"]:
+    if tokens[-1:] in (["apikey"], ["authkey"]) or tokens[-2:] in (["api", "key"], ["auth", "key"]):
         return "api_key"
     if tokens[-2:] == ["client", "secret"]:
         return "client_secret"
+    if tokens[-2:] == ["private", "key"]:
+        return "private_key"
+    if tokens[-1:] == ["psk"]:
+        return "psk"
+    if loose and tokens in (["clave"], ["clave", "secreta"]):
+        return "clave"
     return None
 
 
@@ -233,6 +283,30 @@ def _secret_value(value, family):
     return len(value) >= 8 and not any(c.isspace() for c in value) and not (value.isalpha() and value.islower())
 
 
+def _cli_spans(line):
+    """Credentials given on a command line or in an Authorization header: `curl -u user:pass`, `mysql -u root -pPASS`, `sshpass -p PASS`
+    and `Authorization: Basic <base64>`. The command word only gates the scan (the flag regexes themselves are anchored on the flag), so
+    every pattern is linear; placeholders (`user:password`) and references (`$PASS`, `${DB_PASS}`) are not credentials."""
+    found = []
+    lower = line.lower()
+    sources = []
+    if "authorization" in lower:
+        sources.append((BASIC_AUTH, 0, "basic_auth"))
+    if "sshpass" in lower:
+        sources.append((SSHPASS_P, 0, "password"))
+    if (at := lower.find("curl")) != -1:
+        sources.append((CURL_USER, at, "password"))
+    if (at := lower.find("mysql")) != -1:
+        sources.append((MYSQL_P, at, "password"))
+    for regex, start, name in sources:
+        for match in regex.finditer(line, start):
+            group = next((g for g in range(1, regex.groups + 1) if match.group(g) is not None), None)
+            value = match.group(group) if group else None
+            if value and value.lower() not in URL_PLACEHOLDERS and not _is_reference(value):
+                found.append((match.start(group), match.end(group), name))
+    return found
+
+
 def _scan_line(line, extra=()):
     """[(start, end, pattern)] of the credential values in one line, in order and not overlapping (extra: spans found by the caller)."""
     found = list(extra)
@@ -240,12 +314,14 @@ def _scan_line(line, extra=()):
     position = 0
     while match := CRED_LABEL.search(line, position):
         position = match.end()
-        family = _family(_label_tokens(_full_label(line, match)))
+        tokens = _label_tokens(_full_label(line, match))
+        family = _family(tokens, "|" not in match.group(2))
         span = _value_span(line, match.end(), family, table or "|" in match.group(2)) if family else None
         if span and span[0] < span[1]:
             position = span[1]  # the value is examined once, whatever it is: resuming inside it made long values quadratic
-            if _secret_value(line[span[0]:span[1]], family):
-                found.append((span[0], span[1], family))
+            value = line[span[0]:span[1]]
+            if _secret_value(value, family) and not (tokens == ["pass"] and value.isdigit()):  # "pass: 12" is a count
+                found.append((span[0], span[1], _PATTERN_NAMES.get(family, family)))
     position = 0
     while match := CLI_PASSWORD.search(line, position):
         position = match.end()
@@ -269,6 +345,7 @@ def _scan_line(line, extra=()):
         value = match.group(2)
         if value.lower() not in URL_PLACEHOLDERS and not _is_reference(value):
             found.append((match.start(2), match.end(2), "url_credentials"))
+    found += _cli_spans(line)
     found.sort()
     kept, last = [], 0
     for start, end, name in found:
@@ -337,7 +414,7 @@ _KEYLIKE_CELL = re.compile(_KEYLIKE)
 _LONG_ALNUM = re.compile(r"[A-Za-z0-9]{32,}")
 _SECRET_NAME_PATH = re.compile(rf"/?{_PATH_SEGMENT}(?:/{_PATH_SEGMENT})+/?")
 _STORE_MENTION = re.compile(r"(?i)(?<![\w-])(?:secrets?[ -]?manager|secretsmanager|parameter[ -]store|vault|1password)(?![\w-])")
-_AMBIGUOUS_COLUMNS = ("clave", "secret", "token", "api_key", "client_secret")
+_AMBIGUOUS_COLUMNS = ("clave", "secret", "token", "api_key", "client_secret", "private_key", "psk")
 
 
 def _is_key_like(value):
@@ -369,7 +446,7 @@ def _column_spans(line, columns):
         if start == end or _is_label_cell(value) or _is_cell_reference(value):
             continue
         if kind == "password" or (kind in _AMBIGUOUS_COLUMNS and _is_key_like(value)):
-            found.append((start, end, kind if kind in ("token", "api_key", "client_secret") else "password"))
+            found.append((start, end, kind if kind in ("token", "api_key", "client_secret", "private_key", "psk") else "password"))
     return found
 
 
@@ -414,11 +491,15 @@ SECRET_KEYS = frozenset({"secretaccesskey", "aws_secret_access_key", "secret_acc
 
 
 def mask_secrets(text: str) -> str:
-    """Access keys and secret/session-token assignments only (for identifiers that may legitimately hold emails)."""
+    """Credentials without the email rule (for identifiers that may legitimately hold emails): access keys, secret/session-token
+    assignments, well-known token shapes (TOKEN_SHAPES), labelled passwords and CLI credentials, PEM private keys."""
     text = PRIVATE_KEY.sub(REDACTED, text)
     text = ACCESS_KEY.sub(lambda m: m.group(0)[:4] + "…" + m.group(0)[-4:], text)
     text = SECRET_ASSIGNMENT.sub(lambda m: m.group(1) + m.group(2) + REDACTED, text)
     text = BARE_SECRET.sub(lambda m: m.group(1) + m.group(2) + REDACTED, text)
+    text = SPACE_SECRET.sub(lambda m: m.group(1) + REDACTED, text)
+    for _, shape in TOKEN_SHAPES:
+        text = shape.sub(REDACTED, text)
     text = _mask_credentials(text)
     text = CONFIGURE_SET.sub(lambda m: m.group(1) + REDACTED, text)
     return CLI_FLAG.sub(lambda m: m.group(1) + REDACTED, text)
@@ -426,20 +507,23 @@ def mask_secrets(text: str) -> str:
 
 def detect(text: str) -> list[str]:
     """Names of the secret patterns present in text (never the values): aws_access_key_id, aws_secret_access_key,
-    aws_session_token, password, api_key, token, client_secret, bearer_token, url_credentials, private_key."""
+    aws_session_token, password, api_key, token, client_secret, private_key, psk, bearer_token, basic_auth, url_credentials, and the
+    token shapes github_token, slack_token, stripe_key, google_api_key, jwt, slack_webhook."""
     found = []
     if ACCESS_KEY.search(text):
         found.append("aws_access_key_id")
-    labelled = (*SECRET_ASSIGNMENT.finditer(text), *CONFIGURE_SET.finditer(text), *CLI_FLAG.finditer(text), *BARE_SECRET.finditer(text))
+    labelled = (*SECRET_ASSIGNMENT.finditer(text), *CONFIGURE_SET.finditer(text), *CLI_FLAG.finditer(text), *BARE_SECRET.finditer(text),
+                *SPACE_SECRET.finditer(text))
     for match in labelled:
         name = "aws_session_token" if "session" in match.group(1).lower() else "aws_secret_access_key"
         if name not in found:
             found.append(name)
+    found += [name for name, shape in TOKEN_SHAPES if name not in found and shape.search(text)]
     for _, _, spans in _scan(text):
         found += [name for _, _, name in spans if name not in found]
     if PRIVATE_KEY.search(text):
         found.append("private_key")
-    return found
+    return list(dict.fromkeys(found))
 
 
 def mask(text: str, *, keep_emails: frozenset[str] = frozenset()) -> str:
@@ -467,10 +551,17 @@ def _unique(key, taken):
     return f"{key}#{number}"
 
 
+_NAME_KEYS = ("key", "name", "optionname", "parametername", "parameterkey", "variable")
+_VALUE_KEYS = ("value", "parametervalue")
+
+
 def _tag_value_is_secret(obj):
-    """`{"Key": "DBPassword", "Value": "..."}` tag pairs (AWS CLI output) hold the secret in a sibling of the label."""
+    """`{"Key": "DBPassword", "Value": "..."}` pairs hold the secret in a sibling of the label. AWS CLI output names them Key/Value
+    (tags), Name/Value (ECS environment, SSM), OptionName/Value (Beanstalk), ParameterKey/ParameterValue (CloudFormation)."""
     keys = {k.lower(): k for k in obj if isinstance(k, str)}
-    return "key" in keys and "value" in keys and _secret_key(obj[keys["key"]]) and isinstance(obj[keys["value"]], str), keys.get("value")
+    value_key = next((keys[v] for v in _VALUE_KEYS if v in keys and isinstance(obj[keys[v]], (str, dict, list, tuple))), None)
+    named = any(n in keys and _secret_key(obj[keys[n]]) for n in _NAME_KEYS)
+    return named and value_key is not None, value_key
 
 
 def mask_obj(obj, **kw):
@@ -480,7 +571,7 @@ def mask_obj(obj, **kw):
         tag_secret, value_key = _tag_value_is_secret(obj)
         out = {}
         for k, v in obj.items():
-            redact_value = isinstance(v, str) and (_secret_key(k) or (tag_secret and k == value_key))
+            redact_value = isinstance(v, (str, dict, list, tuple)) and (_secret_key(k) or (tag_secret and k == value_key))
             out[_unique(mask(k, **kw) if isinstance(k, str) else k, out)] = REDACTED if redact_value else mask_obj(v, **kw)
         return out
     if isinstance(obj, (list, tuple)):

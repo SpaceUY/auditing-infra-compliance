@@ -192,8 +192,8 @@ class EmailCatalogTests(unittest.TestCase):
 
     def test_evaluators_severities_and_remediation_follow_the_brief(self):
         expected = {"EML-001": ("jmespath", "medium", "cli_with_decision"), "EML-002": ("python:ses_default_config_tls", "medium", "cli_with_decision"),
-                    "EML-003": ("python:ses_default_config_events", "medium", "cli_with_decision"), "EML-004": ("dns", "medium", "cli_with_decision"),
-                    "EML-005": ("dns", "high", "cli_with_decision"), "EML-006": ("python:ses_account_sending", "low", "console_only")}
+                    "EML-003": ("python:ses_default_config_events", "medium", "cli_with_decision"), "EML-004": ("dns", "medium", "console_only"),
+                    "EML-005": ("dns", "high", "console_only"), "EML-006": ("python:ses_account_sending", "low", "console_only")}
         self.assertEqual({c["id"]: (c["verify"]["evaluator"], c["severity"], c["remediation"]["kind"]) for c in self.checks}, expected)
 
     def test_every_check_is_per_ses_identity(self):

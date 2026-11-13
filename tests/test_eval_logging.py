@@ -694,7 +694,7 @@ class LoggingCatalogTests(unittest.TestCase):
                     "LOG-004": "cli_with_decision", "LOG-005": "cli_with_decision", "LOG-006": "cli_with_decision",
                     "LOG-007": "planned_change", "LOG-008": "cli_with_decision", "LOG-009": "cli_with_decision",
                     "LOG-010": "cli_with_decision", "LOG-011": "cli_with_decision", "LOG-012": "cli_with_decision",
-                    "LOG-013": "cli"}
+                    "LOG-013": "cli_with_decision"}
         self.assertEqual({c["id"]: c["remediation"]["kind"] for c in self.checks}, expected)
 
 

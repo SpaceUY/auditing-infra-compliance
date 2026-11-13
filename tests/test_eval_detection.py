@@ -129,9 +129,17 @@ class GuardDutyS3ProtectionTests(unittest.TestCase):
         responses = with_inventory(guardduty((REGION, "guardduty-list-detectors-one", "guardduty-get-detector-legacy-s3-off")), self.BUCKET)
         self.assertEqual([o["region"] for o in evaluate("guardduty_s3_protection", responses)], [REGION])
 
-    def test_no_buckets_passes_like_drata(self):
+    def test_no_buckets_is_not_applicable_never_a_vacuous_pass(self):
         responses = with_inventory(guardduty((REGION, "guardduty-list-detectors-one", "guardduty-get-detector-s3-off")))
-        self.assertEqual(evaluate("guardduty_s3_protection", responses), [])
+        (entry,) = evaluate("guardduty_s3_protection", responses)
+        self.assertEqual((entry["resource_id"], entry["region"], entry["not_applicable"]), ("account", REGION, True))
+        self.assertEqual(entry["detail"], {"reason": "no S3 buckets in scope"})
+        self.assertNotIn("unverified", entry)
+
+    def test_no_buckets_is_not_applicable_even_without_any_detector(self):
+        responses = with_inventory(guardduty((REGION, "guardduty-list-detectors-none", None)))
+        (entry,) = evaluate("guardduty_s3_protection", responses)
+        self.assertTrue(entry["not_applicable"])
 
     def test_without_any_enabled_detector_the_account_has_no_s3_protection(self):
         responses = with_inventory(guardduty((REGION, "guardduty-list-detectors-none", None)), self.BUCKET)
@@ -446,8 +454,8 @@ class DetectionCatalogTests(unittest.TestCase):
         self.assertEqual({c["id"]: c["severity"] for c in self.checks}, expected)
 
     def test_remediation_kinds_follow_the_brief(self):
-        expected = {"DET-001": "cli", "DET-002": "cli", "DET-003": "cli_with_decision", "DET-004": "cli",
-                    "DET-005": "cli_with_decision", "DET-006": "cli", "DET-007": "planned_change"}
+        expected = {"DET-001": "cli_with_decision", "DET-002": "cli_with_decision", "DET-003": "cli_with_decision", "DET-004": "cli_with_decision",
+                    "DET-005": "cli_with_decision", "DET-006": "cli_with_decision", "DET-007": "planned_change"}
         self.assertEqual({c["id"]: c["remediation"]["kind"] for c in self.checks}, expected)
 
 
@@ -597,3 +605,18 @@ class DetectionInventoryErrorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DetectionWithoutBucketsTests(DetectionCollectTests):
+    """DET-002 with no S3 bucket in the account: not applicable, never a vacuous PASS."""
+
+    @staticmethod
+    def rules():
+        return [("s3api", "list-buckets", None, "", ok({"Buckets": []})) if rule[:2] == ("s3api", "list-buckets") else rule
+                for rule in DetectionCollectTests.rules()]
+
+    def test_guardduty_s3_protection_and_events(self):
+        (row,) = [r for r in self.result["results"] if r["check_id"] == "DET-002"]
+        self.assertEqual((row["status"], row["resource_id"], row["region"]), ("N/A", "account", None))
+        self.assertTrue(row.get("vacuous"))
+        self.assertEqual(self.rows("DET-003"), [("FAIL", "account", REGION)])

@@ -78,6 +78,7 @@ ALL_REGIONS = "*"
 SG_CHECKS = frozenset({"NET-001", "NET-002", "NET-003", "NET-004"})  # their FAIL rows list the attached instances
 SSM_CHECK = "CMP-006"  # evidence the conflict rule CR-003 reads for those instances
 _REGION_NAME = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d+$")
+_PROFILE_NAME = re.compile(r"(?!-)[\w.@+=,-]{1,128}")
 SCP_REASON = "blocked by SCP"
 _SCP = re.compile(r"service control polic", re.IGNORECASE)
 CHECKPOINT_SECONDS = 15
@@ -177,10 +178,14 @@ def _row(check, status, resource_id, region, detail=None, missing=None, vacuous=
 # ---------------------------------------------------------------- inventory
 
 def _inventory_warnings(ctx, errors):
+    """Records every inventory gap in ctx.inventory_errors and returns the "incomplete inventory" warnings. In feature/resource mode
+    only the gaps that touch the scoped resources are warned about (_gap_in_scope): the warning marks the run incomplete, and a type
+    or region outside the scope shows up in no row, so the reason would not be actionable. ctx.scope_entries must already be set."""
     grouped = {}
     for type_, region, kind in errors:
         ctx.inventory_errors.setdefault(type_, set()).add((region, kind))
-        grouped.setdefault((type_, kind), []).append(region)
+        if _gap_in_scope(ctx, type_, region):
+            grouped.setdefault((type_, kind), []).append(region)
     return [f"incomplete inventory: {t} {k} in {', '.join(sorted(rs))}" for (t, k), rs in sorted(grouped.items())]
 
 
@@ -233,13 +238,17 @@ def _scope_problem(scope, checks):
         return "scope.domains must be null or a list of domain names"
     if unknown := [d for d in domains or [] if d not in known]:
         return f"scope.domains has unknown domains: {_oneline(', '.join(unknown), 80)} (valid: {', '.join(known)})"
+    profile = scope.get("profile")
+    if profile is not None and not (isinstance(profile, str) and _PROFILE_NAME.fullmatch(profile)):
+        return ("scope.profile must be null or an AWS profile name (letters, digits and . _ @ + = , -; up to 128 characters, "
+                f"not starting with -); received {_oneline(json.dumps(profile, ensure_ascii=False), 40)}")
     if scope["mode"] != "full" and (problem := _resource_problem(scope.get("resources"))):
         return problem
     return None
 
 
 def _scope_failure(message):
-    print(redact.mask(f"{message}. Fix scope.json and retry."))
+    print(redact.mask(f"error: {message}. Fix scope.json and retry."))
     return 2
 
 
@@ -561,11 +570,14 @@ def _evaluated_rows(ctx, check):
     unverified = [o for o in offenders if o.get("unverified")]
     # R20: not applicable resources get no FAIL and no PASS row; unverified ones get no PASS either
     skipped = {(o["resource_id"], o["region"]) for o in offenders if o.get("not_applicable") or o.get("unverified")}
+    not_applicable = [o for o in offenders if o.get("not_applicable")]
     offenders = [o for o in offenders if not o.get("not_applicable") and not o.get("unverified")]
     rows += [_row(check, "NOT_VERIFIED", o["resource_id"], o["region"], o["detail"],
                   missing=list(check["verify"]["needs"]) if o["detail"].get("error_code") == "ACCESS_DENIED" else [])
              for o in unverified]
     rows += [_row(check, "FAIL", o["resource_id"], o["region"], o["detail"]) for o in offenders]
+    if not is_resource and not rows and not_applicable:  # an account check the evaluator says does not apply: never a vacuous PASS
+        return [_row(check, "N/A", "account", None, not_applicable[0]["detail"] or {"reason": "not applicable"}, vacuous=True)]
     rows += _pass_rows(check, items, offenders, skipped, {f["region"] for f in failures}, bool(rows))
     if is_resource and not rows:  # R23: every in-scope item was not applicable
         return [_row(check, "N/A", "account", None, {"reason": "no resource applies"}, vacuous=True)]
@@ -777,7 +789,11 @@ def _run_checks(ctx, args, selected, collect_rows):
 def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which) -> int:
     args = build_parser().parse_args(argv)
 
-    scope = json.loads(Path(args.scope).read_text(encoding="utf-8"))
+    try:
+        scope = json.loads(Path(args.scope).read_text(encoding="utf-8-sig"))  # utf-8-sig: an editor's BOM is not an error
+    except (OSError, ValueError) as exc:  # JSONDecodeError and UnicodeDecodeError are ValueErrors
+        reason = exc.strerror if isinstance(exc, OSError) and exc.strerror else f"{type(exc).__name__}: {exc}"
+        return _scope_failure(f"scope.json could not be read ({_oneline(reason, 120)}): {_oneline(args.scope, 120)}")
     checks = catalog.load_checks(Path(args.checks_dir))
     if problem := _scope_problem(scope, checks):  # before any AWS call: a malformed scope is an error
         return _scope_failure(problem)
@@ -840,6 +856,9 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     errors = [e for e in errors if e[1] not in ctx.blocked_regions]
     inventory_regions = [r for r in inventory_regions if r not in ctx.blocked_regions]
     ctx.enabled_regions = [r for r in enabled if r not in ctx.blocked_regions]
+    if scope["mode"] != "full":  # before the inventory warnings: they are filtered by the scope
+        ctx.scope_resources = [r for r in scope.get("resources") or [] if isinstance(r, dict)]
+        ctx.scope_entries = [(r["type"], r["id"]) for r in ctx.scope_resources]
     warnings += _inventory_warnings(ctx, errors)
     if not known and wanted == "auto":  # only us-east-1 was listed: the regional types are unknown everywhere else
         ctx.regions_guessed = True
@@ -853,8 +872,6 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     _dump(out / "inventory.json", _masked_inventory(ctx.inventory))
     _progress(args, f"[inventory] {len(ctx.inventory)} resources")
     if scope["mode"] != "full":
-        ctx.scope_resources = [r for r in scope.get("resources") or [] if isinstance(r, dict)]
-        ctx.scope_entries = [(r["type"], r["id"]) for r in ctx.scope_resources]
         warnings += [f"scope resource with no match in the inventory: {t} {ref}" for t, ref in ctx.scope_entries
                      if not any(_matches(i, t, ref) for i in ctx.inventory)]
 

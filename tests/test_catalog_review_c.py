@@ -466,7 +466,7 @@ class KindsFollowTheGuidelinesTests(unittest.TestCase):
     def test_fixes_that_had_alternative_blocks_are_one_conditional_block_or_not_cli(self):
         for check_id in ("DAT-004", "DET-001", "DET-004"):
             rem = CHECKS[check_id]["remediation"]
-            self.assertEqual(rem["kind"], "cli", check_id)
+            self.assertIn(rem["kind"], ("cli", "cli_with_decision"), check_id)
             self.assertEqual(len(rem["commands"]), 1, check_id)
         for check_id in ("DAT-001", "EML-002"):
             self.assertNotEqual(CHECKS[check_id]["remediation"]["kind"], "cli", check_id)
@@ -726,6 +726,205 @@ class MergedBlocksStopOnReadErrorTests(unittest.TestCase):
         self.assertEqual(aws_calls(calls, "guardduty create-"), [])
         (call,) = aws_calls(calls, "guardduty update-detector")
         self.assertIn("--detector-id 12abc34d567e8fa901bc2d34e56789f0", call)
+
+
+SPANISH_WORDS = re.compile(r"(?i)\b(diario|eventos|cifrado|obligatorio|privadas|completar|nube)\b|[áéíóúñ¿¡]")
+
+
+def fill(text, **values):
+    """Replace the __FILL_IN_*__ value of each named shell variable (NAME="__FILL_IN_X__") with the given value."""
+    for name, value in values.items():
+        text = re.sub(rf'{name}="__FILL_IN_[A-Za-z0-9_-]+__"', f'{name}="{value}"', text)
+    return text
+
+
+class Review3CatalogFixTests(unittest.TestCase):
+    """Review 3 C: kinds, ordering rules, placeholders and English-only commands."""
+
+    def test_eml_004_and_005_are_console_only_with_no_commands(self):
+        for check_id in ("EML-004", "EML-005"):
+            rem = CHECKS[check_id]["remediation"]
+            self.assertEqual(rem["kind"], "console_only", check_id)
+            self.assertEqual(rem["commands"], [], check_id)
+            self.assertTrue(rem["steps"] and rem["verify_after"], check_id)
+
+    def test_no_command_carries_spanish_names_or_messages(self):
+        for check_id, check in CHECKS.items():
+            for command in check["remediation"]["commands"]:
+                self.assertNotRegex(command, SPANISH_WORDS, check_id)
+
+    def test_net_005_lists_deny_rules_and_the_free_numbers_must_sit_above_every_lower_deny(self):
+        rem = CHECKS["NET-005"]["remediation"]
+        listing = rem["commands"][0]
+        self.assertIn("sort_by(", listing)
+        self.assertIn("&RuleNumber", listing)
+        self.assertIn("RuleAction", listing)
+        self.assertNotIn("RuleAction==`allow`", listing)
+        text = "\n".join(rem["steps"] + [rem["notes"], rem["commands"][1], rem["commands"][2]])
+        self.assertNotRegex(text, r"lower than (any|those of any) deny")
+        self.assertRegex(text, r"higher than the highest deny rule that is lower than RULE_NUMBER")
+        self.assertRegex(text, r"no deny rule may sit between a new number and RULE_NUMBER")
+
+    def test_enc_003_stops_writes_before_the_snapshot_and_keeps_parameter_and_option_groups(self):
+        rem = CHECKS["ENC-003"]["remediation"]
+        steps = rem["steps"]
+        stop = next(i for i, s in enumerate(steps) if "STOP APPLICATION WRITES" in s)
+        snapshot = next(i for i, s in enumerate(steps) if s.startswith("Create a snapshot"))
+        self.assertLess(stop, snapshot)
+        instance_block, cluster_block = rem["commands"]
+        self.assertRegex(instance_block, r"restore-db-instance-from-db-snapshot [^\n]*--db-parameter-group-name \"\$PARAM_GROUP\"[^\n]*--option-group-name \"\$OPTION_GROUP\"")
+        self.assertRegex(cluster_block, r"restore-db-cluster-from-snapshot [^\n]*--db-cluster-parameter-group-name \"\$CLUSTER_PARAM_GROUP\"")
+        self.assertRegex(cluster_block, r"create-db-instance [^\n]*--db-parameter-group-name \"\$PARAM_GROUP\"")
+        self.assertIn("AURORA ONLY", cluster_block)
+        multi_az = next(s for s in steps if s.startswith("Multi-AZ DB cluster"))
+        self.assertIn("restore-db-cluster-from-snapshot", multi_az)
+        self.assertIn("--db-cluster-instance-class", multi_az)
+        self.assertIn("option group", rem["notes"])
+        self.assertIn("STOP", rem["notes"].upper())
+
+    def test_costly_or_restarting_fixes_are_cli_with_decision_and_name_the_decision(self):
+        for check_id in ("CMP-001", "DAT-003", "LOG-013", "DET-006", "DET-001", "DET-002"):
+            rem = CHECKS[check_id]["remediation"]
+            self.assertEqual(rem["kind"], "cli_with_decision", check_id)
+            self.assertIn("Decision", rem["notes"], check_id)
+
+    def test_cmp_001_checks_the_metric_first_and_has_a_separate_hop_limit_block(self):
+        first, apply_block, hop = commands("CMP-001")
+        self.assertIn("MetadataNoToken", first)
+        self.assertNotIn("modify-instance-metadata-options", first)
+        self.assertNotIn("hop-limit", apply_block)
+        self.assertIn("--http-put-response-hop-limit 2", hop)
+
+    def test_cmp_004_scheme_and_target_port_are_placeholders(self):
+        block = commands("CMP-004")[0]
+        self.assertIn('SCHEME="__FILL_IN_internet-facing_OR_internal__"', block)
+        self.assertIn('--scheme "$SCHEME"', block)
+        self.assertIn('--port "$TARGET_PORT"', block)
+        self.assertNotIn("--port 80", block)
+
+    @unittest.skipUnless(HAS_BASH, "bash is not available")
+    def test_cmp_005_launch_template_carries_security_group_profile_and_capacity_placeholders(self):
+        block = commands("CMP-005")[0]
+        for name in ("SG_ID", "INSTANCE_PROFILE", "MIN_SIZE", "MAX_SIZE", "DESIRED_SIZE"):
+            self.assertRegex(block, rf'{name}="__FILL_IN_')
+        stub = 'case "$2" in create-image) echo ami-1;; esac'
+        for profile, expected in (("web-profile", {"Name": "web-profile"}), ("", None)):
+            text = fill(instantiate(block), SG_ID="sg-1", INSTANCE_PROFILE=profile, MIN_SIZE="1", MAX_SIZE="3", DESIRED_SIZE="2",
+                        SUBNETS="subnet-a,subnet-b", ASG_NAME="web", INSTANCE_TYPE="t3.micro")
+            _, calls, _ = run_blocks([text], stub)
+            (template,) = aws_calls(calls, "ec2 create-launch-template")
+            data = json.loads(re.search(r"--launch-template-data (\{.*\}) --region", template).group(1))
+            self.assertEqual(data["SecurityGroupIds"], ["sg-1"])
+            self.assertEqual(data.get("IamInstanceProfile"), expected)
+            (group,) = aws_calls(calls, "autoscaling create-auto-scaling-group")
+            self.assertIn("--min-size 1 --max-size 3 --desired-capacity 2", group)
+
+    @unittest.skipUnless(HAS_BASH, "bash is not available")
+    def test_enc_004_copies_performance_and_throughput_mode(self):
+        block = commands("ENC-004")[0]
+        self.assertNotIn("generalPurpose", block)
+        stub = 'case "$*" in *ProvisionedThroughputInMibps*) echo 128;; *PerformanceMode*) echo maxIO;; *ThroughputMode*) echo provisioned;; esac'
+        text = fill(instantiate(block), KMS_KEY_ID="alias/aws/elasticfilesystem", FS_NAME="data")
+        _, calls, _ = run_blocks([text], stub)
+        (create,) = aws_calls(calls, "efs create-file-system")
+        self.assertIn("--performance-mode maxIO", create)
+        self.assertIn("--throughput-mode provisioned --provisioned-throughput-in-mibps 128", create)
+        self.assertIn("--encrypted", create)
+        outcomes, calls, _ = run_blocks([text], "return 254")
+        self.assertIn("STOPPED", outcomes[0][1])
+        self.assertEqual(aws_calls(calls, "efs create-file-system"), [])
+
+    @unittest.skipUnless(HAS_BASH, "bash is not available")
+    def test_tls_004_copies_the_current_group_and_the_reboot_handles_clusters(self):
+        first, second, reboot = commands("TLS-004")
+        self.assertIn("copy-db-parameter-group", first)
+        self.assertNotIn("create-db-parameter-group", first)
+        self.assertIn("copy-db-cluster-parameter-group", second)
+        self.assertIn("--apply-immediately", CHECKS["TLS-004"]["remediation"]["notes"])
+        _, calls, _ = run_blocks([instantiate(reboot)], 'case "$2" in describe-db-instances) return 254;; describe-db-clusters) echo "m-1 m-2";; esac')
+        rebooted = aws_calls(calls, "rds reboot-db-instance")
+        self.assertEqual([c.split("--db-instance-identifier ")[1].split()[0] for c in rebooted], ["m-1", "m-2"])
+        _, calls, _ = run_blocks([instantiate(reboot)], 'case "$2" in describe-db-instances) echo ok;; esac')
+        self.assertEqual(len(aws_calls(calls, "rds reboot-db-instance")), 1)
+        self.assertEqual(aws_calls(calls, "describe-db-clusters"), [])
+
+    @unittest.skipUnless(HAS_BASH, "bash is not available")
+    def test_log_006_recognizes_the_aws_generated_sids(self):
+        merge = fill(instantiate(commands("LOG-006")[2]), TRAIL_ARN="arn:aws:cloudtrail:us-east-1:111122223333:trail/t", TRAIL_PREFIX="")
+        existing = {"Version": "2012-10-17", "Statement": [
+            {"Sid": "AWSCloudTrailAclCheck20150319", "Effect": "Allow", "Principal": {"Service": "cloudtrail.amazonaws.com"},
+             "Action": "s3:GetBucketAcl", "Resource": "arn:aws:s3:::res-1"},
+            {"Sid": "AWSCloudTrailWrite20150319", "Effect": "Allow", "Principal": {"Service": "cloudtrail.amazonaws.com"},
+             "Action": "s3:PutObject", "Resource": "arn:aws:s3:::res-1/AWSLogs/111122223333/*",
+             "Condition": {"StringEquals": {"s3:x-amz-acl": "bucket-owner-full-control"}}}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "policy-res-1.json").write_text(json.dumps(existing), encoding="utf-8")
+            done = subprocess.run(["bash", "-c", merge], cwd=tmp, capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            merged = json.loads((Path(tmp) / "policy-res-1-new.json").read_text(encoding="utf-8"))
+        self.assertEqual([s["Sid"] for s in merged["Statement"]], ["AWSCloudTrailAclCheck20150319", "AWSCloudTrailWrite20150319"])
+        for statement in merged["Statement"]:
+            self.assertEqual(statement["Condition"]["StringEquals"]["aws:SourceArn"], "arn:aws:cloudtrail:us-east-1:111122223333:trail/t")
+
+    def test_enc_002_has_no_drata_mapping_because_218_only_tests_the_default_setting(self):
+        mappings = CHECKS["ENC-002"]["mappings"]
+        self.assertEqual(mappings["drata"], [])
+        self.assertTrue(mappings["tsc_inferred"] and mappings["iso_inferred"])
+
+    def test_iam_014_says_user_or_role_not_group_and_explains_the_mfa_condition(self):
+        rem = CHECKS["IAM-014"]["remediation"]
+        self.assertIn("NOT a group", rem["steps"][0])
+        self.assertIn("never a group", rem["notes"])
+        self.assertIn("MultiFactorAuthPresent", rem["notes"])
+
+    @unittest.skipUnless(HAS_BASH, "bash is not available")
+    def test_inv_004_only_tags_the_keys_that_were_filled_in(self):
+        block = fill(instantiate(commands("INV-004")[0]), OWNER="platform-team")
+        _, calls, _ = run_blocks([block], "true")
+        (call,) = aws_calls(calls, "resourcegroupstaggingapi tag-resources")
+        self.assertIn("--tags Owner=platform-team", call)
+        self.assertNotIn("Project=", call)
+
+    @unittest.skipUnless(HAS_BASH, "bash is not available")
+    def test_dat_010_retention_is_a_placeholder_and_the_merge_keeps_rules_and_drops_rule_ids(self):
+        create = commands("DAT-010")[0]
+        self.assertIn('RETENTION_DAYS="__FILL_IN_RETENTION_DAYS__"', create)
+        self.assertNotIn('DeleteAfterDays\\":35', create)
+        plan = {"BackupPlanName": "p", "Rules": [{"RuleName": "weekly", "RuleId": "abc", "TargetBackupVaultName": "v",
+                                                  "ScheduleExpression": "cron(0 5 ? * 1 *)"}]}
+        stub = 'case "$2" in list-backup-plans) echo plan-id-1;; get-backup-plan) echo \'' + json.dumps(plan) + "';; esac"
+        read, merge, apply_block = (fill(instantiate(b), PLAN_NAME="p", VAULT_NAME="vault-1", RETENTION_DAYS="35", PLAN_ID="plan-id-1")
+                                    for b in commands("DAT-010")[1:])
+        outcomes, calls, files = run_blocks([read, merge, apply_block], stub)
+        self.assertEqual([o[0] for o in outcomes], [0, 0, 0], outcomes)
+        self.assertNotIn("RuleId", json.loads(files["backup-plan-p.json"])["Rules"][0])
+        merged = json.loads(files["backup-plan-p-new.json"])
+        self.assertEqual([r["RuleName"] for r in merged["Rules"]], ["weekly", "daily"])
+        self.assertEqual(merged["Rules"][1]["Lifecycle"], {"DeleteAfterDays": 35})
+        self.assertEqual(merged["BackupPlanName"], "p")
+        (update,) = aws_calls(calls, "backup update-backup-plan")
+        self.assertIn("--backup-plan file://backup-plan-p-new.json", update)
+
+    @unittest.skipUnless(HAS_BASH, "bash is not available")
+    def test_log_007_only_sets_the_retention_when_the_group_was_just_created(self):
+        block = fill(instantiate(commands("LOG-007")[1]), TRAIL_NAME="t", LOG_GROUP="g", CWL_ROLE_ARN="arn:aws:iam::1:role/r")
+        _, calls, _ = run_blocks([block], 'case "$2" in create-log-group) return 254;; esac')
+        self.assertEqual(aws_calls(calls, "logs put-retention-policy"), [])
+        self.assertEqual(len(aws_calls(calls, "cloudtrail update-trail")), 1)
+        _, calls, _ = run_blocks([block], "true")
+        self.assertEqual(len(aws_calls(calls, "logs put-retention-policy")), 1)
+
+    def test_log_011_and_012_verify_with_the_resolved_arn(self):
+        for check_id in ("LOG-011", "LOG-012"):
+            verify = CHECKS[check_id]["remediation"]["verify_after"]
+            self.assertIn("{resource_arn}", verify, check_id)
+            self.assertNotIn("__FILL_IN_", verify, check_id)
+
+    def test_log_group_arn_loses_the_trailing_wildcard(self):
+        arn = "arn:aws:logs:us-east-1:111122223333:log-group:/aws/lambda/fn"
+        raw = {"logGroupName": "/aws/lambda/fn", "arn": arn + ":*"}
+        self.assertEqual(inventory._to_item("log_group", INVENTORY["log_group"], raw, "us-east-1", "111122223333")["arn"], arn)
+        self.assertEqual(inventory._to_item("log_group", INVENTORY["log_group"], {**raw, "arn": arn}, "us-east-1")["arn"], arn)
 
 
 if __name__ == "__main__":

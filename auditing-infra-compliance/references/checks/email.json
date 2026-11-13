@@ -267,7 +267,7 @@
           "Verify the destination and subscribe a team mailbox to the topic."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__FILL_IN_CONFIGURATION_SET__\"\nTOPIC_ARN=\"__FILL_IN_SNS_TOPIC_ARN__\"\naws sesv2 create-configuration-set-event-destination --configuration-set-name \"$CONFIG_SET\" --event-destination-name eventos-sns --event-destination '{\"Enabled\":true,\"MatchingEventTypes\":[\"BOUNCE\",\"COMPLAINT\"],\"SnsDestination\":{\"TopicArn\":\"'\"$TOPIC_ARN\"'\"}}' --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__FILL_IN_CONFIGURATION_SET__\"\nTOPIC_ARN=\"__FILL_IN_SNS_TOPIC_ARN__\"\naws sesv2 create-configuration-set-event-destination --configuration-set-name \"$CONFIG_SET\" --event-destination-name events-sns --event-destination '{\"Enabled\":true,\"MatchingEventTypes\":[\"BOUNCE\",\"COMPLAINT\"],\"SnsDestination\":{\"TopicArn\":\"'\"$TOPIC_ARN\"'\"}}' --region \"$REGION\""
         ],
         "verify_after": "aws sesv2 get-configuration-set-event-destinations --configuration-set-name \"__FILL_IN_CONFIGURATION_SET__\" --region \"{region}\" --query 'EventDestinations[].[Name,Enabled,MatchingEventTypes]'",
         "notes": "No downtime. Replace __FILL_IN_CONFIGURATION_SET__ with the identity's default configuration set (aws sesv2 get-email-identity shows the name; if it has none, see EML-002) and __FILL_IN_SNS_TOPIC_ARN__ with a topic in the same region. The topic needs a policy that lets ses.amazonaws.com publish; otherwise the events do not arrive. A set that already has an event destination with the same name fails on creation: choose another name. Add confirmed subscriptions to the topic so that someone receives the notices (see MON-007 for alarms)."
@@ -325,7 +325,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli_with_decision",
+        "kind": "console_only",
         "risk": "low",
         "downtime": false,
         "steps": [
@@ -391,7 +391,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli_with_decision",
+        "kind": "console_only",
         "risk": "medium",
         "downtime": false,
         "steps": [

@@ -245,7 +245,6 @@ const I18N = {
 
 const STATUSES = ['FAIL', 'DRIFT', 'UNDOCUMENTED', 'DOCUMENTED_GAP', 'NOT_VERIFIED', 'DOCUMENTED_ONLY', 'PASS', 'N/A'];
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
-const STORE_KEY = 'iac-report-filters-v1';
 const PLACEHOLDER = /(__FILL_IN_[A-Z0-9_]+__)/;
 
 let DATA;
@@ -255,6 +254,8 @@ try {
   DATA = { meta: {}, findings: [] };
 }
 const META = DATA.meta || {};
+// filters are remembered per report: a filter saved for another report must not narrow this one
+const STORE_KEY = 'iac-report-filters-v2:' + [META.generated_at, META.platform, META.mode, META.target, (META.aws || {}).account_id].map(String).join('|');
 const FINDINGS = Array.isArray(DATA.findings) ? DATA.findings : [];
 const VERIF = DATA.verification && typeof DATA.verification === 'object' ? DATA.verification : null;
 const VERIF_STATES = ['OK', 'REVIEW', 'CONFLICT'];
@@ -382,9 +383,13 @@ function renderVerdict() {
   box.appendChild(el('p', { cls: 'muted', text: I18N.verdict.basis }));
 }
 
+// a FAIL, or a DRIFT/UNDOCUMENTED whose real state fails (actual_status FAIL)
+function isFailure(f) {
+  return f.status === 'FAIL' || ((f.status === 'DRIFT' || f.status === 'UNDOCUMENTED') && f.actual_status === 'FAIL');
+}
 function failingTests(tool) {
   const seen = new Map();
-  FINDINGS.filter(function (f) { return f.status === 'FAIL'; }).forEach(function (f) {
+  FINDINGS.filter(isFailure).forEach(function (f) {
     arr((f.mappings || {})[tool]).forEach(function (m) {
       if (!seen.has(String(m.test))) seen.set(String(m.test), m.name || '');
     });
@@ -439,7 +444,7 @@ function renderSummary() {
   const byStatus = {}; const bySev = {};
   FINDINGS.forEach(function (f) {
     byStatus[f.status] = (byStatus[f.status] || 0) + 1;
-    if (f.status === 'FAIL') bySev[f.severity] = (bySev[f.severity] || 0) + 1;
+    if (isFailure(f)) bySev[f.severity] = (bySev[f.severity] || 0) + 1;
   });
   if (!META.aws) body.appendChild(el('div', { cls: 'alert', text: I18N.summary.noAwsNote, attrs: { role: 'alert' } }));
   body.appendChild(el('h3', { text: I18N.summary.byStatus }));
@@ -516,7 +521,7 @@ function renderFilters() {
   Object.keys(optSets).forEach(function (k) {
     if (optSets[k].some(function (o) { return o[0] === saved[k]; })) filters[k] = saved[k];
   });
-  if (!('tool' in saved) && (META.tool === 'drata' || META.tool === 'vanta')) filters.tool = META.tool;
+  if (META.tool === 'drata' || META.tool === 'vanta') filters.tool = META.tool;  // the --tool preselection wins over a stored filter
   syncControls();
   const clearBtn = document.getElementById('clear-filters');
   clearBtn.textContent = I18N.filters.clear;
