@@ -5,10 +5,12 @@ e.g. *credentials*.md, which are only listed); dotfiles and dotdirs are skipped 
 symlinks are not followed and the top-level _meta/ folder (relations, generated edges) is not indexed as notes.
 Everything textual that enters the index (title, headings, kv, links, edges, sources) goes through redact.mask, and every
 path (notes, secrets_detected, broken_links, truncated_notes, sensitive_files) is valid UTF-8 (undecodable bytes become U+FFFD)
-with secret-shaped names masked; the real file is still opened by comparing the public form of each note path. The index is
+with secret-shaped names masked (two notes whose masked paths collide get " (2)", " (3)" before ".md", so none is shadowed); the real
+file is still opened through a public-to-real path map built once per run. The index is
 written through a temporary file and a rename, so a failure leaves no partial file ("error: ..." on stderr, exit 2).
 Detected secrets are reported by path and pattern only. Sensitive files (SENSITIVE_NAMES: .env*, *.env, *.pem, *.key, *.pfx, *.p12,
-*.jks, *.keystore, *.tfvars, terraform.tfstate*, id_rsa, id_ed25519, id_ecdsa, *credentials*, and *secret* except notes) found
+*.jks, *.keystore, *.tfvars, terraform.tfstate*, id_rsa, id_ed25519, id_ecdsa, *credentials*, and *secret*; the last two only for files that can hold a secret: TEXT_EXTENSIONS, no images, PDFs or office
+documents, and *secret* never for notes) found
 anywhere in the vault tree (except .git) are listed by NAME only in `sensitive_files` ({path, reason}) and never opened.
 
 CLI:
@@ -89,18 +91,22 @@ def _note_files(vault):
 SENSITIVE_SKIP_DIRS = frozenset({".git", "node_modules"})
 
 
-# The one list of sensitive file names, matched case-insensitively on the file name: (kind, names, reason, applies to notes). A note
-# (.md) is treated as sensitive only by the rules marked True: "AWS Secrets Manager.md" is documentation, not a secret.
+# The one list of sensitive file names, matched case-insensitively on the file name: (kind, names, reason, applies to notes, text only).
+# A note (.md) is treated as sensitive only by the rules marked True: "AWS Secrets Manager.md" is documentation, not a secret. A rule
+# marked "text only" applies to other files only when they can hold a secret (TEXT_EXTENSIONS: no extension, config and text formats),
+# never to images, PDFs, canvases or office documents: `secrets-manager-flow.png` is a diagram, not a credential.
+TEXT_EXTENSIONS = frozenset({"", ".txt", ".json", ".yaml", ".yml", ".ini", ".cfg", ".conf", ".toml", ".properties", ".xml", ".sh", ".ps1",
+                             ".csv", ".env", ".secret", ".secrets"})
 SENSITIVE_NAMES = (
-    ("prefix", (".env",), ".env file", True),  # .env, .env.production, .env-prod, .envrc
-    ("suffix", (".env",), ".env file", True),  # prod.env
-    ("suffix", (".pem", ".key"), "private key file (.pem/.key)", True),
-    ("suffix", (".pfx", ".p12", ".jks", ".keystore"), "certificate or key store (.pfx/.p12/.jks/.keystore)", True),
-    ("suffix", (".tfvars",), "Terraform variables file (.tfvars)", True),
-    ("prefix", ("terraform.tfstate",), "Terraform state file (terraform.tfstate*)", True),
-    ("exact", ("id_rsa", "id_ed25519", "id_ecdsa"), "SSH private key (id_rsa, id_ed25519, id_ecdsa)", True),
-    ("contains", ("credentials",), "name containing 'credentials'", True),
-    ("contains", ("secret",), "name containing 'secret'", False),
+    ("prefix", (".env",), ".env file", True, False),  # .env, .env.production, .env-prod, .envrc
+    ("suffix", (".env",), ".env file", True, False),  # prod.env
+    ("suffix", (".pem", ".key"), "private key file (.pem/.key)", True, False),
+    ("suffix", (".pfx", ".p12", ".jks", ".keystore"), "certificate or key store (.pfx/.p12/.jks/.keystore)", True, False),
+    ("suffix", (".tfvars",), "Terraform variables file (.tfvars)", True, False),
+    ("prefix", ("terraform.tfstate",), "Terraform state file (terraform.tfstate*)", True, False),
+    ("exact", ("id_rsa", "id_ed25519", "id_ecdsa"), "SSH private key (id_rsa, id_ed25519, id_ecdsa)", True, False),
+    ("contains", ("credentials",), "name containing 'credentials'", True, True),
+    ("contains", ("secret",), "name containing 'secret'", False, True),
 )
 _SENSITIVE_TESTS = {"prefix": lambda lower, names: lower.startswith(names), "suffix": lambda lower, names: lower.endswith(names),
                     "exact": lambda lower, names: lower in names, "contains": lambda lower, names: any(n in lower for n in names)}
@@ -109,8 +115,11 @@ _SENSITIVE_TESTS = {"prefix": lambda lower, names: lower.startswith(names), "suf
 def _sensitive_reason(name):
     lower = name.lower()
     is_note = lower.endswith(".md")
-    for kind, names, reason, applies_to_notes in SENSITIVE_NAMES:
-        if (applies_to_notes or not is_note) and _SENSITIVE_TESTS[kind](lower, names):
+    text_like = os.path.splitext(lower)[1] in TEXT_EXTENSIONS
+    for kind, names, reason, applies_to_notes, text_only in SENSITIVE_NAMES:
+        if not (applies_to_notes or not is_note) or not _SENSITIVE_TESTS[kind](lower, names):
+            continue
+        if not text_only or is_note or text_like:
             return reason
     return None
 
@@ -124,6 +133,22 @@ def _clean(text):
 def _public_path(rel):
     """The vault-relative path as it is written to the index: valid UTF-8 and with secret-shaped file names masked."""
     return redact.mask_secrets(_clean(rel))
+
+
+def _public_paths(vault, files):
+    """The public path of each note file (same order as `files`), unique: two notes whose masked names are equal (access-key-id names with
+    the same ends, U+FFFD names) get ` (2)`, ` (3)`... before `.md`, in the order of the sorted real paths, so no note is shadowed. A
+    public path that is already some note's own name is never handed out."""
+    natural = [_public_path(p.relative_to(vault).as_posix()) for p in files]
+    reserved, used, out = set(natural), set(), []
+    for name in natural:
+        candidate, number = name, 1
+        while candidate in used or (number > 1 and candidate in reserved):
+            number += 1
+            candidate = f"{name[:-3]} ({number}).md" if name.endswith(".md") else f"{name} ({number})"
+        used.add(candidate)
+        out.append(candidate)
+    return out
 
 
 def _sensitive_files(vault):
@@ -238,9 +263,8 @@ def _link_name(target):
     return (name[:-3] if name.lower().endswith(".md") else name).strip().lower()
 
 
-def _parse_note(vault, path):
-    text = _read(path)
-    rel = _public_path(path.relative_to(vault).as_posix())  # the real path is only used to open the file (see _real_path)
+def _parse_note(vault, path, rel):
+    text = _read(path)  # rel: the public path of the note (see _public_paths); the real one is only used to open the file
     fields, body = _split_frontmatter(text)
     mask = redact.mask
     lines = body.splitlines()
@@ -269,8 +293,8 @@ def build_index(vault: Path) -> dict:
         raise ValueError(f"the vault does not exist or is not a directory: {vault}")
     files = _note_files(vault)
     notes, raw_links, secrets, truncated = [], [], [], []
-    for path in files:
-        note, links, patterns = _parse_note(vault, path)
+    for path, public in zip(files, _public_paths(vault, files)):
+        note, links, patterns = _parse_note(vault, path, public)
         notes.append(note)
         if _is_truncated(path):
             truncated.append(note["path"])
@@ -302,18 +326,17 @@ def _key(text):
     return _norm(_link_name(text))
 
 
-def _real_path(root, public):
-    """The file an index path stands for. The index holds masked, valid-UTF-8 paths (see _public_path), so a note whose real name
-    differs is found by comparing the public form of every note path."""
-    path = root / public
-    if path.is_symlink() or path.is_file():
-        return path
-    return next((p for p in _note_files(root.resolve()) if _public_path(p.relative_to(root.resolve()).as_posix()) == public), path)
+def _real_paths(root):
+    """{public path: real file} for every note of the vault, built once per run. The index holds masked, valid-UTF-8, unique paths (see
+    _public_paths), so a note whose real name differs is found through this map."""
+    root = Path(root).resolve()
+    files = _note_files(root)
+    return dict(zip(_public_paths(root, files), files))
 
 
-def _body(index, note):
+def _body(index, note, paths):
     root = Path(index["root"])
-    path = _real_path(root, note["path"])
+    path = paths.get(note["path"]) or root / note["path"]
     if path.is_symlink() or not path.is_file():
         return ""
     try:
@@ -353,20 +376,20 @@ def _token_matches(notes, query):
     return [n for s, n in scored if s == best]
 
 
-def _candidates(index, query):
+def _candidates(index, query, paths):
     """Matches among the notes that are not superseded; only when there are none, among all of them."""
     active = [n for n in index["notes"] if n.get("status") != "superseded"]
-    return _matching(index, query, active) or _matching(index, query, index["notes"])
+    return _matching(index, query, active, paths) or _matching(index, query, index["notes"], paths)
 
 
-def _matching(index, query, notes):
+def _matching(index, query, notes, paths):
     q = _norm(query)
     if not q:
         return []
     levels = (
         lambda n: q in {_norm(n["title"]), *(_norm(a) for a in n.get("aliases", []))},
         lambda n: q in _norm(n["title"]) or any(h.startswith("# ") and q in _norm(h[2:]) for h in n["headings"]),
-        lambda n: q in _norm(_body(index, n)),
+        lambda n: q in _norm(_body(index, n, paths)),
     )
     for matches in levels:
         found = [n for n in notes if matches(n)]
@@ -468,9 +491,9 @@ def _free_walk(index, root):
     return components
 
 
-def _mentions_pii(index, notes):
+def _mentions_pii(index, notes, paths):
     for note in notes:
-        text = " ".join([note["title"], *note["headings"], *note["kv"].values(), _body(index, note)])
+        text = " ".join([note["title"], *note["headings"], *note["kv"].values(), _body(index, note, paths)])
         if PII_WORDS.search(_norm(text)):
             return True
     return False
@@ -480,7 +503,8 @@ def resolve_feature(index: dict, query: str, max_depth: int = 3) -> dict:
     typed = index["kind"] == "typed"
     result = {"candidates": [], "chosen": None, "components": [], "constraints": [], "pii": False,
               "confidence": "typed" if typed else "inferred"}
-    found = _candidates(index, query)
+    paths = _real_paths(index["root"])
+    found = _candidates(index, query, paths)
     result["candidates"] = [n["path"] for n in found]
     if len(found) != 1:
         return result
@@ -493,7 +517,7 @@ def resolve_feature(index: dict, query: str, max_depth: int = 3) -> dict:
     by_path = {n["path"]: n for n in index["notes"]}
     related = [root, *(by_path[c["path"]] for c in result["components"]),
                *(by_path[p] for p in result["constraints"])]
-    result["pii"] = _mentions_pii(index, related)
+    result["pii"] = _mentions_pii(index, related, paths)
     return result
 
 
