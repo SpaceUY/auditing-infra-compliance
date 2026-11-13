@@ -6,7 +6,9 @@ render() replaces it with the findings JSON, escaping <, >, & and the U+2028/U+2
 through textContent/createElement, never innerHTML with data.
 
 When a verification dict (verify_remediation.py) is given it is embedded in the same data block under the key
-"verification"; without it the embedded JSON is exactly the findings.
+"verification"; without it the embedded JSON is exactly the findings. A verification carries the digest of the findings it was
+computed from (`findings_digest`): when it does not match findings.json it is ignored, "verification_stale": true is embedded
+(the page shows a warning) and the CLI prints a warning. meta.vault.path is reduced to the vault folder name.
 
 Usage: render_report.py <findings.json> [--verification <verification.json>] [-o <report.html>]
 (default output: report.html next to findings.json)
@@ -17,15 +19,31 @@ import json
 import sys
 from pathlib import Path
 
+import assemble_findings
+
 SKILL_DIR = Path(__file__).resolve().parent.parent
 TEMPLATE_PATH = SKILL_DIR / "assets" / "report-template.html"
 MARKER = "/*__FINDINGS__*/"
+STALE_WARNING = "verificación desactualizada: volver a correr verify_remediation"
 _ESCAPES = {"<": "\\u003c", ">": "\\u003e", "&": "\\u0026", "\u2028": "\\u2028", "\u2029": "\\u2029"}
 
 
 def _embeddable_json(data: dict) -> str:
     text = json.dumps(data, ensure_ascii=False)
     return "".join(_ESCAPES.get(ch, ch) for ch in text)
+
+
+def verification_is_stale(findings: dict, verification: dict | None) -> bool:
+    """True when the verification was computed from other findings (a verification without digest is accepted)."""
+    digest = (verification or {}).get("findings_digest")
+    return digest is not None and digest != assemble_findings.findings_digest(findings)
+
+
+def _vault_folder(findings: dict) -> dict:
+    vault = (findings.get("meta") or {}).get("vault")
+    if not isinstance(vault, dict) or not isinstance(vault.get("path"), str):
+        return findings
+    return {**findings, "meta": {**findings["meta"], "vault": {**vault, "path": Path(vault["path"]).name or None}}}
 
 
 def render(findings: dict, template: str, verification: dict | None = None) -> str:
@@ -36,8 +54,10 @@ def render(findings: dict, template: str, verification: dict | None = None) -> s
         raise ValueError("findings.json no tiene la forma esperada (falta la lista 'findings')")
     if verification is not None and not isinstance(verification, dict):
         raise ValueError("verification.json no tiene la forma esperada (se esperaba un objeto)")
-    findings = {k: v for k, v in findings.items() if k != "verification"}  # only the argument can add a verification
-    if verification is not None:
+    findings = _vault_folder({k: v for k, v in findings.items() if k not in ("verification", "verification_stale")})
+    if verification is not None and verification_is_stale(findings, verification):
+        findings["verification_stale"] = True
+    elif verification is not None:  # only the argument can add a verification
         findings["verification"] = verification
     return template.replace(MARKER, _embeddable_json(findings))
 
@@ -59,6 +79,8 @@ def main(argv=None) -> int:
         findings = json.loads(source.read_text(encoding="utf-8"))
         verification = json.loads(Path(args.verification).read_text(encoding="utf-8")) if args.verification else None
         html = render(findings, TEMPLATE_PATH.read_text(encoding="utf-8"), verification)
+        if isinstance(findings, dict) and isinstance(verification, dict) and verification_is_stale(findings, verification):
+            print(f"advertencia: {STALE_WARNING}", file=sys.stderr)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(html, encoding="utf-8")
     except (ValueError, OSError) as exc:  # JSONDecodeError and UnicodeDecodeError are ValueErrors

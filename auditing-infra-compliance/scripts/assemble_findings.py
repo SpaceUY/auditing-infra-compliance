@@ -8,8 +8,8 @@ Rules worth knowing:
   DOCUMENTED_ONLY, DOCUMENTED_GAP) and one critical FAIL per secret the vault indexer detected.
 - PENDING_CLAUDE rows are replaced by the EVAL claims with the same check_id (claim resource must match unless the row
   is the account-level one); without a claim they become NO_VERIFICADO plus a warning.
-- Remediation by status: FAIL, DOCUMENTED_GAP, UNDOCUMENTED and a DRIFT claim with actual_status "FAIL" keep the full fix; the other
-  statuses (DOCUMENTED_ONLY, PASS, N/A, NO_VERIFICADO, any other DRIFT) carry no steps/commands/notes, only verify_after and a
+- Remediation by status: FAIL, DOCUMENTED_GAP and a DRIFT or UNDOCUMENTED claim with actual_status "FAIL" keep the full fix; the other
+  statuses (DOCUMENTED_ONLY, PASS, N/A, NO_VERIFICADO, any other DRIFT or UNDOCUMENTED) carry no steps/commands/notes, only verify_after and a
   remediation.note_status. A DOCUMENTED_ONLY finding is severity low with evidence.catalog_severity (the check's severity).
 - Severity: detail.severity_override > explicit claim severity > catalog severity (UNDOCUMENTED and claims without a
   check default to low). A claim with breaks_tests becomes a DRIFT of at least high severity.
@@ -19,11 +19,13 @@ Rules worth knowing:
   only when they pass an allow-list (R51: no quotes, spaces, $, backticks, newlines); a value that fails becomes its
   __COMPLETAR_<NAME>__ marker and the finding adds a warning. Placeholders are filled in steps, commands, verify_after
   and notes. A claim-sourced regional resource without region gets __COMPLETAR_REGION__ (account/global: us-east-1).
-  Evidence, vault_claim, warnings and notes go through redact.mask_obj with the VantaOwner emails kept.
+  Evidence, vault_claim, warnings, notes, breaks_tests and meta.platform/target go through redact.mask_obj with the VantaOwner
+  emails kept. meta.vault.path is the vault folder name, never the absolute path.
 - Coverage never turns into a percentage: each ISO/TSC id is FAIL, NO_VERIFICADO, PASS or NOT_TOUCHED.
 """
 
 import argparse
+import hashlib
 import json
 import re
 import shlex
@@ -57,7 +59,8 @@ CLAIM_TITLES = {
     "DOCUMENTED_GAP": "Brecha reconocida en el vault",
 }
 NOTE_STATUS = "no verificado: no aplicar sin confirmar"
-FIX_STATUSES = frozenset({"FAIL", "DOCUMENTED_GAP", "UNDOCUMENTED"})  # DRIFT only when its `actual` fails
+FIX_STATUSES = frozenset({"FAIL", "DOCUMENTED_GAP"})
+FIX_IF_ACTUAL_FAILS = frozenset({"DRIFT", "UNDOCUMENTED"})  # only when the claim says its `actual` fails
 SECRET_TITLE = "Credenciales en texto plano en el vault"
 SENSITIVE_TITLE = "Archivo sensible dentro del vault (probables credenciales en texto plano)"
 SENSITIVE_REMEDIATION = {
@@ -67,6 +70,8 @@ SENSITIVE_REMEDIATION = {
               "Revisar el historial del vault y de los repos por copias del archivo."],
     "commands": [], "verify_after": "", "notes": "El skill nunca abre este tipo de archivos: dar por comprometido lo que contenga.",
 }
+TEMPLATE_NAME = re.compile(r"(\.env\.[^/]*|\.pem|credentials[^/]*\.md)$", re.I)
+TEMPLATE_HINT = "revisar: puede ser una plantilla o un certificado público"
 SECRET_REMEDIATION = {
     "kind": "console_only", "risk": "low", "downtime": False,
     "steps": ["Revocar o rotar la credencial expuesta desde la consola de AWS (IAM) antes de editar la nota.",
@@ -212,7 +217,7 @@ def _finding(env, check, *, status, severity, resource, arn=None, detail=None, e
              vault_claim=None, vault_note=None, evaluated_by="script", vacuous=False, breaks_tests=(), missing=(),
              check_id=None, actual_fails=False):
     detail = detail or {}
-    keep_fix = status in FIX_STATUSES or (status == "DRIFT" and actual_fails)
+    keep_fix = status in FIX_STATUSES or (status in FIX_IF_ACTUAL_FAILS and actual_fails)
     remediation, unsafe = _remediation(env, check, resource, arn, detail, keep_fix)
     return {
         "id": None,
@@ -230,7 +235,7 @@ def _finding(env, check, *, status, severity, resource, arn=None, detail=None, e
         "_unsafe": unsafe,
         "evaluated_by": evaluated_by,
         "vacuous": vacuous,
-        "breaks_tests": [dict(b) for b in breaks_tests],
+        "breaks_tests": redact.mask_obj([dict(b) for b in breaks_tests], keep_emails=env.keep),
         "missing": list(missing),
         "depends_on_me": [],
     }
@@ -353,6 +358,8 @@ def _secret_findings(env, vault_index):
             env, None, status="FAIL", severity="critical", resource=resource, title=SENSITIVE_TITLE,
             evidence={"path": path, "detection": "nombre de archivo"}, vault_note=path))
         findings[-1]["remediation"] = json.loads(json.dumps(SENSITIVE_REMEDIATION))
+        if TEMPLATE_NAME.search(path):
+            findings[-1]["remediation"]["steps"].append(TEMPLATE_HINT)
     return findings
 
 
@@ -434,6 +441,14 @@ def _summary(findings):
 
 # ---------------------------------------------------------------- assemble and CLI
 
+def findings_digest(document: dict) -> str:
+    """Digest of the finding ids, check_ids and resource ids of a findings.json: binds verification.json to it, because the
+    positional ids (F-0001...) shift when assemble runs again with different claims."""
+    keys = [[f.get("id"), f.get("check_id"), (f.get("resource") or {}).get("id")]
+            for f in document.get("findings", []) if isinstance(f, dict)]
+    return hashlib.sha256(json.dumps(keys, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def _vault_warnings(vault_index):
     if not vault_index:
         return []
@@ -480,10 +495,11 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
         finding["depends_on_me"] = list(tests_by_resource.get(finding["resource"]["id"], []))
 
     return {
-        "meta": {"platform": meta.get("platform"), "mode": meta.get("mode"), "target": meta.get("target"),
+        "meta": {"platform": redact.mask_obj(meta.get("platform"), keep_emails=env.keep), "mode": meta.get("mode"),
+                 "target": redact.mask_obj(meta.get("target"), keep_emails=env.keep),
                  "generated_at": meta.get("generated_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
                  "lang": meta.get("lang", "es"), "catalog_checks": len(checks),
-                 "vault": {"path": vault_index.get("root"), "kind": vault_index.get("kind")} if vault_index else None,
+                 "vault": {"path": Path(vault_index.get("root") or "").name or None, "kind": vault_index.get("kind")} if vault_index else None,
                  "aws": redact.mask_obj({k: aws.get(k) for k in ("account_id", "identity_arn", "regions")},
                                         keep_emails=env.keep) if aws else None},
         "summary": _summary(findings),

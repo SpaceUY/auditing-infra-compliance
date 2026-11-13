@@ -13,6 +13,7 @@ from unittest import mock
 import helpers
 from helpers import FakeRunner, SKILL_DIR
 
+import assemble_findings
 import catalog
 import render_report
 import validate_catalog
@@ -103,6 +104,28 @@ class StatusCoverageTests(unittest.TestCase):
         html = render_report.render(doc(gap, finding(2, "NET-001", [HEADER + SAFE])), TEMPLATE, result)
         self.assertIn('"F-0001"', html)
         self.assertEqual(sum(result["summary"].values()), len(result["per_finding"]))
+
+
+class DowntimeFloorTests(unittest.TestCase):
+    def test_a_fix_that_declares_downtime_is_never_ok(self):
+        quiet = finding(1, "NET-001", [HEADER + SAFE])
+        down = finding(2, "DAT-001", [HEADER + SAFE], domain="data")
+        down["remediation"]["downtime"] = True
+        console = finding(3, "IAM-001", [], kind="console_only", domain="iam")
+        console["remediation"]["downtime"] = True
+        result = run(quiet, down, console)
+        self.assertEqual(status(result, "F-0001"), "OK")
+        for fid in ("F-0002", "F-0003"):
+            self.assertEqual(status(result, fid), "REVISAR", fid)
+            self.assertIn("downtime", kinds(result, fid))
+        message = next(i["message"] for i in result["per_finding"]["F-0002"]["issues"] if i["kind"] == "downtime")
+        self.assertEqual(message, "el arreglo declara downtime")
+
+    def test_downtime_does_not_lower_a_conflict(self):
+        down = finding(1, "NET-001", ["echo $(("], domain="network")
+        down["remediation"]["downtime"] = True
+        self.assertEqual(status(run(down, runner=FakeRunner({("bash", None, None): {"returncode": 2, "stderr": "syntax"}})), "F-0001"),
+                         "CONFLICTO")
 
 
 class AutomaticChecksTests(unittest.TestCase):
@@ -603,9 +626,10 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn(" ", html)
         self.assertEqual(self.embedded(html)["verification"]["conflicts"][-1]["message"], "</script><script>alert(1)</script> x")
 
-    def test_low_risk_copy_excludes_conflicts(self):
+    def test_low_risk_copy_excludes_conflicts_and_reviews(self):
         logic = re.search(r"function bulkCandidates\(.*?\n\}", TEMPLATE, re.S).group(0)
         self.assertIn("'CONFLICTO'", logic)
+        self.assertIn("'REVISAR'", logic)
         self.assertIn("verifStatus(f)", logic)
         self.assertIn("'__COMPLETAR_'", logic)
         self.assertEqual(TEMPLATE.count("bulkCandidates("), 3)
@@ -642,6 +666,77 @@ class RenderTests(unittest.TestCase):
             self.assertIn("error", err.getvalue())
 
 
+class StaleVerificationTests(unittest.TestCase):
+    """The verification is bound to findings.json by a digest of ids, check_ids and resource ids."""
+
+    def setUp(self):
+        self.verification = verify_remediation.verify(FINDINGS, INVENTORY, RULES, claims=CLAIMS, runner=bash_ok())
+
+    def shifted(self):
+        other = copy.deepcopy(FINDINGS)
+        other["findings"][0]["resource"]["id"] = "sg-0f00000000000000f"
+        return other
+
+    def test_digest_depends_on_ids_check_ids_and_resource_ids_only(self):
+        digest = assemble_findings.findings_digest(FINDINGS)
+        self.assertEqual(self.verification["findings_digest"], digest)
+        self.assertRegex(digest, r"^[0-9a-f]{64}$")
+        changed = copy.deepcopy(FINDINGS)
+        changed["findings"][0]["title"] = "otro título"
+        changed["findings"][0]["remediation"]["notes"] = "otras notas"
+        self.assertEqual(assemble_findings.findings_digest(changed), digest)
+        for mutate in (lambda f: f["findings"][0].update(id="F-9999"), lambda f: f["findings"][0].update(check_id="ZZZ-001"),
+                       lambda f: f["findings"][0]["resource"].update(id="otro"), lambda f: f["findings"].pop()):
+            other = copy.deepcopy(FINDINGS)
+            mutate(other)
+            self.assertNotEqual(assemble_findings.findings_digest(other), digest)
+
+    def test_render_ignores_a_stale_verification_and_flags_it(self):
+        html = render_report.render(self.shifted(), TEMPLATE, self.verification)
+        data = RenderTests.embedded(html)
+        self.assertNotIn("verification", data)
+        self.assertTrue(data["verification_stale"])
+        self.assertTrue(render_report.verification_is_stale(self.shifted(), self.verification))
+
+    def test_render_with_a_matching_verification_is_unchanged(self):
+        html = render_report.render(FINDINGS, TEMPLATE, self.verification)
+        data = RenderTests.embedded(html)
+        self.assertEqual(data["verification"], self.verification)
+        self.assertNotIn("verification_stale", data)
+        self.assertFalse(render_report.verification_is_stale(FINDINGS, self.verification))
+
+    def test_template_shows_a_visible_warning_when_stale(self):
+        self.assertIn("verificación desactualizada: volver a correr verify_remediation", TEMPLATE)
+        self.assertIn("DATA.verification_stale", TEMPLATE)
+        self.assertIn('id="stale-warning"', TEMPLATE)
+
+    def test_cli_warns_on_stale_verification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "findings.json").write_text(json.dumps(self.shifted()), encoding="utf-8")
+            (tmp / "verification.json").write_text(json.dumps(self.verification), encoding="utf-8")
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                code = render_report.main([str(tmp / "findings.json"), "--verification", str(tmp / "verification.json")])
+            self.assertEqual(code, 0)
+            self.assertIn("verificación desactualizada: volver a correr verify_remediation", err.getvalue())
+            self.assertNotIn("verification", RenderTests.embedded((tmp / "report.html").read_text(encoding="utf-8")))
+
+    def test_cli_is_quiet_when_the_verification_matches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "findings.json").write_text(json.dumps(FINDINGS), encoding="utf-8")
+            (tmp / "verification.json").write_text(json.dumps(self.verification), encoding="utf-8")
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                render_report.main([str(tmp / "findings.json"), "--verification", str(tmp / "verification.json")])
+            self.assertEqual(err.getvalue(), "")
+
+    def test_a_verification_without_digest_is_accepted(self):
+        legacy = {k: v for k, v in self.verification.items() if k != "findings_digest"}
+        self.assertFalse(render_report.verification_is_stale(FINDINGS, legacy))
+
+
 class CliTests(unittest.TestCase):
     def test_cli_tolerates_a_missing_inventory_json(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -664,7 +759,8 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 0)
             written = json.loads((tmp / "verification.json").read_text(encoding="utf-8"))
             self.assertEqual(set(written), {"per_finding", "conflicts", "gaps", "apply_order", "completar_pendientes", "cli_checked", "summary",
-                                        "warnings"})
+                                        "warnings", "findings_digest"})
+            self.assertEqual(written["findings_digest"], assemble_findings.findings_digest(FINDINGS))
             self.assertLessEqual(len(out.getvalue().splitlines()), 10)
 
     def test_cli_missing_inputs_is_clean_error(self):

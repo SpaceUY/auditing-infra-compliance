@@ -143,6 +143,7 @@ footer.fixed {
 </header>
 <main>
   <section id="summary" aria-labelledby="h-summary"><h2 id="h-summary"></h2><div class="panel" id="summary-body"></div></section>
+  <div class="alert" id="stale-warning" role="alert" hidden></div>
   <section id="verification" aria-labelledby="h-verification" hidden><h2 id="h-verification"></h2><div class="panel" id="verification-body"></div></section>
   <section id="filters-section" class="no-print" aria-labelledby="h-filters">
     <h2 id="h-filters"></h2>
@@ -181,7 +182,7 @@ const I18N = {
   filters: { title: 'Filtros', severity: 'Severidad', status: 'Estado', domain: 'Dominio', tool: 'Herramienta', norm: 'Norma', search: 'Buscar',
              searchPlaceholder: 'ID, recurso, texto…', all: 'Todos', allF: 'Todas', clear: 'Limpiar filtros', expand: 'Expandir todo', collapse: 'Contraer todo',
              showing: 'Mostrando', of: 'de', normSoc2: 'SOC 2', normIso: 'ISO 27001' },
-  bulk: { title: 'Copiar arreglos de bajo riesgo', hint: 'Por severidad: junta los comandos de los hallazgos FAIL de tipo CLI con riesgo bajo, separados por comentarios con el ID. Se omiten los que tienen valores por completar y los que la verificación marcó como CONFLICTO. Revisar antes de pegar en CloudShell.',
+  bulk: { title: 'Copiar arreglos de bajo riesgo', hint: 'Por severidad: junta los comandos de los hallazgos FAIL de tipo CLI con riesgo bajo, separados por comentarios con el ID. Se omiten los que tienen valores por completar y los que la verificación marcó como CONFLICTO o REVISAR. Revisar antes de pegar en CloudShell.',
           button: 'Copiar arreglos de bajo riesgo', empty: 'sin comandos', header: 'Hallazgos' },
   findings: { title: 'Hallazgos', empty: 'Ningún hallazgo coincide con los filtros.', noResource: 'Sin recurso asociado', account: 'Cuenta AWS',
               region: 'región', mappings: 'Mapeos', inferred: 'inferido', inferredHint: 'Mapeo inferido por el catálogo, sin fuente oficial.',
@@ -192,7 +193,7 @@ const I18N = {
   rem: { title: 'Remediación', steps: 'Pasos', commands: 'Comandos para CloudShell', verify: 'Verificar después', verifyWith: 'Verificar con', notes: 'Notas',
          copy: 'Copiar', copyAll: 'Copiar todo', copied: 'Copiado', copyCmdAria: 'Copiar comando', copyAllAria: 'Copiar todos los comandos', copyVerifyAria: 'Copiar comando de verificación', of: 'de', ofN: 'de', copyFail: 'No se pudo copiar: seleccionar y copiar a mano',
          placeholders: 'Completar los valores resaltados (__COMPLETAR_…__) antes de pegar.',
-         planned: 'Cambio planificado: no ejecutar sin revisión del equipo y una ventana acordada. Los comandos de abajo solo leen o preparan la decisión.',
+         planned: 'Cambio planificado: los comandos de abajo cambian la infraestructura. Revisar cada bloque antes de correrlo, correrlos en el orden mostrado y dentro de una ventana de cambio acordada. Nada de esto se ejecuta automáticamente.',
          consoleOnly: 'Solo se puede hacer desde la consola de AWS.',
          kind: { cli: 'Comando CLI', cli_with_decision: 'CLI con decisión previa', planned_change: 'Cambio planificado', console_only: 'Solo consola' },
          risk: { low: 'Riesgo bajo', medium: 'Riesgo medio', high: 'Riesgo alto' }, downtime: 'Con downtime', noDowntime: 'Sin downtime' },
@@ -208,13 +209,14 @@ const I18N = {
          counts: 'Arreglos verificados', pending: 'Valores por completar (__COMPLETAR_…__) pendientes', pendingHint: 'Completarlos antes de pegar los comandos en CloudShell.',
          cliOn: 'Validez de operaciones y flags: comprobada con la ayuda local de la AWS CLI.',
          cliOff: 'Validez de operaciones y flags: no comprobada (correr la verificación con --check-cli y la AWS CLI instalada).',
+         stale: 'verificación desactualizada: volver a correr verify_remediation',
          warnings: 'Advertencias de la verificación', conflicts: 'Conflictos entre arreglos', noConflicts: 'Sin conflictos entre arreglos.', gaps: 'Lo que falta', noGaps: 'Nada faltante detectado.',
          order: 'Orden sugerido de aplicación', orderHint: 'Identidad, logging y detección, claves KMS, cifrado, red, datos, monitoreo, tags e integración; dentro de cada grupo por severidad y los cambios planificados al final. Las reglas de conflicto tienen prioridad.',
          reasons: 'Verificación del arreglo', byClaude: 'revisión de Claude', rule: 'Regla', findings: 'Hallazgos', none: 'sin observaciones',
          status: { OK: 'OK', REVISAR: 'REVISAR', CONFLICTO: 'CONFLICTO' },
          gapKind: { sin_arreglo: 'Falla sin arreglo', no_verificado: 'No verificado', recurso_sin_chequeo: 'Recurso sin chequeo', sin_verify_after: 'Arreglo sin verificación posterior' },
          issueKind: { syntax: 'Sintaxis', cli_invalida: 'CLI inválida', placeholder_sin_resolver: 'Placeholder sin resolver', requiere_completar: 'Valor por completar',
-                      higiene: 'Higiene', destructivo_sin_aviso: 'Destructivo sin aviso', conflicto_regla: 'Conflicto', impacto_dependencias: 'Impacto en dependencias', claude: 'Claude' } },
+                      higiene: 'Higiene', destructivo_sin_aviso: 'Destructivo sin aviso', conflicto_regla: 'Conflicto', impacto_dependencias: 'Impacto en dependencias', downtime: 'Downtime', claude: 'Claude' } },
   footer: 'Pre-auditoría técnica automatizada. No es una opinión de auditoría ni cubre controles organizacionales (políticas, RRHH, equipos, proveedores, ISMS).',
   status: { FAIL: 'Falla', PASS: 'Pasa', DRIFT: 'Drift', DOCUMENTED_ONLY: 'Solo documentado', DOCUMENTED_GAP: 'Brecha documentada',
             UNDOCUMENTED: 'Sin documentar', NO_VERIFICADO: 'No verificado', 'N/A': 'N/A' },
@@ -501,12 +503,12 @@ function resourceLabel(f) {
   return (r.type ? r.type + ' ' : '') + name + (r.region ? ' · ' + r.region : '');
 }
 // Findings with unresolved __COMPLETAR_ placeholders are left out: pasting them would run literal placeholders.
-// Findings the verification stage marked CONFLICTO are left out too.
+// Findings the verification stage marked CONFLICTO or REVISAR are left out too.
 function bulkCandidates(sev) {
   return FINDINGS.filter(function (f) {
     const rem = f.remediation;
     return f.status === 'FAIL' && f.severity === sev && rem && rem.kind === 'cli' && rem.risk === 'low' && arr(rem.commands).length &&
-      verifStatus(f) !== 'CONFLICTO' &&
+      verifStatus(f) !== 'CONFLICTO' && verifStatus(f) !== 'REVISAR' &&
       !arr(rem.commands).some(function (c) { return c.indexOf('__COMPLETAR_') !== -1; });
   });
 }
@@ -598,7 +600,8 @@ function renderRemediation(f) {
     const wrap = el('div');
     const all = cmds.join('\n\n');
     if (/__COMPLETAR_/.test(all)) wrap.appendChild(el('p', { cls: 'muted', text: I18N.rem.placeholders }));
-    if (cmds.length > 1) wrap.appendChild(el('div', { cls: 'cmd-bar no-print' }, [copyButton(I18N.rem.copyAll, function () { return all; }, '', I18N.rem.copyAllAria + ' ' + I18N.rem.of + ' ' + f.id)]));
+    // Copy-all only where the blocks are a sequence (cli); the other kinds hold alternatives or review-first steps.
+    if (cmds.length > 1 && rem.kind === 'cli') wrap.appendChild(el('div', { cls: 'cmd-bar no-print' }, [copyButton(I18N.rem.copyAll, function () { return all; }, '', I18N.rem.copyAllAria + ' ' + I18N.rem.of + ' ' + f.id)]));
     cmds.forEach(function (c, i) {
       wrap.appendChild(commandBlock(c, I18N.rem.copyCmdAria + ' ' + (i + 1) + ' ' + I18N.rem.ofN + ' ' + cmds.length + ' ' + I18N.rem.of + ' ' + f.id));
     });
@@ -778,6 +781,11 @@ function verifOrder(body) {
   });
   body.appendChild(ol);
 }
+function renderStaleWarning() {
+  const box = document.getElementById('stale-warning');
+  box.hidden = !DATA.verification_stale;
+  if (DATA.verification_stale) box.textContent = I18N.ver.stale;
+}
 function renderVerification() {
   const box = document.getElementById('verification');
   if (!VERIF) { box.hidden = true; return; }
@@ -858,6 +866,7 @@ function renderNotes() {
 
 renderHeader();
 renderSummary();
+renderStaleWarning();
 renderVerification();
 renderFilters();
 renderBulk();

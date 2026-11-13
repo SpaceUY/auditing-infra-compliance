@@ -83,7 +83,7 @@ Claves de primer nivel: `meta`, `summary`, `findings`, `dependencies`, `coverage
 - `meta`: plataforma, modo, target, fecha, `lang`, `catalog_checks`, `vault` (`path`, `kind`), `aws` (`account_id`, `identity_arn`, `regions`; `null` sin credenciales).
 - `summary`: `by_status`, `by_severity_fail`, `drata_tests_failing`, `vanta_tests_failing`, `not_verified`. **Nunca hay porcentaje.**
 - `findings[]`: `id` (`F-0001`…), `check_id`, `title`, `domain`, `status`, `severity`, `resource` (`type`, `id`, `region`, `name`), `evidence`, `vault_claim`, `vault_note`, `mappings`, `remediation`, `evaluated_by` (`script` \| `claude`), `vacuous`, `breaks_tests`, `missing` (permisos que faltan), `depends_on_me` (tests que dependen del recurso).
-- **Arreglo según el estado:** `FAIL`, `DOCUMENTED_GAP`, `UNDOCUMENTED` y un `DRIFT` con `actual_status: "FAIL"` llevan el arreglo completo. `DOCUMENTED_ONLY`, `PASS`, `N/A`, `NO_VERIFICADO` y los demás `DRIFT` llevan `remediation.steps: []`, `commands: []`, `notes: ""`, solo `verify_after` (el HTML lo muestra como "Verificar con") y `remediation.note_status` = "no verificado: no aplicar sin confirmar".
+- **Arreglo según el estado:** `FAIL`, `DOCUMENTED_GAP` y un `DRIFT` o un `UNDOCUMENTED` con `actual_status: "FAIL"` llevan el arreglo completo. `DOCUMENTED_ONLY`, `PASS`, `N/A`, `NO_VERIFICADO` y los demás `DRIFT` y `UNDOCUMENTED` llevan `remediation.steps: []`, `commands: []`, `notes: ""`, solo `verify_after` (el HTML lo muestra como "Verificar con") y `remediation.note_status` = "no verificado: no aplicar sin confirmar".
 - **`DOCUMENTED_ONLY`:** severidad `low` siempre; la del chequeo queda en `evidence.catalog_severity` junto con `evidence.note: "no verificada"` y el HTML dice "severidad del chequeo: alta, no verificada".
 - `mappings`: `drata` (`test`, `name`, `source`), `vanta`, `tsc` y `iso27001_2022` (`id`, `sourced`), `security_hub`, `cis_aws`.
   - `sourced: "drata-dcf-2026-11-12"` = mapeo autoritativo tomado del catálogo DCF de Drata.
@@ -124,6 +124,8 @@ Para quien lee o extiende el catálogo: la expresión `verify.offenders` de un c
 - `gaps`: faltantes (`FAIL` sin comandos que no es `console_only`, `NO_VERIFICADO` con permiso faltante, recursos del inventario sin chequeo, arreglos sin `verify_after`).
 - `apply_order`: ids de hallazgos en el orden sugerido de aplicación (identidad, logging y detección, claves KMS, cifrado, red, datos y backups, monitoreo, tags e integración; por severidad dentro de cada grupo y `planned_change` al final; una regla "A antes que B" gana).
 - `completar_pendientes`, `cli_checked`, `summary` (`OK`, `REVISAR`, `CONFLICTO`), `warnings`.
+- `findings_digest`: huella de los ids, `check_id` y ids de recurso de `findings.json`. `render_report.py` la compara: si no coincide (se volvió a correr `assemble_findings.py`), ignora la verificación y el reporte muestra "verificación desactualizada: volver a correr verify_remediation".
+- Un arreglo con `remediation.downtime: true` nunca queda en `OK`: el piso es `REVISAR` ("el arreglo declara downtime").
 
 Listar lo que Claude debe revisar (solo lectura):
 

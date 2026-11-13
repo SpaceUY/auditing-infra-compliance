@@ -1,8 +1,10 @@
 import contextlib
+import copy
 import io
 import json
 import re
 import shutil
+import subprocess
 import tempfile
 import unittest
 from html.parser import HTMLParser
@@ -11,6 +13,7 @@ from pathlib import Path
 import helpers
 from helpers import FIXTURES_DIR, SKILL_DIR
 
+import assemble_findings
 import render_report
 
 TEMPLATE = (SKILL_DIR / "assets" / "report-template.html").read_text(encoding="utf-8")
@@ -108,6 +111,91 @@ class TemplateTests(unittest.TestCase):
         self.assertRegex(TEMPLATE, r"try\s*\{[^}]*localStorage")
 
 
+def fix_finding(number, kind, commands, *, risk="low", status="FAIL", severity="high"):
+    rid = f"acme-notes-bucket-{number}"
+    return {"id": f"F-{number:04d}", "check_id": "DAT-007", "title": f"Chequeo {number}", "domain": "data", "status": status,
+            "severity": severity, "resource": {"type": "s3_bucket", "id": rid, "region": "us-east-1", "name": rid},
+            "mappings": {}, "evidence": {}, "missing": [], "depends_on_me": [], "breaks_tests": [],
+            "remediation": {"kind": kind, "risk": risk, "downtime": False, "steps": ["Aplicar."], "commands": commands,
+                            "verify_after": "", "notes": ""}}
+
+
+@unittest.skipUnless(shutil.which("node"), "node no está instalado")
+class ScriptSmokeTests(unittest.TestCase):
+    """Runs the template script over a rendered report (DOM stub in dom_smoke.js) and checks what can be copied."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def run_page(self, findings, verification=None):
+        path = self.tmp / "report.html"
+        path.write_text(render_report.render(findings, TEMPLATE, verification), encoding="utf-8")
+        done = subprocess.run(["node", str(Path(__file__).with_name("dom_smoke.js")), str(path)],
+                              capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    @staticmethod
+    def document():
+        return {"meta": {}, "dependencies": [], "warnings": [], "notes": [], "findings": [
+            fix_finding(1, "cli", ["echo ok-1a", "echo ok-1b"]),
+            fix_finding(2, "cli", ["echo revisar-2"]),
+            fix_finding(3, "cli", ["echo conflicto-3"]),
+            fix_finding(4, "cli_with_decision", ["echo decision-4a", "echo decision-4b"]),
+            fix_finding(5, "planned_change", ["echo planned-5a", "echo planned-5b"]),
+            fix_finding(6, "cli", ["echo __COMPLETAR_X__"]),
+            fix_finding(7, "cli", ["echo ok-7"]),
+            fix_finding(8, "cli", ["echo medio-8"], risk="medium"),
+        ]}
+
+    @classmethod
+    def verification(cls, document):
+        states = {"F-0001": "OK", "F-0002": "REVISAR", "F-0003": "CONFLICTO", "F-0007": "OK"}
+        return {"per_finding": {fid: {"status": s, "issues": []} for fid, s in states.items()}, "conflicts": [], "gaps": [],
+                "apply_order": [], "completar_pendientes": 1, "cli_checked": False, "summary": {"OK": 2, "REVISAR": 1, "CONFLICTO": 1},
+                "warnings": [], "findings_digest": assemble_findings.findings_digest(document)}
+
+    def test_bulk_copy_bundles_only_cli_low_risk_fixes_that_verification_did_not_flag(self):
+        document = self.document()
+        page = self.run_page(document, self.verification(document))
+        bundle = next(b["text"] for b in page["bulk"] if b["text"])
+        for wanted in ("echo ok-1a", "echo ok-1b", "echo ok-7"):
+            self.assertIn(wanted, bundle)
+        for excluded in ("revisar-2", "conflicto-3", "decision-4", "planned-5", "COMPLETAR", "medio-8"):
+            self.assertNotIn(excluded, bundle)
+        self.assertEqual(sum(1 for b in page["bulk"] if b["text"]), 1)
+
+    def test_copy_all_only_for_cli_fixes_with_several_blocks(self):
+        document = self.document()
+        page = self.run_page(document, self.verification(document))
+        cards = {c["id"]: c for c in page["cards"]}
+        self.assertEqual({fid for fid, c in cards.items() if c["copyAll"]}, {"F-0001"})
+        for fid, blocks in (("F-0001", 2), ("F-0004", 2), ("F-0005", 2), ("F-0002", 1)):
+            self.assertEqual(cards[fid]["copyButtons"], blocks, fid)  # per-block Copy stays everywhere
+
+    def test_stale_verification_is_ignored_and_warned(self):
+        document = self.document()
+        verification = self.verification(document)
+        verification["findings_digest"] = "0" * 64
+        page = self.run_page(document, verification)
+        self.assertFalse(page["stale"]["hidden"])
+        self.assertIn("verificación desactualizada: volver a correr verify_remediation", page["stale"]["text"])
+        bundle = next(b["text"] for b in page["bulk"] if b["text"])
+        self.assertIn("revisar-2", bundle)  # no verification applies
+        fresh = self.run_page(document, self.verification(document))
+        self.assertTrue(fresh["stale"]["hidden"])
+
+    def test_sample_report_runs_and_offers_copy_all_only_for_cli(self):
+        page = self.run_page(SAMPLE)
+        kinds = {f["id"]: f["remediation"]["kind"] for f in SAMPLE["findings"] if f["remediation"]}
+        multi = {f["id"] for f in SAMPLE["findings"] if f["remediation"] and f["remediation"]["kind"] != "console_only"
+                 and not f["remediation"].get("note_status") and len(f["remediation"]["commands"]) > 1}
+        self.assertEqual({c["id"] for c in page["cards"] if c["copyAll"]}, {i for i in multi if kinds[i] == "cli"})
+        self.assertTrue(any(kinds[i] != "cli" for i in multi), "el fixture debe tener un arreglo multi-bloque que no sea cli")
+        self.assertEqual(len(page["cards"]), len(SAMPLE["findings"]))
+
+
 class RenderTests(unittest.TestCase):
     def test_data_injected_and_escaped(self):
         rendered = render_report.render(SAMPLE, TEMPLATE)
@@ -168,6 +256,25 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(any(f["vacuous"] and f["status"] == "N/A" for f in findings))
         self.assertTrue(any(f["missing"] for f in findings if f["status"] == "NO_VERIFICADO"))
         self.assertTrue(any(not m["sourced"] for f in findings for m in f["mappings"]["tsc"] + f["mappings"]["iso27001_2022"]))
+
+    def test_vault_path_is_reduced_to_the_folder_name(self):
+        findings = copy.deepcopy(SAMPLE)
+        findings["meta"]["vault"]["path"] = "/home/someone/vaults/acme-notes"
+        rendered = render_report.render(findings, TEMPLATE)
+        self.assertNotIn("someone", rendered)
+        match = re.search(r'<script id="data" type="application/json">(.*?)</script>', rendered, re.S)
+        self.assertEqual(json.loads(match.group(1))["meta"]["vault"], {"path": "acme-notes", "kind": "typed"})
+        self.assertEqual(findings["meta"]["vault"]["path"], "/home/someone/vaults/acme-notes")
+
+    def test_planned_change_banner_does_not_claim_the_commands_only_read(self):
+        block = i18n_block(TEMPLATE)
+        planned = re.search(r"planned: '([^']*)'", block).group(1)
+        self.assertNotIn("solo leen", planned)
+        for phrase in ("cambian la infraestructura", "orden", "ventana", "automáticamente"):
+            self.assertIn(phrase, planned)
+
+    def test_copy_all_is_only_offered_for_cli_fixes(self):
+        self.assertIn("cmds.length > 1 && rem.kind === 'cli'", TEMPLATE)
 
     def test_render_is_pure_and_does_not_mutate_inputs(self):
         before = json.dumps(SAMPLE, sort_keys=True)

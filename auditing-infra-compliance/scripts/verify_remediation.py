@@ -7,8 +7,12 @@ What it does (spec 9bis):
   every --flag of an `aws ...` line must appear in that help;
 - unresolved {placeholders}, pending __COMPLETAR_*__ values, heredocs / `set -e`, destructive operations without warning;
 - the rules of references/conflict-rules.json, tests that depend on the resource, gaps and a suggested apply order;
+- a fix that declares downtime is never OK (floor REVISAR);
 - Claude's vault-based claims (verification-claims.json): the most severe status wins and a claim never lowers a
   CONFLICTO raised by the script.
+
+verification.json carries `findings_digest` (see assemble_findings.findings_digest): render_report ignores a verification
+whose digest does not match findings.json.
 
 Only findings that carry a fix get a status (OK / REVISAR / CONFLICTO): FAIL ones and any other with commands (DOCUMENTED_GAP...). Everything written goes through redact.
 
@@ -37,7 +41,7 @@ SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 PROCESS_TIMEOUT = 30
 KIND_STATE = {
     "syntax": "CONFLICTO", "cli_invalida": "CONFLICTO", "placeholder_sin_resolver": "CONFLICTO", "higiene": "CONFLICTO",
-    "requiere_completar": "REVISAR", "destructivo_sin_aviso": "REVISAR", "impacto_dependencias": "REVISAR",
+    "requiere_completar": "REVISAR", "destructivo_sin_aviso": "REVISAR", "impacto_dependencias": "REVISAR", "downtime": "REVISAR",
 }
 
 PENDING = re.compile(r"__COMPLETAR_[A-Z0-9_]+__")
@@ -188,6 +192,12 @@ def _dependency_issues(finding):
         return []
     return [_issue("impacto_dependencias", "el recurso tiene tests que hoy pasan y dependen de él, el cambio podría ponerlos en rojo: "
                    + "; ".join(_test_label(t) for t in tests))]
+
+
+def _downtime_issues(rem):
+    if rem.get("downtime") is not True:
+        return []
+    return [_issue("downtime", "el arreglo declara downtime")]
 
 
 # ---------------------------------------------------------------- aws help check
@@ -479,7 +489,7 @@ def _analyse(finding, runner, cache, cli_on):
         if cli_on:
             issues += _cli_issues(commands, runner, cache)
         issues += _destructive_issues(finding, commands)
-    issues += _pending_issues(_pending_names(commands)) + _dependency_issues(finding)
+    issues += _pending_issues(_pending_names(commands)) + _dependency_issues(finding) + _downtime_issues(rem)
     return issues, gaps
 
 
@@ -519,7 +529,7 @@ def verify(findings: dict, inventory: list, rules: list, *, claims: list | None 
     summary = {s: sum(1 for e in per_finding.values() if e["status"] == s) for s in RANK}
     result = {"per_finding": per_finding, "conflicts": conflicts, "gaps": gaps + order_gaps, "apply_order": order,
               "completar_pendientes": pending, "cli_checked": cli_on and not unavailable, "summary": summary,
-              "warnings": warnings}
+              "warnings": warnings, "findings_digest": assemble_findings.findings_digest(findings)}
     return redact.mask_obj(result)
 
 

@@ -7,7 +7,7 @@
     "lang": "es",
     "catalog_checks": 98,
     "vault": {
-      "path": "/home/dev/vaults/acme-notes",
+      "path": "acme-notes",
       "kind": "typed"
     },
     "aws": {

@@ -1,6 +1,7 @@
 """Obsidian vault indexer and feature resolution (read-only, stdlib only).
 
-Only regular *.md files are read; dotfiles and dotdirs are skipped (.obsidian/plugins is only listed),
+Only regular *.md files are read (FIFOs, sockets and symlinks are skipped; so are notes whose name is sensitive,
+e.g. *credentials*.md, which are only listed); dotfiles and dotdirs are skipped (.obsidian/plugins is only listed),
 symlinks are not followed and the top-level _meta/ folder (relations, generated edges) is not indexed as notes.
 Everything textual that enters the index (title, headings, kv, links, edges, sources) goes through redact.mask;
 detected secrets are reported by path and pattern only. Sensitive files (.env, .env.*, *.pem, *.key, *credentials*) found
@@ -61,7 +62,8 @@ def _note_files(vault):
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and not (top and d == "_meta"))
         for name in sorted(files):
             path = Path(dirpath) / name
-            if name.endswith(".md") and not name.startswith(".") and not path.is_symlink():
+            if (name.endswith(".md") and not name.startswith(".") and not _sensitive_reason(name)
+                    and not path.is_symlink() and path.is_file()):
                 found.append(path)
     return sorted(found, key=lambda p: p.relative_to(vault).as_posix())
 
@@ -175,14 +177,7 @@ def _aws_ids(text):
 
 
 def _secrets(text):
-    patterns = []
-    if redact.ACCESS_KEY.search(text):
-        patterns.append("aws_access_key_id")
-    for match in (*redact.SECRET_ASSIGNMENT.finditer(text), *redact.CLI_FLAG.finditer(text)):
-        pattern = "aws_session_token" if "session" in match.group(1).lower() else "aws_secret_access_key"
-        if pattern not in patterns:
-            patterns.append(pattern)
-    return patterns
+    return redact.detect(text)
 
 
 def _inferred_type(stem):

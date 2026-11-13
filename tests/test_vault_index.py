@@ -2,6 +2,8 @@ import builtins
 import contextlib
 import io
 import json
+import os
+import threading
 import shutil
 import tempfile
 import time
@@ -240,6 +242,64 @@ class IndexTests(VaultCase):
             self.assertIn({"path": f"{name}.md", "pattern": "aws_secret_access_key"}, index["secrets_detected"], name)
         self.assertIn({"path": "session.md", "pattern": "aws_session_token"}, index["secrets_detected"])
         self.assertEqual(self.note(index, "human")["kv"], {"Secret Access Key": "[REDACTED]"})
+
+    def test_secret_layouts_end_to_end_into_the_index(self):
+        key = "AKIA" + "TESTKEYABCDEMNOP"
+        secret = "wJalrXUtnFEM" + "IK7MDENGbPxRfiCYEXAMPLEKEY"
+        label = "aws_secret" + "_access_key"
+        layouts = {
+            "table": ("| Campo | Valor |\n|---|---|\n" f"| Secret | {secret} |\n| Access key | {key} |", "aws_secret_access_key"),
+            "colon": (f"Secret: {secret}", "aws_secret_access_key"),
+            "decorated": (f"| Secret Key (prod) | {secret} |", "aws_secret_access_key"),
+            "configure": (f"aws configure set {label} {secret}", "aws_secret_access_key"),
+            "pair": (f"access key: {key} secret: {secret}", "aws_secret_access_key"),
+            "password": ("password=hunter2hunter2", "password"),
+            "pem": ("-----BEG" + "IN RSA PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----E" + "ND RSA PRIVATE KEY-----", "private_key"),
+        }
+        vault = self.write_vault(**{name: f"# {name}\n\n{text}\n" for name, (text, _) in layouts.items()})
+        out = self.tmp / "vault-index.json"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(vault_index.main(["index", str(vault), "-o", str(out)]), 0)
+        on_disk = out.read_text(encoding="utf-8")
+        for leaked in (secret, key, "hunter2hunter2", "MIIEvQIBADAN"):
+            self.assertNotIn(leaked, on_disk)
+        index = json.loads(on_disk)
+        for name, (_, pattern) in layouts.items():
+            self.assertIn({"path": f"{name}.md", "pattern": pattern}, index["secrets_detected"], name)
+        self.assertEqual(self.note(index, "table")["kv"]["Secret"], "[REDACTED]")
+
+    def test_clean_prose_is_not_flagged(self):
+        vault = self.write_vault(prosa="# Prosa\n\nLa password se rota cada 90 días. Secrets Manager guarda la clave.\n"
+                                       "| Secret | acme-notes-db |\n")
+        self.assertEqual(vault_index.build_index(vault)["secrets_detected"], [])
+
+    def test_fifo_named_like_a_note_does_not_hang_the_indexer(self):
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("sin os.mkfifo")
+        vault = self.write_vault(real="# Real\n")
+        os.mkfifo(vault / "x.md")
+        result = {}
+        worker = threading.Thread(target=lambda: result.update(index=vault_index.build_index(vault)), daemon=True)
+        worker.start()
+        worker.join(5)
+        self.assertFalse(worker.is_alive(), "el indexador quedó colgado en la FIFO")
+        self.assertEqual([n["path"] for n in result["index"]["notes"]], ["real.md"])
+
+    def test_notes_with_a_sensitive_name_are_listed_but_never_opened(self):
+        vault = self.write_vault(real="# Real\n")
+        (vault / "AWS-Credentials.md").write_text("password=hunter2hunter2\n", encoding="utf-8")
+        real_open = builtins.open
+
+        def guarded(file, *args, **kwargs):
+            if "credentials" in Path(str(file)).name.lower():
+                raise AssertionError(f"forbidden read: {file}")
+            return real_open(file, *args, **kwargs)
+
+        with mock.patch.object(builtins, "open", guarded):
+            index = vault_index.build_index(vault)
+        self.assertEqual([n["path"] for n in index["notes"]], ["real.md"])
+        self.assertEqual(index["sensitive_files"], [{"path": "AWS-Credentials.md", "reason": "nombre con 'credentials'"}])
+        self.assertEqual(index["secrets_detected"], [])
 
     def test_access_key_glued_to_text_is_detected_and_masked(self):
         key = "AKIA" + "TESTKEYABCDEMNOP"

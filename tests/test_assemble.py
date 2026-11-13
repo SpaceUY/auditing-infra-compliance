@@ -392,7 +392,8 @@ class MaskingTests(AssembleCase):
         text = json.dumps(out)
         self.assertNotIn(KEY, text)
         self.assertNotIn("TESTKEYABCDEMNOP", text)
-        self.assertEqual(out["meta"]["vault"], {"path": index["root"], "kind": "free"})
+        self.assertEqual(out["meta"]["vault"], {"path": "vault", "kind": "free"})  # folder name only, never the absolute path
+        self.assertNotIn(str(self.tmp), text)
         self.assertTrue(any("secret-note.md" in w for w in out["warnings"]))
 
     def test_sensitive_file_by_name_creates_critical_fail_finding(self):
@@ -408,6 +409,30 @@ class MaskingTests(AssembleCase):
         self.assertEqual(out["findings"][0]["id"], "F-0001")
         self.assertGreaterEqual(out["summary"]["by_severity_fail"]["critical"], 1)
         self.assertTrue(any(".env" in w for w in out["warnings"]))
+
+    def test_sensitive_names_that_may_be_templates_or_public_certs_carry_a_review_hint(self):
+        hint = "revisar: puede ser una plantilla o un certificado público"
+        paths = [".env.example", "ops/server.pem", "docs/AWS-Credentials.md", ".env", "id.key", "notes/credentials.txt"]
+        index = {"kind": "free", "root": "/v", "notes": [], "secrets_detected": [], "broken_links": [],
+                 "sensitive_files": [{"path": p, "reason": "x"} for p in paths]}
+        out = self.assemble(claims=[], index=index)
+        by_path = {f["resource"]["id"]: f["remediation"] for f in out["findings"] if f["resource"]["type"] == "vault_note"}
+        for path in (".env.example", "ops/server.pem", "docs/AWS-Credentials.md"):
+            self.assertEqual(sum(hint in step for step in by_path[path]["steps"]), 1, path)
+        for path in (".env", "id.key", "notes/credentials.txt"):
+            self.assertFalse(any(hint in step for step in by_path[path]["steps"]), path)
+        self.assertEqual(len(by_path[".env"]["steps"]), 3)
+
+    def test_breaks_tests_and_meta_are_masked(self):
+        claims = [{"kind": "DRIFT", "check_id": None, "severity": None, "resource": None,
+                   "breaks_tests": [{"tool": "drata", "name": "aws_secret" + f"_access_key={SECRET_VALUE} {KEY} jane@acme-notes.example"}]}]
+        meta = {**META, "platform": f"Acme {KEY}", "target": "jane@acme-notes.example"}
+        out = assemble_findings.assemble(self.run_dir, None, claims, meta, SKILL_DIR)
+        text = json.dumps(out)
+        for leaked in (KEY, SECRET_VALUE, "jane@acme-notes.example"):
+            self.assertNotIn(leaked, text)
+        self.assertEqual((out["meta"]["platform"], out["meta"]["target"]), ("Acme AKIA…MNOP", "j***@acme-notes.example"))
+        self.assertEqual(self.assemble([])["meta"]["target"], None)
 
     def test_broken_links_become_warnings(self):
         index = {"kind": "typed", "root": "/v", "notes": [], "secrets_detected": [],
@@ -471,7 +496,7 @@ class NoAwsTests(AssembleCase):
 
 
 class RemediationByStatusTests(AssembleCase):
-    """R61 / R62: only FAIL, DOCUMENTED_GAP and a DRIFT whose actual fails keep the fix; the rest only verify."""
+    """R61 / R62: only FAIL, DOCUMENTED_GAP and a DRIFT or UNDOCUMENTED whose actual fails keep the fix; the rest only verify."""
 
     NO_FIX = {"steps": [], "commands": [], "notes": ""}
 
@@ -498,6 +523,16 @@ class RemediationByStatusTests(AssembleCase):
         rem = self.one(out, "ENC-003", "acme-notes-db")["remediation"]
         self.assertTrue(rem["commands"] and rem["steps"])
         self.assertNotIn("note_status", rem)
+
+    def test_undocumented_keeps_the_fix_only_when_its_actual_fails(self):
+        keep = self.one(self.assemble([self.claim("UNDOCUMENTED", "ENC-003", actual_status="FAIL")]), "ENC-003", "acme-notes-db")
+        self.assertEqual(keep["status"], "UNDOCUMENTED")
+        self.assertTrue(keep["remediation"]["commands"] and keep["remediation"]["steps"])
+        self.assertNotIn("note_status", keep["remediation"])
+        for extra in ({}, {"actual_status": "PASS"}):
+            found = self.one(self.assemble([self.claim("UNDOCUMENTED", "ENC-003", **extra)]), "ENC-003", "acme-notes-db")
+            self.assertEqual(found["status"], "UNDOCUMENTED")
+            self.assert_verify_only(found)
 
     def test_drift_keeps_the_fix_only_when_its_actual_fails(self):
         keep = self.one(self.assemble([self.claim("DRIFT", "ENC-003", actual_status="FAIL")]), "ENC-003", "acme-notes-db")
