@@ -4,8 +4,8 @@ import json
 import re
 from datetime import timedelta
 
-from evaluators import (_for_each_pairs, _inventory_by_arn, _not_applicable, _now, _offender, _parse_time, _unverified,
-                        register)
+from evaluators import (_for_each_pairs, _inventory_by_arn, _not_applicable, _now, _offender, _parse_time, _unreadable,
+                        _unverified, register)
 
 
 # ---------------------------------------------------------------- At rest: EBS and RDS
@@ -73,8 +73,10 @@ def s3_default_encryption(responses: dict, params: dict) -> list[dict]:
         error = (data or {}).get("__error__")
         if error == "NoSuchBucket":
             offenders.append(_not_applicable(bucket, region))
-        elif error:
+        elif error == "ServerSideEncryptionConfigurationNotFoundError":
             offenders.append(_offender(bucket, region, reason="sin cifrado por defecto configurado"))
+        elif error:
+            offenders.append(_unreadable(bucket, region, error, "get-bucket-encryption"))
         elif not _default_algorithms(data or {}) & SSE_ALGORITHMS:
             offenders.append(_offender(bucket, region, reason="la regla de cifrado no define un algoritmo válido"))
     return offenders
@@ -216,8 +218,10 @@ def s3_tls_only(responses: dict, params: dict) -> list[dict]:
         error = (data or {}).get("__error__")
         if error == "NoSuchBucket":
             offenders.append(_not_applicable(bucket, region))
-        elif error:
+        elif error == "NoSuchBucketPolicy":
             offenders.append(_offender(bucket, region, reason="sin bucket policy"))
+        elif error:
+            offenders.append(_unreadable(bucket, region, error, "get-bucket-policy"))
         elif (document := _bucket_policy_document(data or {})) is None:
             offenders.append(_offender(bucket, region, reason="la bucket policy no se pudo leer como JSON"))
         elif not _denies_insecure_transport(document, bucket):

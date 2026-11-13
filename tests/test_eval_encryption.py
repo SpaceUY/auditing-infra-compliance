@@ -214,6 +214,13 @@ class S3DefaultEncryptionTests(unittest.TestCase):
         (entry,) = evaluate("s3_default_encryption", self.responses(gone={"__error__": "NoSuchBucket"}))
         self.assertEqual(flags([entry]), [("gone", "not_applicable")])
 
+    def test_unreadable_bucket_is_unverified_not_a_fail(self):
+        responses = self.responses(denied={"__error__": "ACCESS_DENIED"}, broken={"__error__": "ERROR"},
+                                   ok=fx("s3api-get-bucket-encryption-sse-s3"))
+        found = evaluate("s3_default_encryption", responses)
+        self.assertEqual(flags(found), [("denied", "unverified"), ("broken", "unverified")])
+        self.assertEqual([o["detail"]["error_code"] for o in found], ["ACCESS_DENIED", "ERROR"])
+
     def test_algorithm_names_are_compared_ignoring_case(self):
         data = {"ServerSideEncryptionConfiguration": {"Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "aes256"}}]}}
         self.assertEqual(evaluate("s3_default_encryption", self.responses(b=data)), [])
@@ -361,6 +368,12 @@ class S3TlsOnlyTests(unittest.TestCase):
 
     def test_deleted_bucket_is_not_applicable(self):
         self.assertEqual(flags(self.evaluate({"__error__": "NoSuchBucket"})), [(self.BUCKET, "not_applicable")])
+
+    def test_unreadable_policy_is_unverified_not_a_fail(self):
+        for code in ("ACCESS_DENIED", "ERROR", "THROTTLED"):
+            found = self.evaluate({"__error__": code})
+            self.assertEqual(flags(found), [(self.BUCKET, "unverified")], code)
+            self.assertEqual(found[0]["detail"]["error_code"], code)
 
     def test_deny_must_cover_the_bucket_and_its_objects(self):
         for resource in (f"arn:aws:s3:::{self.BUCKET}", f"arn:aws:s3:::{self.BUCKET}/*", f"arn:aws:s3:::{self.BUCKET}/private/*",

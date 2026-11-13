@@ -1,7 +1,13 @@
 """Read-only inventory and check-collection engine.
 
 Writes <out>/checks-result.json, <out>/inventory.json and <out>/raw/<check_id>/<call>-<region>[-<n>].json
-and prints a bounded summary. Global calls run in us-east-1 and report that region.
+and prints a bounded summary; one progress line per finished check goes to stderr ("[n/total] CHECK-ID", --quiet
+silences it). inventory.json is written as soon as the inventory is known and checks-result.json is refreshed while the
+run progresses, flagged "partial": true with "pending_checks" until the end, so a killed run (Ctrl-C/SIGTERM exit 130, or
+an exception) keeps what it collected. Identical AWS calls (service, operation, args, region, query) run once per run.
+Only (service, operation) pairs of the loaded catalog, the inventory spec and the preflight are ever executed.
+A failing region does not collapse a check: the healthy regions are evaluated and the failing ones get their own
+NO_VERIFICADO row ("bloqueado por SCP", without `missing`, when AccessDenied names a service control policy). Global calls run in us-east-1 and report that region.
 Everything written or printed goes through redact (keys, secrets, emails); evaluation uses the unmasked data in
 memory. Resource identifiers (row resource_id; inventory id/arn/name) only lose keys/secrets, never emails: they
 end up in remediation commands. The values of the VantaOwner tag stay unmasked in inventory.json (owner emails, INV-001).
@@ -29,10 +35,13 @@ import argparse
 import json
 import re
 import shutil
+import signal
 import subprocess
+import sys
+import threading
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -52,6 +61,13 @@ SEVERITY_ORDER = {s: i for i, s in enumerate(catalog.SEVERITIES)}
 ADMIN_POLICY = "AdministratorAccess"
 OWNER_TAG = "VantaOwner"
 ENABLED_REGIONS_FILTER = "Name=opt-in-status,Values=opt-in-not-required,opted-in"
+SCP_REASON = "bloqueado por SCP"
+_SCP = re.compile(r"service control polic", re.IGNORECASE)
+CHECKPOINT_SECONDS = 15
+NEVER_CACHED = frozenset({("iam", "generate-credential-report")})  # polled until the report is ready
+CACHEABLE_FAILURES = frozenset({"ACCESS_DENIED", "NOT_ENABLED"})  # deterministic; throttling and timeouts may pass on retry
+PREFLIGHT_OPERATIONS = frozenset({("sts", "get-caller-identity"), ("ec2", "describe-regions"),
+                                  ("iam", "list-attached-user-policies"), ("iam", "list-attached-role-policies")})
 
 
 @dataclass
@@ -66,18 +82,69 @@ class Ctx:
     inventory: list = field(default_factory=list)
     inventory_errors: dict = field(default_factory=dict)  # type -> {error kinds}
     scope_entries: list | None = None  # [(type, ref)] in feature/resource mode, None in full mode
+    allowed: frozenset | None = None  # {(service, operation)} the run may execute; None = unrestricted (tests only)
+    blocked_regions: list = field(default_factory=list)  # regions whose inventory is denied by an SCP
+    cache: dict = field(default_factory=dict)  # call key -> _Slot
+    cache_lock: threading.Lock = field(default_factory=threading.Lock)
+    cancelled: threading.Event = field(default_factory=threading.Event)
+
+
+class _Slot:
+    """One memoized call: the lock serializes identical in-flight calls so only the first one reaches AWS."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.result = None
 
 
 def _oneline(text, limit):
     return " ".join(str(text).split())[:limit]
 
 
-def _aws(ctx, service, operation, args, region, query=None):
+def _masked_line(text, limit):
+    """Mask first, truncate after: a secret cut in the middle would otherwise survive as an unmatched prefix."""
+    return _oneline(redact.mask(str(text or "")), limit)
+
+
+def allowed_operations(checks, specs):
+    """Closed allowlist: every (service, operation) of the catalog calls and the inventory spec, plus the preflight."""
+    pairs = {(c["service"], c["operation"]) for check in checks for c in check["verify"]["calls"]}
+    return frozenset(pairs | {(s["service"], s["operation"]) for s in specs.values()} | PREFLIGHT_OPERATIONS)
+
+
+def _refused(message):
+    return aws_runner.CallResult(False, None, "ERROR", message, ())
+
+
+def _run_aws(ctx, service, operation, args, region, query):
     try:
         return aws_runner.run_aws(service, operation, args, region=region, profile=ctx.profile,
                                   query=query, runner=ctx.runner, sleep=ctx.sleep)
     except aws_runner.ReadOnlyViolation as exc:
-        return aws_runner.CallResult(False, None, "ERROR", str(exc), ())
+        return _refused(str(exc))
+
+
+def _aws(ctx, service, operation, args, region, query=None):
+    if ctx.allowed is not None and (service, operation) not in ctx.allowed:
+        return _refused(f"operación fuera del catálogo, no se ejecuta: {service} {operation}")
+    if ctx.cancelled.is_set():
+        return _refused("ejecución cancelada")
+    if (service, operation) in NEVER_CACHED:
+        return _run_aws(ctx, service, operation, args, region, query)
+    key = repr((service, operation, tuple(args), region, query))
+    with ctx.cache_lock:
+        slot = ctx.cache.setdefault(key, _Slot())
+    with slot.lock:
+        if slot.result is None:
+            res = _run_aws(ctx, service, operation, args, region, query)
+            if res.ok or res.error_kind in CACHEABLE_FAILURES:
+                slot.result = res
+            return res
+        return slot.result
+
+
+def _is_scp(res):
+    return res.error_kind == "ACCESS_DENIED" and bool(_SCP.search(res.error_message or ""))
 
 
 def _row(check, status, resource_id, region, detail=None, missing=None, vacuous=False):
@@ -154,7 +221,7 @@ def _write_raw(directory, call_name, region, index, res):
     if res.ok:
         payload["data"] = res.data
     else:
-        payload.update(error_kind=res.error_kind, error_message=_oneline(res.error_message, 300))
+        payload.update(error_kind=res.error_kind, error_message=_masked_line(res.error_message, 300))
     directory.mkdir(parents=True, exist_ok=True)
     (directory / f"{safe}.json").write_text(json.dumps(redact.mask_obj(payload), indent=2, ensure_ascii=False),
                                             encoding="utf-8")
@@ -175,6 +242,16 @@ def _item_error(call, res, query):
     if call.get("item_errors") == "evaluator" and res.error_kind != "NO_CREDENTIALS":
         return res.error_kind
     return None
+
+
+def _failure(name, region, value, res):
+    failure = {"call": name, "region": region, "error_kind": res.error_kind,
+               "error_message": _masked_line(res.error_message, 300)}
+    if value is not None:
+        failure["item"] = _oneline(value, 120)
+    if _is_scp(res):
+        failure["reason"] = SCP_REASON  # decided on the full message: the phrase may sit past the truncation point
+    return failure
 
 
 def _run_calls(ctx, check, items):
@@ -199,8 +276,7 @@ def _run_calls(ctx, check, items):
                     collected["responses"][name].append((region, {"__error__": code}))
                     collected["values"][name].append(value)
                 else:
-                    collected["failures"].append({"call": name, "region": region, "error_kind": res.error_kind,
-                                                  "error_message": _oneline(res.error_message, 300)})
+                    collected["failures"].append(_failure(name, region, value, res))
     return collected
 
 
@@ -231,16 +307,27 @@ def _python_offenders(ctx, check, name, collected, items):
             for o in fn(responses, check["verify"].get("params") or {})]
 
 
-def _identifiers(items):
-    return {x for i in items for x in (i["id"], i["arn"], i["name"]) if x}
-
-
 def _unverified(check, failures, detail=None):
-    denied = any(f["error_kind"] == "ACCESS_DENIED" for f in failures)
+    denied = any(f["error_kind"] == "ACCESS_DENIED" and f.get("reason") != SCP_REASON for f in failures)
     regions = sorted({f["region"] for f in failures})
     detail = detail or {"failed_calls": failures[:20]}
+    if failures and all(f.get("reason") == SCP_REASON for f in failures):
+        detail = {"reason": SCP_REASON, **detail}  # adding IAM permissions will not help
     return _row(check, "NO_VERIFICADO", "account", regions[0] if len(regions) == 1 else None, detail,
                 missing=list(check["verify"]["needs"]) if denied else [])
+
+
+def _call_region_set(ctx, check):
+    return {r for call in check["verify"]["calls"] for r in _call_regions(ctx, check, call)}
+
+
+def _without_regions(collected, regions):
+    """The collected calls minus the answers of `regions` (an evaluator must not conclude from half the data of a region)."""
+    keep = {name: [i for i, (region, _) in enumerate(answers) if region not in regions]
+            for name, answers in collected["responses"].items()}
+    return {"responses": {n: [a[i] for i in keep[n]] for n, a in collected["responses"].items()},
+            "values": {n: [v[i] for i in keep[n]] for n, v in collected["values"].items()},
+            "failures": collected["failures"]}
 
 
 class _Unverifiable(Exception):
@@ -314,10 +401,13 @@ def _check_rows(ctx, check):
     collected = _run_calls(ctx, check, items)
     failures = collected["failures"]
     blocking = [f for f in failures if f["error_kind"] != "NOT_ENABLED" or check["not_enabled_means"] != "fail"]
-    if blocking:
-        return [_unverified(check, blocking)]
-    rows = [_row(check, "FAIL", "account", region, {"reason": "servicio no habilitado", "call": call})
-            for region, call in sorted({(f["region"], f["call"]) for f in failures})]
+    blocked = {f["region"] for f in blocking}
+    if blocking and blocked >= _call_region_set(ctx, check):
+        return [_unverified(check, blocking)]  # nothing could be verified: one row, as a whole-check failure
+    rows = [_unverified(check, [f for f in blocking if f["region"] == region]) for region in sorted(blocked)]
+    collected = _without_regions(collected, blocked)
+    rows += [_row(check, "FAIL", "account", region, {"reason": "servicio no habilitado", "call": call})
+             for region, call in sorted({(f["region"], f["call"]) for f in failures if f["region"] not in blocked})]
     if kind == "claude":
         return rows + [_row(check, "PENDING_CLAUDE", "account", None,
                             {"evaluator": kind, "calls": [c["name"] for c in check["verify"]["calls"]]})]
@@ -327,18 +417,21 @@ def _check_rows(ctx, check):
         elif kind == "dns":
             offenders = _dns_offenders(ctx, check, items)
         else:
-            offenders = _python_offenders(ctx, check, name, collected, ctx.inventory)
+            offenders = _python_offenders(ctx, check, name, collected,
+                                          [i for i in ctx.inventory if i["region"] not in blocked])
     except _Unverifiable as exc:
         return rows + [_unverified(check, [], exc.args[0])]
     except Exception as exc:  # evaluator code is third-party to the engine
         detail = {"reason": "error del evaluador", "error": _oneline(f"{type(exc).__name__}: {exc}", 300)}
         return rows + [_unverified(check, [], detail)]
+    offenders = [o for o in offenders if o["region"] not in blocked]  # that region already has its NO_VERIFICADO row
     if is_resource and ctx.scope_entries is not None:
-        allowed = _identifiers(items)
-        offenders = [o for o in offenders if o.get("unverified") or o["resource_id"] in allowed]  # never drop unverified
+        allowed = {(x, i["region"]) for i in items for x in _ids(i)}
+        # an account-level unverified entry is about the check, not about a resource: it is never scoped out
+        offenders = [o for o in offenders if _in_scope(o, allowed) or (o.get("unverified") and o["resource_id"] == "account")]
     unverified = [o for o in offenders if o.get("unverified")]
     # R20: not applicable resources get no FAIL and no PASS row; unverified ones get no PASS either
-    skipped = {o["resource_id"] for o in offenders if o.get("not_applicable") or o.get("unverified")}
+    skipped = {(o["resource_id"], o["region"]) for o in offenders if o.get("not_applicable") or o.get("unverified")}
     offenders = [o for o in offenders if not o.get("not_applicable") and not o.get("unverified")]
     rows += [_row(check, "NO_VERIFICADO", o["resource_id"], o["region"], o["detail"],
                   missing=list(check["verify"]["needs"]) if o["detail"].get("error_code") == "ACCESS_DENIED" else [])
@@ -350,12 +443,24 @@ def _check_rows(ctx, check):
     return rows
 
 
+def _ids(item):
+    return [x for x in (item["id"], item["arn"], item["name"]) if x]
+
+
+def _in_scope(offender, allowed):
+    """Keyed on (resource_id, region); an offender without region matches by id alone."""
+    if offender["region"] is None:
+        return any(offender["resource_id"] == rid for rid, _ in allowed)
+    return (offender["resource_id"], offender["region"]) in allowed
+
+
 def _pass_rows(check, items, offenders, skipped, failed_regions, any_fail):
     if check["scope"] == "account":
         return [] if any_fail else [_row(check, "PASS", "account", None)]
-    bad = {o["resource_id"] for o in offenders} | skipped
+    bad = {(o["resource_id"], o["region"]) for o in offenders} | skipped
     return [_row(check, "PASS", i["id"], i["region"]) for i in items
-            if i["region"] not in failed_regions and not (_identifiers([i]) & bad)]
+            if i["region"] not in failed_regions
+            and not any((x, i["region"]) in bad or (x, None) in bad for x in _ids(i))]
 
 
 def _select(checks, scope):
@@ -388,9 +493,11 @@ def _admin_warning(ctx, arn):
     return None
 
 
-def _summary(rows, severities, warnings, aws, out):
+def _summary(rows, severities, warnings, aws, out, pending=()):
     counts = Counter(r["status"] for r in rows)
     lines = [f"Cuenta {aws['account_id']}: {len(rows)} resultados en {len(aws['regions'])} regiones"]
+    if pending:
+        lines.append(f"PARCIAL: la ejecución se interrumpió, {len(pending)} chequeos sin terminar")
     lines += [f"  {s}: {counts[s]}" for s in (*catalog.STATUSES, "PENDING_CLAUDE") if counts[s]]
     fails = sorted((r for r in rows if r["status"] == "FAIL"),
                    key=lambda r: (SEVERITY_ORDER[severities[r["check_id"]]], r["check_id"], r["resource_id"]))
@@ -436,7 +543,56 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", required=True)
     parser.add_argument("--checks-dir", default=str(SKILL_DIR / "references" / "checks"))
     parser.add_argument("--inventory", default=str(SKILL_DIR / "references" / "inventory.json"))
+    parser.add_argument("--quiet", action="store_true", help="sin líneas de progreso en stderr")
     return parser
+
+
+def _progress(args, text):
+    if not args.quiet:
+        print(text, file=sys.stderr, flush=True)
+
+
+def _scp_blocked_regions(specs, regions, errors, scp_calls):
+    """Regions (never the default one, which also hosts the global services) where every regional inventory type
+    was refused by a service control policy: nothing can run there, so they are left out of the audit and reported."""
+    regional = {t: s for t, s in specs.items() if s["region"] == "each"}
+    denied = {(t, r) for t, r, _ in errors}
+    return sorted(r for r in regions if r != DEFAULT_REGION and regional
+                  and all((t, r) in denied and (s["service"], s["operation"], r) in scp_calls for t, s in regional.items()))
+
+
+def _results_payload(aws, rows, warnings, pending):
+    ordered = sorted(rows, key=lambda r: (r["check_id"], r["resource_id"], str(r["region"])))
+    payload = {"aws": redact.mask_obj(aws), "results": _masked_rows(ordered), "warnings": redact.mask_obj(warnings)}
+    if pending is not None:
+        payload.update(partial=True, pending_checks=sorted(pending))
+    return payload
+
+
+def _run_checks(ctx, args, selected, collect_rows):
+    """Run the checks in the pool; `collect_rows(rows, pending)` is called as results arrive (checkpoint) and at the end.
+    Returns (rows, interrupted)."""
+    rows, pending, total = [], {c["id"] for c in selected}, len(selected)
+    pool = ThreadPoolExecutor(max_workers=WORKERS)
+    futures = {pool.submit(_run_check, ctx, c): c for c in selected}
+    last = time.monotonic()
+    try:
+        for done, future in enumerate(as_completed(futures), 1):
+            rows += future.result()
+            pending.discard(futures[future]["id"])
+            _progress(args, f"[{done}/{total}] {futures[future]['id']}")
+            if time.monotonic() - last >= CHECKPOINT_SECONDS:
+                collect_rows(rows, pending)
+                last = time.monotonic()
+    except BaseException as exc:  # Ctrl-C, SIGTERM (as KeyboardInterrupt) or a bug: keep what was collected
+        ctx.cancelled.set()  # running workers stop issuing AWS calls
+        pool.shutdown(wait=False, cancel_futures=True)
+        collect_rows(rows, pending)
+        if isinstance(exc, KeyboardInterrupt):
+            return rows, pending
+        raise
+    pool.shutdown()
+    return rows, set()
 
 
 def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which) -> int:
@@ -447,7 +603,8 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     checks = catalog.load_checks(Path(args.checks_dir))
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    ctx = Ctx(runner=runner, sleep=sleep, which=which, out=out, profile=scope.get("profile"))
+    ctx = Ctx(runner=runner, sleep=sleep, which=which, out=out, profile=scope.get("profile"),
+              allowed=allowed_operations(checks, specs))
     warnings = []
 
     identity = _aws(ctx, "sts", "get-caller-identity", [], DEFAULT_REGION)
@@ -461,41 +618,65 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
 
     wanted = scope.get("regions", "auto")
     enabled, known = _enabled_regions(ctx, wanted, warnings)
-    ctx.enabled_regions = enabled
     if wanted == "auto":
         inventory_regions = enabled
     else:
         inventory_regions = [r for r in wanted if r in enabled or not known]
         warnings += [f"región fuera de las habilitadas, se omite: {r}" for r in wanted if r not in inventory_regions]
-    ctx.inventory, errors = inventory.build_inventory(
-        lambda service, op, args, region: _aws(ctx, service, op, args, region), specs, inventory_regions)
+    scp_calls = set()
+
+    def list_inventory(service, op, call_args, region):
+        res = _aws(ctx, service, op, call_args, region)
+        if _is_scp(res):
+            scp_calls.add((service, op, region))
+        return res
+
+    _progress(args, f"[inventario] {len(inventory_regions)} regiones")
+    ctx.inventory, errors = inventory.build_inventory(list_inventory, specs, inventory_regions)
+    ctx.blocked_regions = _scp_blocked_regions(specs, inventory_regions, errors, scp_calls)
+    warnings += [f"región bloqueada por una SCP (todos los tipos de inventario denegados), se omite: {r}"
+                 for r in ctx.blocked_regions]
+    errors = [e for e in errors if e[1] not in ctx.blocked_regions]
+    inventory_regions = [r for r in inventory_regions if r not in ctx.blocked_regions]
+    ctx.enabled_regions = [r for r in enabled if r not in ctx.blocked_regions]
     warnings += _inventory_warnings(ctx, errors)
     if wanted == "auto":
         with_resources = {i["region"] for i in ctx.inventory if specs[i["type"]]["region"] == "each"}
         ctx.regions = sorted(with_resources | {DEFAULT_REGION})
     else:
         ctx.regions = sorted(inventory_regions)
+    _dump(out / "inventory.json", _masked_inventory(ctx.inventory))
+    _progress(args, f"[inventario] {len(ctx.inventory)} recursos")
     if scope["mode"] != "full":
         ctx.scope_entries = [(r["type"], r["id"]) for r in scope.get("resources") or []]
         warnings += [f"recurso del alcance sin coincidencia en el inventario: {t} {ref}" for t, ref in ctx.scope_entries
                      if not any(_matches(i, t, ref) for i in ctx.inventory)]
 
     selected = _select(checks, scope)
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        rows = [row for result in pool.map(lambda c: _run_check(ctx, c), selected) for row in result]
-    rows.sort(key=lambda r: (r["check_id"], r["resource_id"], str(r["region"])))
+    aws = {"account_id": account_id, "identity_arn": identity_arn, "regions": ctx.regions,
+           "enabled_regions": ctx.enabled_regions, "blocked_regions": ctx.blocked_regions}
+    severities = {c["id"]: c["severity"] for c in selected}
 
+    def checkpoint(rows, pending):
+        _dump(out / "checks-result.json", _results_payload(aws, rows, warnings, pending))
+
+    checkpoint([], {c["id"] for c in selected})
+    rows, pending = _run_checks(ctx, args, selected, checkpoint)
+    if pending:
+        print(redact.mask(_summary(rows, severities, warnings, aws, out, pending)))
+        return 130
     admin = _admin_warning(ctx, identity_arn)
     if admin:
         warnings.append(admin)
-    aws = {"account_id": account_id, "identity_arn": identity_arn, "regions": ctx.regions,
-           "enabled_regions": enabled}
-    _dump(out / "checks-result.json", {"aws": redact.mask_obj(aws), "results": _masked_rows(rows),
-                                       "warnings": redact.mask_obj(warnings)})
-    _dump(out / "inventory.json", _masked_inventory(ctx.inventory))
-    print(redact.mask(_summary(rows, {c["id"]: c["severity"] for c in selected}, warnings, aws, out)))
+    _dump(out / "checks-result.json", _results_payload(aws, rows, warnings, None))
+    print(redact.mask(_summary(rows, severities, warnings, aws, out)))
     return 0
 
 
+def _raise_interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, _raise_interrupt)  # a killed run still writes its partial result
     raise SystemExit(main())

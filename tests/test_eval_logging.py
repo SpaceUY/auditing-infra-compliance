@@ -191,6 +191,11 @@ class TrailBucketTests(unittest.TestCase):
         (offender,) = evaluate("trail_bucket_logging", self.logging((TRAIL_BUCKET, {"__error__": "NoSuchBucket"})))
         self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), (TRAIL_BUCKET, "el bucket no existe"))
 
+    def test_trail_bucket_logging_unreadable_bucket_is_unverified(self):
+        (entry,) = evaluate("trail_bucket_logging", self.logging((TRAIL_BUCKET, {"__error__": "ACCESS_DENIED"})))
+        self.assertEqual((entry["resource_id"], entry.get("unverified"), entry["detail"]["error_code"]),
+                         (TRAIL_BUCKET, True, "ACCESS_DENIED"))
+
     def test_trail_bucket_logging_reports_a_shared_bucket_once(self):
         second = {**fx("cloudtrail-describe-trails-ok")["trailList"][0], "Name": "acme-notes-second",
                   "TrailARN": TRAIL_ARN.replace("acme-notes-trail", "acme-notes-second")}
@@ -225,6 +230,14 @@ class TrailBucketTests(unittest.TestCase):
         responses = self.hardening({"Status": "Suspended"}, fx("s3api-get-bucket-policy-sourcearn"))
         (offender,) = evaluate("trail_bucket_hardening", responses)
         self.assertEqual(offender["detail"]["problems"], ["versionado no habilitado"])
+
+    def test_trail_bucket_hardening_unreadable_calls_are_unverified_not_fail(self):
+        good_v, good_p = fx("s3api-get-bucket-versioning-enabled"), fx("s3api-get-bucket-policy-sourcearn")
+        for versioning, policy in (({"__error__": "ACCESS_DENIED"}, good_p), (good_v, {"__error__": "ACCESS_DENIED"}),
+                                   ({"__error__": "ERROR"}, {"__error__": "NoSuchBucketPolicy"})):
+            (entry,) = evaluate("trail_bucket_hardening", self.hardening(versioning, policy))
+            self.assertEqual((entry["resource_id"], entry.get("unverified")), (TRAIL_BUCKET, True))
+            self.assertIn(entry["detail"]["error_code"], ("ACCESS_DENIED", "ERROR"))
 
     def test_trail_bucket_hardening_missing_bucket_is_reported(self):
         responses = self.hardening({"__error__": "NoSuchBucket"}, {"__error__": "NoSuchBucket"})
@@ -320,6 +333,15 @@ class LifecycleTests(unittest.TestCase):
         (offender,) = offending(evaluate("log_bucket_lifecycle", responses, self.PARAMS))
         self.assertEqual((offender["resource_id"], offender["region"]), (TRAIL_BUCKET, REGION))
         self.assertEqual(offender["detail"]["rules"], [{"rule": "expire-90", "expires_after_days": 90}])
+
+    def test_log_bucket_lifecycle_unreadable_log_bucket_is_unverified(self):
+        responses = self.responses(**{TRAIL_BUCKET: {"__error__": "ACCESS_DENIED"}})
+        (entry,) = [o for o in evaluate("log_bucket_lifecycle", responses, self.PARAMS) if o.get("unverified")]
+        self.assertEqual((entry["resource_id"], entry["detail"]["error_code"]), (TRAIL_BUCKET, "ACCESS_DENIED"))
+
+    def test_log_bucket_lifecycle_unreadable_non_log_bucket_stays_not_applicable(self):
+        responses = self.responses(**{"acme-notes-data": {"__error__": "ACCESS_DENIED"}})
+        self.assertEqual([o for o in evaluate("log_bucket_lifecycle", responses, self.PARAMS) if o.get("unverified")], [])
 
     def test_log_bucket_lifecycle_buckets_without_lifecycle_pass(self):
         self.assertEqual(offending(evaluate("log_bucket_lifecycle", self.responses(), self.PARAMS)), [])
@@ -441,6 +463,111 @@ class JmespathExpressionTests(unittest.TestCase):
         self.assertEqual(jmespath.search(expression, fx("eks-describe-cluster-audit-partial")),
                          [{"detail": {"logging": fx("eks-describe-cluster-audit-partial")["cluster"]["logging"]["clusterLogging"]}}])
         self.assertEqual(jmespath.search(expression, fx("eks-describe-cluster-audit-on")), [])
+
+
+@unittest.skipIf(jmespath is None, "jmespath is not installed")
+class CatalogJmespathQueryTests(unittest.TestCase):
+    """The other jmespath `offenders` queries of the catalog (the LOG ones are above), against synthetic AWS-shaped output."""
+
+    COVERED = ("CMP-001", "CMP-003", "DAT-003", "DAT-004", "DAT-011", "DET-007", "EML-001", "ENC-002", "ENC-004", "ENC-008",
+               "IAM-001", "IAM-003", "IAM-014", "IAM-015", "LOG-002", "LOG-003", "LOG-009", "LOG-013")  # LOG-* in the class above
+
+    @staticmethod
+    def query(check_id, data):
+        for path in sorted((REFS / "checks").glob("*.json")):
+            for check in json.loads(path.read_text(encoding="utf-8"))["checks"]:
+                if check["id"] == check_id:
+                    return jmespath.search(check["verify"]["offenders"], data)
+        raise AssertionError(check_id)
+
+    def test_every_jmespath_query_of_the_catalog_compiles_and_has_a_test(self):
+        found = set()
+        for path in (REFS / "checks").glob("*.json"):
+            for check in json.loads(path.read_text(encoding="utf-8"))["checks"]:
+                if check["verify"]["evaluator"] == "jmespath":
+                    jmespath.compile(check["verify"]["offenders"])
+                    found.add(check["id"])
+        self.assertEqual(sorted(found), sorted(self.COVERED), "a jmespath check was added or removed: update the tests")
+
+    def test_cmp_001_instances_without_imdsv2(self):
+        data = {"Reservations": [{"Instances": [
+            {"InstanceId": "i-1", "MetadataOptions": {"HttpTokens": "optional"}},
+            {"InstanceId": "i-2", "MetadataOptions": {"HttpTokens": "required"}}]}]}
+        self.assertEqual(self.query("CMP-001", data), [{"resource_id": "i-1", "detail": {"http_tokens": "optional"}}])
+
+    def test_cmp_003_instances_without_instance_profile(self):
+        data = {"Reservations": [{"Instances": [
+            {"InstanceId": "i-1", "IamInstanceProfile": None, "Tags": [{"Key": "Name", "Value": "web"}]},
+            {"InstanceId": "i-2", "IamInstanceProfile": {"Arn": "arn:aws:iam::111122223333:instance-profile/p"}}]}]}
+        self.assertEqual(self.query("CMP-003", data), [{"resource_id": "i-1", "detail": {"name": "web"}}])
+
+    def test_dat_003_and_004_rds_flags(self):
+        data = {"DBInstances": [
+            {"DBInstanceIdentifier": "a", "AutoMinorVersionUpgrade": False, "DeletionProtection": False, "Engine": "postgres",
+             "EngineVersion": "16.3", "DBClusterIdentifier": None},
+            {"DBInstanceIdentifier": "b", "AutoMinorVersionUpgrade": True, "DeletionProtection": True, "Engine": "postgres"}]}
+        self.assertEqual(self.query("DAT-003", data),
+                         [{"resource_id": "a", "detail": {"engine": "postgres", "engine_version": "16.3"}}])
+        self.assertEqual(self.query("DAT-004", data), [{"resource_id": "a", "detail": {"engine": "postgres", "cluster": None}}])
+
+    def test_dat_011_replication_groups_without_multi_az(self):
+        data = {"ReplicationGroups": [{"ReplicationGroupId": "r1", "MultiAZ": "disabled", "AutomaticFailover": "disabled"},
+                                      {"ReplicationGroupId": "r2", "MultiAZ": "enabled", "AutomaticFailover": "enabled"}]}
+        self.assertEqual(self.query("DAT-011", data),
+                         [{"resource_id": "r1", "detail": {"multi_az": "disabled", "automatic_failover": "disabled"}}])
+
+    def test_det_007_active_critical_findings(self):
+        data = {"findings": [{"resources": [{"id": "i-1"}], "severity": "HIGH", "title": "t",
+                              "packageVulnerabilityDetails": {"vulnerabilityId": "CVE-2026-0001"}}]}
+        self.assertEqual(self.query("DET-007", data),
+                         [{"resource_id": "i-1", "detail": {"severity": "HIGH", "title": "t", "vulnerability": "CVE-2026-0001"}}])
+        self.assertEqual(self.query("DET-007", {"findings": []}), [])
+
+    def test_eml_001_identity_verification_and_dkim(self):
+        good = {"IdentityType": "DOMAIN", "VerifiedForSendingStatus": True,
+                "DkimAttributes": {"Status": "SUCCESS", "SigningEnabled": True, "SigningAttributesOrigin": "AWS_SES"}}
+        self.assertEqual(self.query("EML-001", good), [])
+        self.assertEqual(len(self.query("EML-001", {**good, "VerifiedForSendingStatus": False})), 1)
+        (bad,) = self.query("EML-001", {**good, "DkimAttributes": {**good["DkimAttributes"], "Status": "PENDING"}})
+        self.assertEqual(bad["detail"]["dkim_status"], "PENDING")
+        address = {"IdentityType": "EMAIL_ADDRESS", "VerifiedForSendingStatus": True, "DkimAttributes": {"Status": "NOT_STARTED"}}
+        self.assertEqual(self.query("EML-001", address), [])
+
+    def test_enc_002_unencrypted_volumes(self):
+        data = {"Volumes": [{"VolumeId": "v1", "Encrypted": False, "State": "in-use", "Size": 8, "VolumeType": "gp3",
+                             "Attachments": [{"InstanceId": "i-1"}]},
+                            {"VolumeId": "v2", "Encrypted": True}]}
+        self.assertEqual(self.query("ENC-002", data), [{"resource_id": "v1", "detail": {
+            "State": "in-use", "Size": 8, "VolumeType": "gp3", "Instances": ["i-1"]}}])
+
+    def test_enc_004_unencrypted_file_systems(self):
+        data = {"FileSystems": [{"FileSystemId": "fs-1", "Encrypted": False, "Name": "n", "LifeCycleState": "available"},
+                                {"FileSystemId": "fs-2", "Encrypted": True}]}
+        self.assertEqual(self.query("ENC-004", data), [{"resource_id": "fs-1", "detail": {"Name": "n", "LifeCycleState": "available"}}])
+
+    def test_enc_008_secrets_without_rotation(self):
+        data = {"SecretList": [{"Name": "a", "RotationEnabled": True}, {"Name": "b", "LastChangedDate": 1}]}
+        self.assertEqual(self.query("ENC-008", data), [{"resource_id": "b", "detail": {"RotationEnabled": None, "LastChangedDate": 1}}])
+
+    def test_iam_001_root_without_mfa(self):
+        self.assertEqual(self.query("IAM-001", {"SummaryMap": {"AccountMFAEnabled": 0}}),
+                         [{"resource_id": "root", "detail": {"AccountMFAEnabled": 0}}])
+        self.assertEqual(self.query("IAM-001", {"SummaryMap": {"AccountMFAEnabled": 1}}), [])
+
+    def test_iam_003_root_access_keys(self):
+        self.assertEqual(len(self.query("IAM-003", {"SummaryMap": {"AccountAccessKeysPresent": 1}})), 1)
+        self.assertEqual(self.query("IAM-003", {"SummaryMap": {"AccountAccessKeysPresent": 0}}), [])
+
+    def test_iam_014_support_role_missing(self):
+        self.assertEqual(self.query("IAM-014", {"PolicyRoles": []}),
+                         [{"resource_id": "account", "detail": {"policy": "AWSSupportAccess", "roles": 0}}])
+        self.assertEqual(self.query("IAM-014", {"PolicyRoles": [{"RoleName": "support"}]}), [])
+
+    def test_iam_015_no_active_analyzer(self):
+        self.assertEqual(self.query("IAM-015", {"analyzers": [{"status": "CREATING", "type": "ACCOUNT"},
+                                                              {"status": "ACTIVE", "type": "ACCOUNT_UNUSED_ACCESS"}]}),
+                         [{"detail": {"active_analyzers": 0}}])
+        self.assertEqual(self.query("IAM-015", {"analyzers": [{"status": "ACTIVE", "type": "ORGANIZATION"}]}), [])
 
 
 class LoggingCatalogTests(unittest.TestCase):

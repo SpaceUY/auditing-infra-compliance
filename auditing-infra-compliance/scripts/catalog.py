@@ -108,9 +108,9 @@ def resolve_mappings(check: dict, drata: dict[int, dict]) -> dict:
     }
 
 
-def _is_read_only(service: str, operation: str) -> bool:
+def _is_read_only(service: str, operation: str, args=()) -> bool:
     try:
-        aws_runner.assert_read_only(service, operation, [])
+        aws_runner.assert_read_only(service, operation, list(args))
     except aws_runner.ReadOnlyViolation:
         return False
     return True
@@ -168,7 +168,7 @@ def _check_calls_read_only(check):
         f"{cid}: llamada '{c.get('name')}' no es de solo lectura "
         f"({c.get('service')} {c.get('operation')})"
         for c in check["verify"]["calls"]
-        if not _is_read_only(c.get("service", ""), c.get("operation", ""))
+        if not _is_read_only(c.get("service", ""), c.get("operation", ""), c.get("args") or [])
     ]
 
 

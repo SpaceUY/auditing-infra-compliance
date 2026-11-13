@@ -68,6 +68,12 @@ def _unverified(resource_id: str, region: str, **detail) -> dict:
     return {"resource_id": resource_id, "region": region, "detail": detail, "unverified": True}
 
 
+def _unreadable(resource_id: str, region: str, code: str, call: str) -> dict:
+    """Entry for a per-item call that failed (item_errors) with a code the evaluator does not interpret: unverified."""
+    reason = "permisos insuficientes para consultar el recurso" if code == "ACCESS_DENIED" else "no se pudo consultar el recurso"
+    return _unverified(resource_id, region, error_code=code, call=call, reason=reason)
+
+
 def _now(params: dict) -> datetime:
     raw = params.get("now")
     return datetime.fromisoformat(raw) if raw else datetime.now(timezone.utc)

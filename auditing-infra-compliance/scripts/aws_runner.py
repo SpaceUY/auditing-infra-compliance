@@ -87,10 +87,22 @@ SCRUB: dict[tuple[str, str], frozenset[str]] = {
     ("apigatewayv2", "get-stages"): frozenset({"StageVariables"}),
     ("sns", "list-subscriptions-by-topic"): frozenset({"Endpoint"}),
 }
+# Keys whose value is replaced by PLACEHOLDER (the key stays, so evaluators can still see that it is present): bootstrap
+# scripts, shared origin secrets and constant event payloads often carry credentials that no key name gives away.
+PLACEHOLDER = "[REDACTED]"
+MASK: dict[tuple[str, str], frozenset[str]] = {
+    ("ec2", "describe-launch-template-versions"): frozenset({"UserData"}),
+    ("cloudfront", "list-distributions"): frozenset({"HeaderValue"}),
+    ("cloudfront", "get-distribution-config"): frozenset({"HeaderValue"}),
+    ("cloudfront", "get-distribution"): frozenset({"HeaderValue"}),
+    ("events", "list-targets-by-rule"): frozenset({"Input", "InputTransformer", "HttpParameters"}),
+}
+PAGINATION_TOKENS = ("NextToken", "NextMarker", "Marker")
 
 TIMEOUT_SECONDS = 120
 BACKOFF_SECONDS = (1, 2, 4, 8)
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_URL_ARG = re.compile(r"^(--[\w-]+=)?https?://", re.IGNORECASE)
 
 
 class ReadOnlyViolation(Exception):
@@ -123,6 +135,8 @@ def _check_arg(arg: object) -> None:
         raise ReadOnlyViolation(f"argumento no es texto: {arg!r}")
     if "file://" in arg or "fileb://" in arg:
         raise ReadOnlyViolation(f"argumento prohibido (lectura de archivo local): {arg}")
+    if _URL_ARG.match(arg):  # the CLI replaces such an argument with the body fetched by GET
+        raise ReadOnlyViolation(f"argumento prohibido (el CLI descargaría la URL): {arg}")
     flag = arg.split("=", 1)[0].strip()
     if flag.startswith("--with-dec") or flag in FORBIDDEN_ARGS:
         raise ReadOnlyViolation(f"argumento prohibido: {arg}")
@@ -186,13 +200,15 @@ def run_aws(
 
     for attempt in range(len(BACKOFF_SECONDS) + 1):
         try:
-            proc = runner(argv, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, shell=False)
+            proc = runner(argv, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, shell=False,
+                          stdin=subprocess.DEVNULL)  # a credential prompt must fail fast, not block the worker
         except subprocess.TimeoutExpired:
             return _failure("ERROR", f"timeout tras {TIMEOUT_SECONDS}s", argv)
         except OSError as exc:
             return _failure("ERROR", f"no se pudo ejecutar aws: {exc}", argv)
         if proc.returncode == 0:
-            return _parse_success(proc.stdout, argv, SCRUB.get((service, operation), frozenset()))
+            return _parse_success(proc.stdout, argv, SCRUB.get((service, operation), frozenset()),
+                                  MASK.get((service, operation), frozenset()), _passes_max_items(args))
         kind = classify_error(proc.stderr or "")
         if kind == "THROTTLED" and attempt < len(BACKOFF_SECONDS):
             sleep(BACKOFF_SECONDS[attempt])
@@ -209,15 +225,37 @@ def _scrub(data: object, keys: frozenset[str]) -> object:
     return data
 
 
-def _parse_success(stdout: str, argv: list[str], scrub_keys: frozenset[str] = frozenset()) -> CallResult:
+def _mask_values(data: object, keys: frozenset[str]) -> object:
+    if isinstance(data, dict):
+        return {k: PLACEHOLDER if k in keys else _mask_values(v, keys) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_mask_values(item, keys) for item in data]
+    return data
+
+
+def _passes_max_items(args: list[str]) -> bool:
+    return any(arg == "--max-items" or arg.startswith("--max-items=") for arg in args)
+
+
+def _truncated(data: object) -> bool:
+    """The top-level object still points at a next page (an operation without a CLI paginator, e.g. wafv2 list-web-acls)."""
+    return isinstance(data, dict) and (data.get("IsTruncated") is True or any(data.get(k) for k in PAGINATION_TOKENS))
+
+
+def _parse_success(stdout: str, argv: list[str], scrub_keys: frozenset[str] = frozenset(),
+                   mask_keys: frozenset[str] = frozenset(), limited: bool = False) -> CallResult:
     if not stdout.strip():
         return CallResult(ok=True, data=None, error_kind=None, error_message=None, argv=tuple(argv))
     try:
         data = json.loads(stdout)
     except json.JSONDecodeError as exc:
         return _failure("ERROR", f"salida no es JSON válido: {exc}", argv)
+    if not limited and _truncated(data):
+        return _failure("ERROR", "respuesta truncada: la operación devolvió una página parcial (token de siguiente página)", argv)
     if scrub_keys:
         data = _scrub(data, scrub_keys)
+    if mask_keys:
+        data = _mask_values(data, mask_keys)
     return CallResult(ok=True, data=data, error_kind=None, error_message=None, argv=tuple(argv))
 
 

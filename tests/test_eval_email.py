@@ -380,7 +380,7 @@ class EmailCollectTests(unittest.TestCase):
 
     def test_each_identity_is_read_once_per_check(self):
         reads = [c[c.index("--email-identity") + 1] for c in self.runner.calls if c[2] == "get-email-identity"]
-        self.assertEqual(sorted(reads), sorted([ADDRESS, DOMAIN, SUBDOMAIN] * 3))
+        self.assertEqual(sorted(reads), sorted([ADDRESS, DOMAIN, SUBDOMAIN] * 2))  # EML-002/003 share one memoized read; EML-001 uses a --query
         sets = [c[c.index("--configuration-set-name") + 1] for c in self.runner.calls if c[2] == "get-configuration-set"]
         self.assertEqual(sets, [TRANSACTIONAL])  # only one identity has a default configuration set
 

@@ -5,7 +5,7 @@ import re
 from datetime import datetime, timedelta
 
 from evaluators import (_by_value, _first, _for_each_pairs, _inventory_by_arn, _not_applicable, _now, _offender,
-                        _parse_time, register)
+                        _parse_time, _unreadable, register)
 
 
 # ---------------------------------------------------------------- Logging: shared helpers
@@ -125,6 +125,9 @@ def trail_bucket_logging(responses: dict, params: dict) -> list[dict]:
     owners = _trail_names_by_bucket(responses)
     offenders = []
     for bucket, (region, data) in _by_value(responses, "bucket_logging").items():
+        if data.get("__error__") not in (None, "NoSuchBucket"):
+            offenders.append(_unreadable(bucket, region, data["__error__"], "get-bucket-logging"))
+            continue
         if "__error__" in data:
             reason = "el bucket no existe"
         elif not data.get("LoggingEnabled"):
@@ -153,6 +156,18 @@ def _policy_limits_cloudtrail_by_arn(policy: dict) -> bool:
     return bool(mine) and all(_restricts_source_arn(s) for s in mine)
 
 
+POLICY_ABSENT = "NoSuchBucketPolicy"
+
+
+def _unreadable_call(versioning: dict, policy: dict) -> tuple[str, str] | None:
+    """(code, call) of the first call whose failure says nothing about the bucket (denied, throttled, ...), if any."""
+    if versioning.get("__error__") not in (None, "NoSuchBucket"):
+        return versioning["__error__"], "get-bucket-versioning"
+    if policy.get("__error__") not in (None, "NoSuchBucket", POLICY_ABSENT):
+        return policy["__error__"], "get-bucket-policy"
+    return None
+
+
 def _bucket_problems(versioning: dict, policy: dict) -> list[str]:
     if "NoSuchBucket" in (versioning.get("__error__"), policy.get("__error__")):
         return ["el bucket no existe"]
@@ -172,7 +187,11 @@ def trail_bucket_hardening(responses: dict, params: dict) -> list[dict]:
     policies = _by_value(responses, "policy")
     offenders = []
     for bucket, (region, versioning) in _by_value(responses, "versioning").items():
-        problems = _bucket_problems(versioning, policies.get(bucket, (region, {}))[1])
+        policy = policies.get(bucket, (region, {}))[1]
+        if unreadable := _unreadable_call(versioning, policy):
+            offenders.append(_unreadable(bucket, region, *unreadable))
+            continue
+        problems = _bucket_problems(versioning, policy)
         if problems:
             offenders.append(_offender(bucket, region, problems=problems))
     return offenders
@@ -256,7 +275,12 @@ def log_bucket_lifecycle(responses: dict, params: dict) -> list[dict]:
     offenders = [_not_applicable(i["id"], i["region"]) for i in responses.get("__inventory__", [])
                  if i["type"] == "s3_bucket" and i["id"] not in log_buckets]
     for bucket, (region, data) in _by_value(responses, "lifecycle").items():
-        if bucket not in log_buckets or "__error__" in data:
+        if bucket not in log_buckets:
+            continue
+        if data.get("__error__") not in (None, "NoSuchLifecycleConfiguration", "NoSuchBucket"):
+            offenders.append(_unreadable(bucket, region, data["__error__"], "get-bucket-lifecycle-configuration"))
+            continue
+        if "__error__" in data:  # no lifecycle rules (or the bucket is gone): nothing expires early
             continue
         short = [found for rule in data.get("Rules", []) if (found := _short_expiration(rule, now, minimum))]
         if short:

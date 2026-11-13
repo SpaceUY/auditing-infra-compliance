@@ -418,7 +418,7 @@ class InventoryCollectTests(unittest.TestCase):
 
     def test_tags_are_read_in_every_enabled_region(self):
         regions = sorted(c[c.index("--region") + 1] for c in self.runner.calls if c[2] == "get-resources")
-        self.assertEqual(regions, [OTHER] * 4 + [REGION] * 4)
+        self.assertEqual(regions, [OTHER, REGION])  # the four INV checks share one memoized call per region
 
     def test_aws_managed_keys_get_no_row_in_any_check(self):
         self.assertEqual([r for r in self.result["results"] if r["resource_id"] == AWS_KEY], [])

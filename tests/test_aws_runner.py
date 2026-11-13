@@ -122,6 +122,14 @@ class ArgHardeningTest(unittest.TestCase):
             with self.subTest(arg=arg), self.assertRaises(aws_runner.ReadOnlyViolation):
                 aws_runner.assert_read_only("ec2", "describe-instances", [arg])
 
+    def test_rejects_http_urls_the_cli_would_fetch(self):
+        for arg in ("https://example.com/x", "http://169.254.169.254/latest/meta-data", "HTTPS://x", "--filters=https://example.com/x"):
+            with self.subTest(arg=arg), self.assertRaises(aws_runner.ReadOnlyViolation):
+                aws_runner.assert_read_only("ec2", "describe-instances", ["--filters", arg])
+
+    def test_allows_arguments_that_merely_contain_a_url(self):
+        aws_runner.assert_read_only("ec2", "describe-instances", ["--filters", "Name=tag:u,Values=https://x"])
+
     def test_rejects_non_string_args(self):
         for arg in (1, None, b"--x", ["a"]):
             with self.subTest(arg=arg), self.assertRaises(aws_runner.ReadOnlyViolation):
@@ -156,6 +164,10 @@ class RunAwsTest(unittest.TestCase):
         self.assertIsInstance(runner.calls[0], list)
         self.assertFalse(runner.kwargs[0].get("shell", False))
         self.assertEqual(runner.kwargs[0]["timeout"], 120)
+
+    def test_stdin_is_closed_so_prompts_fail_fast(self):
+        _, runner, _ = run({("ec2", "describe-instances", "us-east-1"): OK})
+        self.assertEqual(runner.kwargs[0]["stdin"], subprocess.DEVNULL)
 
     def test_write_op_never_reaches_runner(self):
         runner = FakeRunner({})
@@ -251,12 +263,85 @@ class RunAwsTest(unittest.TestCase):
         )
         self.assertEqual(result.data, {"Subscriptions": [{"SubscriptionArn": "PendingConfirmation", "Protocol": "email"}]})
 
+    def test_masks_launch_template_user_data_but_keeps_its_presence(self):
+        secret = "IyEvYmluL2Jhc2gKZXhwb3J0IERCX1BBU1M9aHVudGVyMg=="
+        payload = {"LaunchTemplateVersions": [{"LaunchTemplateData": {"UserData": secret, "MetadataOptions": {"HttpTokens": "required"}}}]}
+        result, runner, _ = run(
+            {("ec2", "describe-launch-template-versions", "us-east-1"): {"stdout": json.dumps(payload), "returncode": 0}},
+            "ec2", "describe-launch-template-versions",
+        )
+        data = result.data["LaunchTemplateVersions"][0]["LaunchTemplateData"]
+        self.assertEqual(data["UserData"], "[REDACTED]")
+        self.assertEqual(data["MetadataOptions"], {"HttpTokens": "required"})
+        self.assertNotIn(secret, json.dumps(result.data))
+
+    def test_masks_cloudfront_origin_custom_header_values(self):
+        secret = "shared-origin-secret-value"
+        origin = {"Id": "o", "DomainName": "alb.acme-notes.example",
+                  "CustomHeaders": {"Quantity": 1, "Items": [{"HeaderName": "X-Origin-Verify", "HeaderValue": secret}]}}
+        payload = {"DistributionList": {"Items": [{"Id": "E1", "Origins": {"Items": [origin]}, "WebACLId": "acl", "Enabled": True}]}}
+        for operation in ("list-distributions", "get-distribution-config"):
+            with self.subTest(operation=operation):
+                result, _, _ = run(
+                    {("cloudfront", operation, "us-east-1"): {"stdout": json.dumps(payload), "returncode": 0}},
+                    "cloudfront", operation,
+                )
+                self.assertNotIn(secret, json.dumps(result.data))
+                item = result.data["DistributionList"]["Items"][0]
+                self.assertEqual((item["WebACLId"], item["Enabled"]), ("acl", True))
+                headers = item["Origins"]["Items"][0]["CustomHeaders"]["Items"][0]
+                self.assertEqual(headers, {"HeaderName": "X-Origin-Verify", "HeaderValue": "[REDACTED]"})
+
+    def test_masks_eventbridge_target_payloads(self):
+        secret = "webhook-token-123"
+        targets = [{"Id": "t1", "Arn": "arn:aws:sns:us-east-1:111122223333:alerts", "Input": json.dumps({"token": secret}),
+                    "InputTransformer": {"InputTemplate": secret}, "HttpParameters": {"HeaderParameters": {"Authorization": secret}}}]
+        result, _, _ = run(
+            {("events", "list-targets-by-rule", "us-east-1"): {"stdout": json.dumps({"Targets": targets}), "returncode": 0}},
+            "events", "list-targets-by-rule",
+        )
+        self.assertNotIn(secret, json.dumps(result.data))
+        (target,) = result.data["Targets"]
+        self.assertEqual((target["Id"], target["Arn"]), ("t1", "arn:aws:sns:us-east-1:111122223333:alerts"))
+        self.assertEqual((target["Input"], target["InputTransformer"], target["HttpParameters"]), ("[REDACTED]",) * 3)
+
+    def test_masked_payload_keys_are_absent_when_absent(self):
+        payload = {"Targets": [{"Id": "t1", "Arn": "arn"}]}
+        result, _, _ = run(
+            {("events", "list-targets-by-rule", "us-east-1"): {"stdout": json.dumps(payload), "returncode": 0}},
+            "events", "list-targets-by-rule",
+        )
+        self.assertEqual(result.data, payload)
+
     def test_no_scrub_for_other_operations(self):
         payload = {"Environment": "keep"}
         result, _, _ = run(
             {("ec2", "describe-instances", "us-east-1"): {"stdout": json.dumps(payload), "returncode": 0}}
         )
         self.assertEqual(result.data, payload)
+
+    def truncated(self, payload, args=(), operation="list-web-acls", service="wafv2"):
+        return run({(service, operation, "us-east-1"): {"stdout": json.dumps(payload), "returncode": 0}},
+                   service, operation, args=args)[0]
+
+    def test_truncated_response_without_max_items_is_an_error(self):
+        for payload in ({"WebACLs": [], "NextMarker": "abc"}, {"Rules": [], "NextToken": "t"}, {"Users": [], "Marker": "m"},
+                        {"Users": [], "IsTruncated": True}):
+            with self.subTest(payload=payload):
+                result = self.truncated(payload)
+                self.assertFalse(result.ok)
+                self.assertEqual(result.error_kind, "ERROR")
+                self.assertIn("respuesta truncada", result.error_message)
+
+    def test_complete_responses_are_not_flagged(self):
+        for payload in ({"WebACLs": [], "NextMarker": None}, {"WebACLs": [], "NextMarker": ""}, {"Users": [], "IsTruncated": False},
+                        {"Nested": {"NextToken": "x"}}, [{"NextToken": "x"}]):
+            with self.subTest(payload=payload):
+                self.assertTrue(self.truncated(payload).ok)
+
+    def test_truncation_is_expected_when_max_items_is_passed(self):
+        self.assertTrue(self.truncated({"findings": [], "NextToken": "t"}, args=["--max-items", "100"]).ok)
+        self.assertTrue(self.truncated({"findings": [], "NextToken": "t"}, args=["--max-items=100"]).ok)
 
     def test_invalid_json_is_error(self):
         result, _, _ = run({("ec2", "describe-instances", "us-east-1"): {"stdout": "not json", "returncode": 0}})

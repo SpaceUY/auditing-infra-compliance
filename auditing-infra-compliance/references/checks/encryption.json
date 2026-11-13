@@ -354,7 +354,8 @@
             "ok_errors": [
               "ServerSideEncryptionConfigurationNotFoundError",
               "NoSuchBucket"
-            ]
+            ],
+            "item_errors": "evaluator"
           }
         ],
         "evaluator": "python:s3_default_encryption",
@@ -688,7 +689,8 @@
             "ok_errors": [
               "NoSuchBucketPolicy",
               "NoSuchBucket"
-            ]
+            ],
+            "item_errors": "evaluator"
           }
         ],
         "evaluator": "python:s3_tls_only",

@@ -380,7 +380,8 @@
             },
             "ok_errors": [
               "NoSuchBucket"
-            ]
+            ],
+            "item_errors": "evaluator"
           }
         ],
         "evaluator": "python:trail_bucket_logging",
@@ -477,7 +478,8 @@
             },
             "ok_errors": [
               "NoSuchBucket"
-            ]
+            ],
+            "item_errors": "evaluator"
           },
           {
             "name": "policy",
@@ -493,7 +495,8 @@
             "ok_errors": [
               "NoSuchBucketPolicy",
               "NoSuchBucket"
-            ]
+            ],
+            "item_errors": "evaluator"
           }
         ],
         "evaluator": "python:trail_bucket_hardening",
@@ -847,7 +850,8 @@
             "ok_errors": [
               "NoSuchLifecycleConfiguration",
               "NoSuchBucket"
-            ]
+            ],
+            "item_errors": "evaluator"
           }
         ],
         "evaluator": "python:log_bucket_lifecycle",

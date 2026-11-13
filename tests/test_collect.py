@@ -1,8 +1,10 @@
 import contextlib
 import io
 import json
+import re
 import shutil
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -61,14 +63,14 @@ class CollectCase(unittest.TestCase):
                     which=lambda name: "/usr/bin/dig" if name == "dig" else None):
         runner = FakeRunner(base_responses() if responses is None else responses)
         out = self.tmp / "out"
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             code = collect.main(
                 ["--scope", str(scope or self.scope_file()), "--out", str(out),
-                 "--checks-dir", str(checks_dir), "--inventory", str(inventory)],
+                 "--checks-dir", str(checks_dir), "--inventory", str(inventory), *getattr(self, "extra_args", [])],
                 runner=runner, sleep=lambda s: None, which=which,
             )
-        self.runner, self.out, self.stdout, self.code = runner, out, stdout.getvalue(), code
+        self.runner, self.out, self.stdout, self.stderr, self.code = runner, out, stdout.getvalue(), stderr.getvalue(), code
         self.result = json.loads((out / "checks-result.json").read_text(encoding="utf-8"))
         return self.result
 
@@ -517,6 +519,7 @@ class EngineTests(CollectCase):
         call = data["checks"][0]["verify"]["calls"][0]
         call["name"], call["operation"], call["service"] = "buckets", "list-buckets", "s3api"
         call.pop("for_each")
+        call["args"] = ["--max-items", "10"]  # a different call than the inventory listing (identical calls are memoized)
         (directory / "extra.json").write_text(json.dumps(data), encoding="utf-8")
         responses = base_responses()
         responses[("s3api", "list-buckets", "us-east-1")] = [ok(load_fixture("aws/core/s3api-list-buckets.json")), err(self.DENIED)]
@@ -739,6 +742,340 @@ class EngineTests(CollectCase):
         (row,) = self.rows("IAM-903")
         self.assertEqual(row["status"], "NO_VERIFICADO")
         self.assertEqual(self.calls("iam", "delete-account-alias"), [])
+
+
+SCP_DENIED = ("An error occurred (AccessDenied) when calling the GetAccountSummary operation: User: "
+              "arn:aws:iam::111122223333:user/auditor is not authorized to perform: iam:GetAccountSummary "
+              "with an explicit deny in a service control policy")
+ROOT_OFFENDER = [{"resource_id": "root", "detail": {"AccountMFAEnabled": 0}}]
+
+
+class PartialRegionTests(CollectCase):
+    """A failing region or item keeps the results of the healthy ones and is reported by itself (never a PASS)."""
+
+    @staticmethod
+    def regional(check):
+        check["id"] = "IAM-902"
+        check["all_regions"] = True
+        check["verify"]["calls"][0]["region"] = "each"
+
+    def regional_responses(self, us, eu):
+        responses = base_responses()
+        responses[("iam", "get-account-summary", "us-east-1")] = us
+        responses[("iam", "get-account-summary", "eu-west-1")] = eu
+        return responses
+
+    def test_failing_region_keeps_the_fail_of_the_healthy_region(self):
+        self.run_collect(self.regional_responses(ok(ROOT_OFFENDER), err(ACCESS_DENIED)), checks_dir=self.catalog_with(self.regional))
+        rows = self.rows("IAM-902")
+        self.assertEqual([(r["status"], r["resource_id"], r["region"]) for r in rows],
+                         [("NO_VERIFICADO", "account", "eu-west-1"), ("FAIL", "root", "us-east-1")])
+        self.assertEqual(rows[0]["missing"], ["iam:GetAccountSummary"])
+        self.assertEqual(rows[0]["detail"]["failed_calls"][0]["region"], "eu-west-1")
+
+    def test_failing_region_never_yields_an_account_pass(self):
+        self.run_collect(self.regional_responses(ok([]), err("An error occurred (ServiceFailure) boom")),
+                         checks_dir=self.catalog_with(self.regional))
+        self.assertEqual([(r["status"], r["region"]) for r in self.rows("IAM-902")], [("NO_VERIFICADO", "eu-west-1")])
+
+    def test_all_regions_failing_keeps_the_single_row(self):
+        self.run_collect(self.regional_responses(err(ACCESS_DENIED), err(ACCESS_DENIED)), checks_dir=self.catalog_with(self.regional))
+        (row,) = self.rows("IAM-902")
+        self.assertEqual((row["status"], row["region"], row["missing"]), ("NO_VERIFICADO", None, ["iam:GetAccountSummary"]))
+
+    def test_scp_denial_is_reported_as_blocked_not_as_a_missing_permission(self):
+        padded = SCP_DENIED.replace("is not authorized", "is " + "very " * 60 + "not authorized")  # the phrase sits past 300 chars
+        self.run_collect(self.regional_responses(ok([]), err(padded)), checks_dir=self.catalog_with(self.regional))
+        (row,) = self.rows("IAM-902")
+        self.assertEqual((row["status"], row["region"], row["missing"]), ("NO_VERIFICADO", "eu-west-1", []))
+        self.assertEqual(row["detail"]["reason"], "bloqueado por SCP")
+
+    def test_mixed_scp_and_real_denial_still_asks_for_the_permission(self):
+        self.run_collect(self.regional_responses(err(ACCESS_DENIED), err(SCP_DENIED)), checks_dir=self.catalog_with(self.regional))
+        (row,) = self.rows("IAM-902")
+        self.assertEqual(row["missing"], ["iam:GetAccountSummary"])
+        self.assertNotIn("reason", row["detail"])
+
+    def python_regional(self, seen):
+        @evaluators.register("test_regional_probe")
+        def probe(responses, params):
+            seen["regions"] = [r for r, _ in responses["summary"]]
+            seen["inventory_regions"] = sorted({i["region"] for i in responses["__inventory__"]})
+            return [{"resource_id": "account", "region": r, "detail": {}} for r in ("us-east-1", "eu-west-1")]
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_regional_probe")
+
+        def mutate(check):
+            self.regional(check)
+            check["id"] = "IAM-903"
+            check["verify"]["evaluator"] = "python:test_regional_probe"
+            check["verify"].pop("offenders")
+
+        return self.catalog_with(mutate)
+
+    def test_evaluators_do_not_see_the_failed_region_and_cannot_report_for_it(self):
+        seen = {}
+        self.run_collect(self.regional_responses(ok({}), err(ACCESS_DENIED)), checks_dir=self.python_regional(seen))
+        self.assertEqual(seen["regions"], ["us-east-1"])
+        self.assertEqual([(r["status"], r["region"]) for r in self.rows("IAM-903")],
+                         [("NO_VERIFICADO", "eu-west-1"), ("FAIL", "us-east-1")])
+
+    def test_for_each_failure_in_one_region_unverifies_only_that_region(self):
+        def mutate(check):
+            check["id"] = "IAM-904"
+            check["all_regions"], check["scope"] = True, "account"
+            check["verify"]["evaluator"] = "python:always_empty"
+            check["verify"].pop("offenders")
+            check["verify"]["calls"] = [
+                {"name": "buckets", "service": "s3api", "operation": "list-buckets", "args": [], "region": "global"},
+                {"name": "rules", "service": "ec2", "operation": "describe-instances", "args": [], "region": "each"}]
+        responses = base_responses()
+        responses[("ec2", "describe-instances", "eu-west-1")] = err("An error occurred (ServiceFailure) boom")
+        scope = self.scope_file(regions=["us-east-1", "eu-west-1"])
+        self.run_collect(responses, scope=scope, checks_dir=self.catalog_with(mutate))
+        self.assertEqual([(r["status"], r["region"]) for r in self.rows("IAM-904")], [("NO_VERIFICADO", "eu-west-1")])
+
+    def test_scp_blocked_region_is_dropped_from_the_inventory_with_a_warning(self):
+        responses = base_responses()
+        responses[("ec2", "describe-instances", "eu-west-1")] = err(SCP_DENIED.replace("GetAccountSummary", "DescribeInstances"))
+        scope = self.scope_file(regions=["us-east-1", "eu-west-1"])
+
+        def depends_on_instances(check):
+            check["id"] = "DET-905"
+            check["verify"]["evaluator"] = "python:always_empty"
+            check["verify"].pop("offenders")
+            check["verify"]["params"] = {"inventory_types": ["ec2_instance"]}
+
+        self.run_collect(responses, scope=scope, checks_dir=self.catalog_with(depends_on_instances))
+        self.assertEqual([r["status"] for r in self.rows("DET-905")], ["PASS"])
+        aws = self.result["aws"]
+        self.assertEqual((aws["blocked_regions"], aws["enabled_regions"], aws["regions"]), (["eu-west-1"], ["us-east-1"], ["us-east-1"]))
+        self.assertTrue(any("SCP" in w and "eu-west-1" in w for w in self.result["warnings"]))
+
+    def test_inventory_region_with_a_plain_denial_is_not_dropped(self):
+        responses = base_responses()
+        responses[("ec2", "describe-instances", "eu-west-1")] = err(ACCESS_DENIED)
+        self.run_collect(responses, scope=self.scope_file(regions=["us-east-1", "eu-west-1"]))
+        self.assertEqual(self.result["aws"]["blocked_regions"], [])
+        self.assertEqual(self.result["aws"]["enabled_regions"], ["eu-west-1", "us-east-1"])
+
+    def test_same_named_resource_in_another_region_keeps_its_pass(self):
+        @evaluators.register("test_one_region_fails")
+        def one_region(responses, params):
+            return [{"resource_id": "i-1", "region": "us-east-1", "detail": {}}]
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_one_region_fails")
+
+        def mutate(check):
+            check["id"] = "CMP-905"
+            check["scope"], check["resource_types"], check["all_regions"] = "resource", ["ec2_instance"], True
+            check["verify"]["calls"] = [{"name": "x", "service": "iam", "operation": "get-account-summary", "args": [], "region": "global"}]
+            check["verify"]["evaluator"] = "python:test_one_region_fails"
+            check["verify"].pop("offenders")
+
+        instance = {"Reservations": [{"Instances": [{"InstanceId": "i-1"}]}]}
+        responses = base_responses()
+        responses[("ec2", "describe-instances", "us-east-1")] = ok(instance)
+        responses[("ec2", "describe-instances", "eu-west-1")] = ok(instance)
+        self.run_collect(responses, scope=self.scope_file(regions=["us-east-1", "eu-west-1"]), checks_dir=self.catalog_with(mutate))
+        self.assertEqual([(r["status"], r["resource_id"], r["region"]) for r in self.rows("CMP-905")],
+                         [("PASS", "i-1", "eu-west-1"), ("FAIL", "i-1", "us-east-1")])
+
+    def scope_probe(self, entries):
+        @evaluators.register("test_scope_probe")
+        def probe(responses, params):
+            return entries
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_scope_probe")
+
+        def mutate(check):
+            check["id"] = "DAT-908"
+            check["scope"], check["resource_types"] = "resource", ["s3_bucket"]
+            check["verify"]["evaluator"] = "python:test_scope_probe"
+            check["verify"].pop("offenders")
+
+        return self.catalog_with(mutate)
+
+    def test_scope_filter_keys_on_resource_and_region(self):
+        entries = [{"resource_id": "acme-notes-logs", "region": "eu-west-1", "detail": {}},
+                   {"resource_id": "acme-notes-logs", "region": "us-east-1", "detail": {}}]
+        self.run_collect(scope=self.scope_file("scope-resource.json"), checks_dir=self.scope_probe(entries))
+        self.assertEqual([(r["status"], r["region"]) for r in self.rows("DAT-908")], [("FAIL", "us-east-1")])
+
+    def test_unverified_offenders_go_through_the_scope_filter(self):
+        entries = [{"resource_id": "acme-notes-data", "region": "us-east-1", "detail": {}, "unverified": True},
+                   {"resource_id": "acme-notes-logs", "region": "us-east-1", "detail": {}, "unverified": True}]
+        self.run_collect(scope=self.scope_file("scope-resource.json"), checks_dir=self.scope_probe(entries))
+        self.assertEqual([(r["status"], r["resource_id"]) for r in self.rows("DAT-908")], [("NO_VERIFICADO", "acme-notes-logs")])
+
+
+class CallCacheTests(CollectCase):
+    def same_call_checks(self, count):
+        def make(n):
+            def mutate(check):
+                check["id"] = f"IAM-91{n}"
+            return mutate
+
+        return self.catalog_with(*[make(n) for n in range(count)])
+
+    def test_identical_calls_run_once_across_checks_and_each_check_keeps_its_raw_file(self):
+        self.run_collect(checks_dir=self.same_call_checks(6))
+        self.assertEqual(len(self.calls("iam", "get-account-summary")), 1)
+        for n in range(6):
+            self.assertTrue((self.out / "raw" / f"IAM-91{n}" / "summary-us-east-1.json").exists())
+            self.assertEqual([r["status"] for r in self.rows(f"IAM-91{n}")], ["FAIL"])
+
+    def test_different_regions_or_arguments_are_different_calls(self):
+        def mutate(check):
+            check["id"] = "IAM-920"
+            check["all_regions"] = True
+            check["verify"]["calls"][0]["region"] = "each"
+
+        responses = base_responses()
+        for region in ("us-east-1", "eu-west-1"):
+            responses[("iam", "get-account-summary", region)] = ok([])
+        self.run_collect(responses, checks_dir=self.catalog_with(mutate))
+        self.assertEqual(len(self.calls("iam", "get-account-summary")), 2)
+
+    def test_credential_report_generation_is_never_memoized(self):
+        def mutate(n):
+            def change(check):
+                check["id"] = f"IAM-93{n}"
+                check["verify"]["calls"][0].update(operation="generate-credential-report")
+            return change
+
+        responses = base_responses()
+        responses[("iam", "generate-credential-report", "us-east-1")] = ok([])
+        self.run_collect(responses, checks_dir=self.catalog_with(mutate(0), mutate(1)))
+        self.assertEqual(len(self.calls("iam", "generate-credential-report")), 2)
+
+    def test_transient_failures_are_not_memoized(self):
+        responses = base_responses()
+        responses[("iam", "get-account-summary", "us-east-1")] = [err("An error occurred (ServiceFailure) boom"), ok(ROOT_OFFENDER)]
+        self.run_collect(responses, checks_dir=self.same_call_checks(2))
+        statuses = sorted(r["status"] for n in range(2) for r in self.rows(f"IAM-91{n}"))
+        self.assertEqual(statuses, ["FAIL", "NO_VERIFICADO"])
+
+    def test_denied_calls_are_memoized(self):
+        responses = base_responses()
+        responses[("iam", "get-account-summary", "us-east-1")] = [err(ACCESS_DENIED), ok(ROOT_OFFENDER)]
+        self.run_collect(responses, checks_dir=self.same_call_checks(2))
+        self.assertEqual(len(self.calls("iam", "get-account-summary")), 1)
+
+
+class ProgressAndCheckpointTests(CollectCase):
+    def test_progress_goes_to_stderr_one_terse_line_per_check(self):
+        self.run_collect()
+        lines = [line for line in self.stderr.splitlines() if re.match(r"\[\d+/\d+\] ", line)]
+        self.assertEqual(sorted(line.split("] ")[1] for line in lines), ["DAT-901", "DET-901", "IAM-901", "LOG-901"])
+        self.assertEqual(sorted(line.split("]")[0] for line in lines), ["[1/4", "[2/4", "[3/4", "[4/4"])
+        self.assertLessEqual(max(len(line) for line in self.stderr.splitlines()), 80)
+        self.assertNotIn("[1/4]", self.stdout)
+
+    def test_quiet_silences_progress(self):
+        self.extra_args = ["--quiet"]
+        self.run_collect()
+        self.assertEqual(self.stderr, "")
+
+    def test_complete_run_is_not_marked_partial(self):
+        self.run_collect()
+        self.assertNotIn("partial", self.result)
+
+    def interrupting_catalog(self, exception):
+        @evaluators.register("test_interrupt")
+        def interrupt(responses, params):
+            self.mid_run = json.loads((self.tmp / "out" / "checks-result.json").read_text(encoding="utf-8"))
+            raise exception
+
+        self.addCleanup(evaluators.EVALUATORS.pop, "test_interrupt")
+
+        def mutate(check):
+            check["id"] = "ZZZ-999"
+            check["verify"]["evaluator"] = "python:test_interrupt"
+            check["verify"].pop("offenders")
+
+        directory = self.tmp / "interrupting"
+        directory.mkdir()
+        shutil.copy(ENGINE_DIR / "engine.json", directory / "engine.json")
+        shutil.copy(self.catalog_with(mutate) / "extra.json", directory / "extra.json")
+        return directory
+
+    def run_sequentially(self, **kw):
+        original, collect.WORKERS = collect.WORKERS, 1
+        self.addCleanup(setattr, collect, "WORKERS", original)
+        original_interval, collect.CHECKPOINT_SECONDS = collect.CHECKPOINT_SECONDS, 0
+        self.addCleanup(setattr, collect, "CHECKPOINT_SECONDS", original_interval)
+        return self.run_collect(**kw)
+
+    def test_a_checkpoint_is_written_while_the_run_is_in_progress(self):
+        directory = self.interrupting_catalog(KeyboardInterrupt())
+        self.run_sequentially(checks_dir=directory)
+        self.assertTrue(self.mid_run["partial"])
+        self.assertIn("IAM-901", {r["check_id"] for r in self.mid_run["results"]})
+        self.assertIn("ZZZ-999", self.mid_run["pending_checks"])
+        self.assertNotIn("IAM-901", self.mid_run["pending_checks"])
+
+    def test_keyboard_interrupt_keeps_what_was_collected_and_marks_it_partial(self):
+        directory = self.interrupting_catalog(KeyboardInterrupt())
+        self.run_sequentially(checks_dir=directory)
+        self.assertEqual(self.code, 130)
+        self.assertTrue(self.result["partial"])
+        self.assertEqual(self.result["pending_checks"], ["ZZZ-999"])
+        self.assertEqual([r["status"] for r in self.rows("IAM-901")], ["FAIL"])
+        self.assertTrue((self.out / "inventory.json").exists())
+        self.assertIn("PARCIAL", self.stdout)
+
+    def test_unexpected_exception_writes_the_partial_result_and_propagates(self):
+        class Boom(BaseException):
+            pass
+
+        directory = self.interrupting_catalog(Boom("boom"))
+        with self.assertRaises(Boom):
+            self.run_sequentially(checks_dir=directory)
+        result = json.loads((self.tmp / "out" / "checks-result.json").read_text(encoding="utf-8"))
+        self.assertTrue(result["partial"])
+        self.assertEqual([r["status"] for r in result["results"] if r["check_id"] == "IAM-901"], ["FAIL"])
+
+
+class AllowlistTests(CollectCase):
+    def make_ctx(self, allowed, responses):
+        runner = FakeRunner(responses)
+        return collect.Ctx(runner=runner, sleep=lambda s: None, which=lambda n: None, out=self.tmp, allowed=allowed), runner
+
+    def test_operation_outside_the_loaded_catalog_is_refused_without_running(self):
+        ctx, runner = self.make_ctx(frozenset({("iam", "list-users")}), {})
+        res = collect._aws(ctx, "iam", "list-roles", [], "us-east-1")
+        self.assertEqual((res.ok, res.error_kind), (False, "ERROR"))
+        self.assertIn("fuera del catálogo", res.error_message)
+        self.assertEqual(runner.calls, [])
+
+    def test_operation_in_the_catalog_runs(self):
+        ctx, runner = self.make_ctx(frozenset({("iam", "list-users")}), {("iam", "list-users", "us-east-1"): ok({"Users": []})})
+        self.assertTrue(collect._aws(ctx, "iam", "list-users", [], "us-east-1").ok)
+        self.assertEqual(len(runner.calls), 1)
+
+    def test_allowlist_is_built_from_catalog_inventory_and_preflight(self):
+        import catalog
+        specs = json.loads(INVENTORY_MIN.read_text(encoding="utf-8"))
+        allowed = collect.allowed_operations(catalog.load_checks(ENGINE_DIR), specs)
+        for pair in (("iam", "get-account-summary"), ("s3api", "list-buckets"), ("ec2", "describe-instances"),
+                     ("sts", "get-caller-identity"), ("ec2", "describe-regions"), ("iam", "list-attached-user-policies"),
+                     ("iam", "list-attached-role-policies")):
+            self.assertIn(pair, allowed)
+        self.assertNotIn(("iam", "list-users"), allowed)
+
+
+class ErrorMaskingTests(CollectCase):
+    def test_secret_is_masked_before_the_error_text_is_truncated(self):
+        key = "AKIA" + "TESTKEYABCDEMNOP"
+        message = "An error occurred (ServiceFailure) " + "x" * 250 + " " + key + " tail"
+        responses = base_responses()
+        responses[("iam", "get-account-summary", "us-east-1")] = err(message)
+        self.run_collect(responses)
+        raw = (self.out / "raw" / "IAM-901" / "summary-us-east-1.json").read_text(encoding="utf-8")
+        results = (self.out / "checks-result.json").read_text(encoding="utf-8")
+        for text in (raw, results):
+            self.assertNotIn("TESTKEYABC", text)
 
 
 class DnsEvaluatorTests(CollectCase):

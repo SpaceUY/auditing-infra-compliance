@@ -156,6 +156,13 @@ class ValidateTests(CatalogTestCase):
         )
         self.assert_errors_for(checks, "LOG-001")
 
+    def test_rule_3_rejects_forbidden_args_in_calls(self):
+        for bad in (["--endpoint-url", "http://x"], ["--filters=file://x"], ["--query", "x"], ["https://example.com"]):
+            with self.subTest(args=bad):
+                checks = self.checks()
+                checks[1]["verify"]["calls"][0]["args"] = bad
+                self.assert_errors_for(checks, "LOG-001")
+
     def test_rule_3_accepts_lookup_events_and_credential_report(self):
         checks = self.checks()
         checks[1]["verify"]["calls"] = [
@@ -346,3 +353,14 @@ class ListCliTests(unittest.TestCase):
         code, lines = self.run_cli()
         self.assertEqual(code, 0)
         self.assertTrue(lines[-1].startswith("OK:"))
+
+
+class PerBucketToleranceTests(unittest.TestCase):
+    """One bucket the auditor cannot read must not turn the whole check into NO_VERIFICADO (final review A, I2)."""
+
+    def test_per_bucket_calls_hand_failures_to_the_evaluator(self):
+        checks = {c["id"]: c for c in catalog.load_checks(REFS / "checks")}
+        for check_id in ("ENC-005", "TLS-001", "LOG-005", "LOG-006", "LOG-010"):
+            for call in (c for c in checks[check_id]["verify"]["calls"] if "for_each" in c and c["service"] == "s3api"):
+                with self.subTest(check=check_id, call=call["name"]):
+                    self.assertEqual(call.get("item_errors"), "evaluator")

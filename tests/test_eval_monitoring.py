@@ -707,8 +707,9 @@ class MonitoringCollectTests(unittest.TestCase):
     def test_each_distinct_topic_is_read_once_per_check(self):
         calls = [c for c in self.runner.calls if c[1:3] == ["sns", "list-subscriptions-by-topic"]]
         topics = [c[c.index("--topic-arn") + 1] for c in calls]
-        per_check = len(self.CHECKS)
-        self.assertEqual(len(topics), len(set(topics)) * per_check)
+        counts = {t: topics.count(t) for t in set(topics)}
+        # answered topics are read once for the whole run (call memo); a failing one (not cacheable) is retried by each check
+        self.assertEqual(sorted(t for t, n in counts.items() if n == 1), sorted(t for t in counts if ":sns:" in t))
 
     def test_subscriber_endpoints_never_reach_the_raw_files(self):
         raw = "\n".join(p.read_text(encoding="utf-8") for p in (self.out / "raw").rglob("*.json"))
