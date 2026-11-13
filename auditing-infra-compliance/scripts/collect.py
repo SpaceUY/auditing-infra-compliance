@@ -5,7 +5,9 @@ and prints a bounded summary; one progress line per finished check goes to stder
 silences it). inventory.json is written as soon as the inventory is known and checks-result.json is refreshed while the
 run progresses, flagged "partial": true with "pending_checks" until the end, so a killed run (Ctrl-C/SIGTERM exit 130, or
 an exception) keeps what it collected. Identical AWS calls (service, operation, args, region, query) run once per run.
-A scope that selects nothing (unknown mode or domain, malformed or uncovered resources, bad regions) exits 2 with a message before any AWS call.
+A malformed scope (unknown mode or domain, malformed resources, bad regions) exits 2 with a message before any AWS call. A well-formed
+scope that no catalog check covers (types such as sns_topic or subnet) exits 0 with no results and the warning "ningún chequeo del catálogo
+aplica a: <types>"; its components then come out as unverified scope in the assembled report.
 Only (service, operation) pairs of the loaded catalog, the inventory spec and the preflight are ever executed.
 A failing region does not collapse a check: the healthy regions are evaluated and the failing ones get their own
 NO_VERIFICADO row ("bloqueado por SCP", without `missing`, when AccessDenied names a service control policy). Global calls run in us-east-1 and report that region.
@@ -220,8 +222,8 @@ def _resource_problem(resources):
 
 
 def _scope_problem(scope, checks):
-    """Why the scope selects no usable run (a message), or None. Checked before any AWS call: a scope that selects
-    nothing must not end as exit 0 with zero results."""
+    """Why the scope is malformed (a message), or None. Checked before any AWS call. A well-formed scope that no catalog check covers
+    (sns_topic, subnet...) is not malformed: it runs with no results and a warning."""
     if not isinstance(scope, dict):
         return "scope.json debe ser un objeto"
     if scope.get("mode") not in MODES:
@@ -233,8 +235,6 @@ def _scope_problem(scope, checks):
         return f"scope.domains tiene dominios desconocidos: {_oneline(', '.join(unknown), 80)} (válidos: {', '.join(known)})"
     if scope["mode"] != "full" and (problem := _resource_problem(scope.get("resources"))):
         return problem
-    if not _select(checks, scope):
-        return "ningún chequeo del catálogo aplica al alcance indicado (dominios o tipos de recurso sin chequeos)"
     return None
 
 
@@ -779,7 +779,7 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
 
     scope = json.loads(Path(args.scope).read_text(encoding="utf-8"))
     checks = catalog.load_checks(Path(args.checks_dir))
-    if problem := _scope_problem(scope, checks):  # before any AWS call: a scope that selects nothing is an error
+    if problem := _scope_problem(scope, checks):  # before any AWS call: a malformed scope is an error
         return _scope_failure(problem)
     wanted = scope.get("regions", "auto")
     if problem := _regions_problem(wanted):  # a bad region list must not turn into an empty audit either
@@ -820,6 +820,9 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
 
     _progress(args, f"[inventario] {len(inventory_regions)} regiones")
     selected = _select(checks, scope)
+    if not selected:
+        types = sorted({r["type"] for r in scope.get("resources") or []})
+        warnings.append(f"ningún chequeo del catálogo aplica a: {', '.join(types) or 'el alcance indicado'}")
     try:
         ctx.inventory, errors = inventory.build_inventory(list_inventory, specs, inventory_regions, account_id=account_id,
                                                          partition=_identity_partition(identity_arn))

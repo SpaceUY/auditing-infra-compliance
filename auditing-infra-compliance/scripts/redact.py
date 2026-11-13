@@ -15,9 +15,11 @@
   say where the secret lives ("stored in / almacenada en / se guarda en Secrets Manager", Parameter Store, Vault, 1Password) and
   `*_file` / `*_path` / `*_arn` / `manage*` / `*authentication` labels and password-policy settings (length, age, reuse, ...). A value
   is a reference only as a whole: a reference word followed by punctuation (`Secret-Admin-2024!`) or `/hunter2` is a password.
-  A table header row (followed by a `|---|` row) is never a credential, but the body rows below a header with a Password / Contraseña /
-  Clave / Secret / Token / API key column are masked in that column (a `Clave | Valor` table is a key-value list and is left alone;
-  a Secret column keeps plain lowercase identifiers such as secret names). Not covered: a bare `- password hunter2` with no
+  A table header row (followed by a separator row: only `|`, `-`, `:` and spaces, checked cell by cell) is never a credential. The body
+  rows below a Password / Contraseña / Passwd / Pwd header are masked in that column unless the cell is a reference (see above, any phrase
+  that names a secret store, `alias/...`, a slash-separated secret NAME that is not key-like); a Clave / Secret / Token / API key column
+  is ambiguous (names, key aliases, descriptions) and is masked only when the value is key-like (20+ characters with upper, lower and a
+  digit, or 32+ letters and digits). A `Clave | Valor` table is a key-value list and is left alone. Not covered: a bare `- password hunter2` with no
   separator (indistinguishable from prose). Every scan is linear: the value of a label is examined once and the scan resumes after it.
 - PEM private-key blocks (BEGIN ... PRIVATE KEY through END, or to the end of the text when unterminated)
 - emails -> first char + "***@domain", except those listed in keep_emails (e.g. VantaOwner owners)
@@ -62,7 +64,6 @@ _LABEL_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01
 CLI_PASSWORD = re.compile(r"(?i)(?<![\w-])(--[A-Za-z0-9-]{0,40}(?:password|passwd|pwd)[A-Za-z0-9-]{0,10})([ \t]+)(?=[^\s-])")
 BEARER = re.compile(r"(?i)(?<![\w-])(bearer[ \t]+)([A-Za-z0-9._~+/=-]{8,})")
 URL_USERINFO = re.compile(r"(?i)(?<![\w+.-])([a-z][a-z0-9+.-]{1,15}://[^\s:/@?#\[\]]{1,64}:)([^\s/@]{1,200})(?=@)")
-SEPARATOR_LINE = re.compile(r"\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*|\s*\|\s*:?-{2,}:?\s*\|?\s*")
 _OPENING_QUOTE = re.compile(r"""\\*["'`]""")
 _WORD_VALUE = re.compile(r"""[^\s"',;|`*\\]*""")
 _SHELL_WORD = re.compile(r"""[^\s;|&]+""")
@@ -118,6 +119,24 @@ REFERENCE_PREFIXES = ("/", "$", "${", "{{", "<", "[[", "arn:", "ssm:", "!Ref", "
                       "in Secrets Manager", "stored in", "almacenada en", "se guarda en", "guardada en", "Parameter Store", "Vault",
                       "1Password", "true", "N/A", "-", "(en")
 URL_PLACEHOLDERS = frozenset({"password", "pass", "pwd", "secret", "passwd", "user", "token"})
+
+
+def _is_separator(line):
+    """True for a markdown table separator row (`|---|---|`, `|-|-|`, `|:-:|`, `| --- |`, `---|---`): it has a pipe and every cell
+    between pipes is dashes with optional colons at the ends. One pass of str operations, no backtracking."""
+    if "|" not in line:
+        return False
+    cells = line.split("|")
+    if not cells[0].strip():
+        cells = cells[1:]
+    if cells and not cells[-1].strip():
+        cells = cells[:-1]
+    return bool(cells) and all(_is_separator_cell(cell) for cell in cells)
+
+
+def _is_separator_cell(cell):
+    core = cell.strip().removeprefix(":").removesuffix(":")
+    return bool(core) and not core.strip("-")
 
 
 def _label_tokens(label):
@@ -286,7 +305,6 @@ def _trim(line, start, end):
 
 
 KEY_VALUE_HEADERS = frozenset({"valor", "value", "valores", "values"})
-_SECRET_NAME = re.compile(r"[a-z]+(?:[-_.][a-z]+)*")
 
 
 def _column_kind(cell):
@@ -315,19 +333,43 @@ def _table_columns(line):
     return kinds
 
 
+_KEYLIKE_CELL = re.compile(_KEYLIKE)
+_LONG_ALNUM = re.compile(r"[A-Za-z0-9]{32,}")
+_SECRET_NAME_PATH = re.compile(rf"/?{_PATH_SEGMENT}(?:/{_PATH_SEGMENT})+/?")
+_STORE_MENTION = re.compile(r"(?i)(?<![\w-])(?:secrets?[ -]?manager|secretsmanager|parameter[ -]store|vault|1password)(?![\w-])")
+_AMBIGUOUS_COLUMNS = ("clave", "secret", "token", "api_key", "client_secret")
+
+
+def _is_key_like(value):
+    """A long mixed-class token (the heuristic of the bare `Secret` label) or 32+ letters and digits with a digit."""
+    return bool(_KEYLIKE_CELL.fullmatch(value) or (_LONG_ALNUM.fullmatch(value) and any(c.isdigit() for c in value)))
+
+
+def _is_cell_reference(value):
+    """What a Password column holds when it is not a password: a reference form, a phrase that mentions a secret store, `alias/...`,
+    or the NAME of a secret (`prod/rds/master`, no spaces, slash separated, not key-like)."""
+    if _is_reference(value):
+        return True
+    if any(c.isspace() for c in value) and _STORE_MENTION.search(value):
+        return True
+    if value.startswith("alias/"):
+        return True
+    return bool(_SECRET_NAME_PATH.fullmatch(value)) and not _is_key_like(value)  # a real key may contain slashes
+
+
 def _column_spans(line, columns):
-    """[(start, end, pattern)] of the credential cells of a table body row."""
+    """[(start, end, pattern)] of the credential cells of a table body row. A Password column is masked unless the cell is a reference;
+    Clave, Secret, Token and API key columns are ambiguous (names, key aliases, descriptions): masked only when the value is key-like."""
     found, cells = [], _cells(line)
     for number, kind in columns.items():
         if number >= len(cells):
             continue
         start, end = cells[number]
         value = line[start:end]
-        if start == end or _is_label_cell(value) or _is_reference(value):
+        if start == end or _is_label_cell(value) or _is_cell_reference(value):
             continue
-        if kind in ("password", "clave") or (kind == "secret" and not _SECRET_NAME.fullmatch(value)) or (
-                kind not in ("secret",) and _secret_value(value, kind)):
-            found.append((start, end, "password" if kind in ("password", "clave", "secret") else kind))
+        if kind == "password" or (kind in _AMBIGUOUS_COLUMNS and _is_key_like(value)):
+            found.append((start, end, kind if kind in ("token", "api_key", "client_secret") else "password"))
     return found
 
 
@@ -346,10 +388,10 @@ def _scan(text):
             columns = {}
         if len(line) < 4:
             continue
-        if "|" in line and number + 1 < len(lines) and "|" in lines[number + 1] and SEPARATOR_LINE.fullmatch(lines[number + 1]):
+        if "|" in line and number + 1 < len(lines) and "|" in lines[number + 1] and _is_separator(lines[number + 1]):
             columns = _table_columns(line)
             continue
-        extra = _column_spans(line, columns) if columns and "|" in line and not SEPARATOR_LINE.fullmatch(line) else []
+        extra = _column_spans(line, columns) if columns and "|" in line and not _is_separator(line) else []
         spans = _scan_line(line, extra)
         if spans:
             yield number, line, spans

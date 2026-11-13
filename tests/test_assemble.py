@@ -897,6 +897,15 @@ class FinalCleanupBTests(AssembleCase):
         self.assertIn("2 diferencia(s)", summary["verdict_text"])
         self.assertNotIn("\n", summary["verdict_text"])
 
+    def test_a_drift_from_breaks_tests_without_actual_status_is_never_optimal(self):
+        self.only(("DET-001", "account"))
+        drift = {"kind": "DRIFT", "check_id": "ENC-003", "resource": self.RESOURCE, "breaks_tests": [{"tool": "drata", "test": 30}]}
+        verdict, summary = self.verdict([drift])
+        self.assertEqual(verdict, "NO_VERIFICABLE")
+        self.assertIn("rompería", summary["verdict_text"])
+        self.assertNotIn("\n", summary["verdict_text"])
+        self.assertEqual(self.verdict([{**drift, "actual_status": "FAIL"}])[0], "NO_OPTIMO")
+
     def test_optimal_needs_at_least_one_evaluated_pass_or_fail(self):
         self.edit_results(lambda data: data.update(results=[], warnings=[]))
         verdict, summary = self.verdict([])

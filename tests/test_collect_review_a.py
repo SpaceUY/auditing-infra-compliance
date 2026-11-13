@@ -97,9 +97,6 @@ class EmptyOrUnknownSelectionTests(ReviewCase):
             with self.subTest(resources=bad):
                 self.assert_rejected("resources", mode="resource", resources=bad)
 
-    def test_resources_of_a_type_no_check_covers_are_an_error(self):
-        self.assert_rejected("ningún chequeo", mode="resource", resources=[{"type": "no_such_type", "id": "x", "region": "us-east-1"}])
-
     def test_a_valid_selection_still_runs(self):
         self.run_collect(scope=self.scope_file(mode="full", domains=["iam"]))
         self.assertEqual(self.code, 0)
@@ -408,3 +405,105 @@ class AttachedInstanceEvidenceTests(ReviewCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+NO_CHECK_TYPES = ("sns_topic", "subnet", "launch_template", "apigw_http_api", "wafv2_web_acl_cloudfront")
+
+
+class ScopeWithoutChecksTests(ReviewCase):
+    """NB-3: a well-formed scope whose components no catalog check covers is a normal run with no results (exit 0), a warning and the
+    components left as unverified scope; only a malformed scope exits 2."""
+
+    def resource(self, type_, id_=None):
+        return {"type": type_, "id": id_ or f"acme-notes-{type_}", "region": "us-east-1"}
+
+    def assert_empty_run(self, **scope):
+        self.run_collect(scope=self.scope_file(**scope))
+        self.assertEqual(self.code, 0, scope)
+        self.assertEqual(self.result["results"], [])
+        self.assertNotIn("partial", self.result)
+        self.assertEqual(self.result["aws"]["account_id"], "111122223333")
+        types = sorted({r["type"] for r in scope["resources"]})
+        self.assertIn(f"ningún chequeo del catálogo aplica a: {', '.join(types)}", self.result["warnings"])
+        self.assertIn("ningún chequeo del catálogo aplica", self.stdout)
+
+    def test_every_resource_type_without_a_check_exits_zero_with_a_warning(self):
+        for type_ in NO_CHECK_TYPES:
+            with self.subTest(type=type_):
+                self.assert_empty_run(mode="resource", resources=[self.resource(type_)])
+
+    def test_a_feature_made_only_of_types_without_checks_exits_zero(self):
+        self.assert_empty_run(mode="feature", target="mensajería",
+                              resources=[self.resource("sns_topic"), self.resource("subnet"), self.resource("launch_template")])
+
+    def test_a_domain_filter_that_leaves_no_check_for_the_resources_exits_zero(self):
+        self.assert_empty_run(mode="feature", domains=["iam"], resources=[self.resource("s3_bucket", "acme-notes-data")])
+        self.assert_empty_run(mode="resource", domains=["iam"], resources=[self.resource("s3_bucket", "acme-notes-data")])
+
+    def test_an_unknown_resource_type_is_not_malformed_either(self):
+        self.assert_empty_run(mode="resource", resources=[self.resource("no_such_type", "x")])
+
+    def test_assemble_lists_the_components_as_unverified_and_the_verdict_is_not_verifiable(self):
+        import shutil
+        import assemble_findings
+        scope = self.scope_file(mode="feature", target="mensajería",
+                                resources=[self.resource("sns_topic", "acme-notes-alerts"), self.resource("subnet", "subnet-0acme000000000001")])
+        self.run_collect(scope=scope)
+        self.assertEqual(self.code, 0)
+        shutil.copy(scope, self.out / "scope.json")
+        doc = assemble_findings.assemble(self.out, None, [], {"platform": "Acme Notes", "mode": "feature"}, SKILL_DIR)
+        self.assertEqual(doc["summary"]["verdict"], "NO_VERIFICABLE")
+        self.assertEqual([r["id"] for r in doc["unverified_scope"]], ["acme-notes-alerts", "subnet-0acme000000000001"])
+        self.assertEqual(doc["summary"]["unverified"]["scope_without_claims"], 2)
+        self.assertNotIn("Sin credenciales", " ".join(doc["warnings"] + doc["notes"]))
+        self.assertIsNotNone(doc["meta"]["aws"])
+
+    def test_malformed_scopes_still_exit_two_before_any_aws_call(self):
+        bad = ({"mode": "resource", "resources": []}, {"mode": "feature", "resources": [{"id": "x"}]}, {"mode": "nope"},
+               {"mode": "full", "domains": ["nope"]}, {"mode": "full", "domains": "iam"}, {"mode": "resource", "resources": "i-0abc"})
+        for overrides in bad:
+            with self.subTest(scope=overrides):
+                self.run_collect(scope=self.scope_file(**overrides))
+                self.assertEqual(self.code, 2)
+                self.assertEqual(self.runner.calls, [])
+        path = self.tmp / "list.json"
+        path.write_text("[]", encoding="utf-8")
+        self.run_collect(scope=path)
+        self.assertEqual((self.code, self.runner.calls), (2, []))
+
+
+class DocumentedScopesAreValidTests(unittest.TestCase):
+    """Every scope.json example in SKILL.md and its references passes the validator, and so does a scope for every inventory type."""
+
+    @staticmethod
+    def examples():
+        import re
+        found = []
+        for path in [SKILL_DIR / "SKILL.md", SKILL_DIR.parent / "README.md", *sorted((SKILL_DIR / "references").glob("*.md"))]:
+            text = path.read_text(encoding="utf-8")
+            candidates = re.findall(r"```(?:json)?\n(\{.*?\})\n```", text, re.S) + re.findall(r"`(\{[^`\n]*\"mode\"[^`\n]*\})`", text)
+            for candidate in candidates:
+                try:
+                    scope = json.loads(candidate)
+                except ValueError:
+                    continue
+                if isinstance(scope, dict) and "mode" in scope:
+                    found.append((path.name, scope))
+        return found
+
+    def test_the_documented_examples_exist_and_pass_the_validator(self):
+        checks = collect.catalog.load_checks(SKILL_DIR / "references" / "checks")
+        examples = self.examples()
+        self.assertGreaterEqual(len(examples), 2)
+        for name, scope in examples:
+            self.assertIsNone(collect._scope_problem(scope, checks), (name, scope))
+
+    def test_a_scope_for_every_inventory_type_is_valid(self):
+        checks = collect.catalog.load_checks(SKILL_DIR / "references" / "checks")
+        types = json.loads((SKILL_DIR / "references" / "inventory.json").read_text(encoding="utf-8"))
+        for mode in ("resource", "feature"):
+            for type_ in types:
+                scope = {"mode": mode, "regions": "auto", "domains": None, "resources": [{"type": type_, "id": "x", "region": "us-east-1"}]}
+                self.assertIsNone(collect._scope_problem(scope, checks), (mode, type_))
+        self.assertIsNone(collect._scope_problem({"mode": "feature", "domains": ["inventory"], "resources": [
+            {"type": "s3_bucket", "id": "x"}]}, checks))

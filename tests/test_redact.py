@@ -8,6 +8,7 @@ KEY = "AKIA" + "TESTKEYABCDEMNOP"
 SESSION_KEY = "ASIA" + "TESTKEYABCDEWXYZ"
 SECRET_VALUE = "wJalr" + "XUtnFEMI/K7MDENG/bPxRfiCY" + "TESTVALUE"
 SECRET_LABEL = "aws_secret" + "_access_key"
+LONG = "Zq9xK2mPw7Ab3Cd5Ef8"  # makes a cell key-like (20+ characters with upper case, lower case and a digit)
 
 
 def pem(label="PRIVATE", body="MIIEvQIBADANBgkqhkiG9w0BAQEFAASC\nKcwggSjAgEAAoIBAQC7", end=True):
@@ -387,10 +388,10 @@ class FinalCleanupBTests(unittest.TestCase):
     def test_column_layout_tables_mask_the_credential_column(self):
         tables = (("| Usuario | Password |", "|---|---|", "| bob | hunter2 |", "| ana | hunter3x9 |"),
                   ("| Usuario | Contraseña |", "|---|---|", "| bob | hunter2 |", "| ana | hunter3x9 |"),
-                  ("| Usuario | Clave |", "|---|---|", "| bob | hunter2 |", "| ana | hunter3x9 |"),
-                  ("| User | Secret |", "|---|---|", "| bob | hunter2 |", "| ana | hunter3x9 |"),
-                  ("| User | Token |", "|---|---|", "| bob | hunter2abc |", "| ana | hunter3x9abc |"),
-                  ("| User | API key |", "|---|---|", "| bob | hunter2abc |", "| ana | hunter3x9abc |"),
+                  ("| Usuario | Clave |", "|---|---|", "| bob | hunter2" + LONG + " |", "| ana | hunter3x9" + LONG + " |"),
+                  ("| User | Secret |", "|---|---|", "| bob | hunter2" + LONG + " |", "| ana | hunter3x9" + LONG + " |"),
+                  ("| User | Token |", "|---|---|", "| bob | hunter2" + LONG + " |", "| ana | hunter3x9" + LONG + " |"),
+                  ("| User | API key |", "|---|---|", "| bob | hunter2" + LONG + " |", "| ana | hunter3x9" + LONG + " |"),
                   ("| User | Password | Notes |", "|---|---|---|", "| bob | hunter2 | ops |", "| ana | hunter3x9 | dev |"),
                   ("| **User** | **Password** |", "| --- | --- |", "| bob | `hunter2` |", "| ana | **hunter3x9** |"),
                   ("Usuario | Password", "---|---", "bob | hunter2", "ana | hunter3x9"))
@@ -421,13 +422,11 @@ class FinalCleanupBTests(unittest.TestCase):
     def test_secret_name_columns_keep_plain_identifiers(self):
         text = "| Secret | Rotación |\n|---|---|\n| acme-notes-db | 90 |\n"
         self.assertEqual(redact.mask(text), text)
-        masked = redact.mask("| User | Secret |\n|---|---|\n| bob | hunter2 |\n| ana | Hunter |\n| cy | two words |\n")
-        self.assertNotIn("hunter2", masked)
-        self.assertNotIn("Hunter", masked)
-        self.assertNotIn("two words", masked)
+        self.assertEqual(redact.mask("| User | Secret |\n|---|---|\n| bob | hunter2 |\n| ana | Hunter |\n| cy | two words |\n"),
+                         "| User | Secret |\n|---|---|\n| bob | hunter2 |\n| ana | Hunter |\n| cy | two words |\n")
 
     def test_token_and_api_key_columns_use_the_word_rule(self):
-        text = "| User | Token | Expira |\n|---|---|---|\n| bob | abcDEF123456 | 15 min |\n| ana | JWT, 15 min | 1 h |\n"
+        text = "| User | Token | Expira |\n|---|---|---|\n| bob | abcDEF123456" + LONG + " | 15 min |\n| ana | JWT, 15 min | 1 h |\n"
         masked = redact.mask(text)
         self.assertNotIn("abcDEF123456", masked)
         self.assertIn("JWT, 15 min", masked)
@@ -445,6 +444,85 @@ class FinalCleanupBTests(unittest.TestCase):
             redact.mask(text)
             redact.detect(text)
             self.assertLess(time.perf_counter() - start, 1.0, text[:24])
+
+
+class LastFixRedactTests(unittest.TestCase):
+    """NB-1 (linear separator detection, every valid GFM separator) and NB-2 (column tables: no false critical for names)."""
+
+    @staticmethod
+    def _seconds(text):
+        import time
+        start = time.perf_counter()
+        redact.mask(text)
+        redact.detect(text)
+        return time.perf_counter() - start
+
+    def assert_untouched(self, text):
+        self.assertEqual(redact.mask(text), text, text)
+        self.assertEqual(redact.detect(text), [], text)
+
+    def assert_masked(self, text, value):
+        masked = redact.mask(text)
+        self.assertNotIn(value, masked, text)
+        self.assertIn(redact.REDACTED, masked, text)
+        self.assertEqual(redact.mask(masked), masked, text)
+        self.assertNotEqual(redact.detect(text), [], text)
+
+    def test_separator_line_with_a_long_space_run_is_linear(self):
+        for size, limit in ((20_000, 0.2), (200_000, 1.0)):
+            for text in ("| a |\n|--" + " " * size + "x", "| a |\n|" + " " * size + "|--" + " " * size + "x",
+                         "| a |\n|:" + " :" * (size // 2) + "x", "| a |\n" + "|" + "- " * (size // 2) + "x",
+                         "| a |\n| " + "-" * size + " " * size + "x", "| a |\n|" + " " * size + "|" + " " * size + "--x"):
+                self.assertLess(self._seconds(text), limit, text[:24])
+
+    def test_every_valid_separator_makes_the_row_below_a_table_body(self):
+        for sep in ("|---|---|", "|-|-|", "|:-:|:-:|", "| --- | --- |", "|:--|--:|", "---|---", "--|--", "| - | - |", "  |---|---|  ",
+                    "|---|---|\r"):
+            text = f"|Usuario|Password|\n{sep}\n|bob|hunter2|\n"
+            masked = redact.mask(text)
+            self.assertNotIn("hunter2", masked, sep)
+            self.assertIn("bob", masked, sep)
+            self.assertNotEqual(redact.detect(text), [], sep)
+        text = "| Password |\n| --- |\n| hunter2 |\n"
+        self.assertNotIn("hunter2", redact.mask(text))
+        text = "| Password |\n|-|\n| hunter2 |\n"
+        self.assertNotIn("hunter2", redact.mask(text))
+
+    def test_rows_that_are_not_separators_do_not_start_a_table(self):
+        for sep in ("| a | b |", "|--x|--|", "| - - |", "|||", "| : |", "|:|:|", "| -- x |", "| ab | -- |"):
+            text = f"|Usuario|Password|\n{sep}\n|bob|hunter2|\n"
+            self.assertEqual(redact.mask(text), text, sep)
+
+    def test_secret_and_clave_columns_keep_names_and_descriptions(self):
+        tables = (("| Secret | Rotación |", ("prod/rds/master", "rds-master-2", "Acme_Prod_DB", "acme-notes-db", "Secrets Manager, rotación 30d"),
+                   "| {} | 30 días |"),
+                  ("| Clave | Uso |", ("alias/prod-data", "KMS key", "alias/prod", "prod-data-key-2", "Secrets Manager, rotación 30d"), "| {} | datos |"),
+                  ("| Rol | Clave |", ("alias/prod", "alias/prod-data"), "| web | {} |"),
+                  ("| Nombre | Password |", ("Secrets Manager, rotación 30d", "Secrets Manager `prod/db`", "alias/prod-data", "prod/rds/master",
+                                            "arn:aws:secretsmanager:us-east-1:111122223333:secret:prod/db", "<password>", "Parameter Store",
+                                            "ver Parameter Store /acme/prod", "HashiCorp Vault (prod)", "1Password, bóveda infra",
+                                            "rds-master/prod-2"), "| web | {} |"),
+                  ("| Servicio | Token |", ("prod/rds/master", "alias/prod", "Acme_Prod_DB", "JWT, 15 min"), "| web | {} |"),
+                  ("| Servicio | API key |", ("prod/rds/master", "alias/prod", "rds-master-2"), "| web | {} |"))
+        for header, values, row in tables:
+            for value in values:
+                text = f"{header}\n|---|---|\n" + row.format(value) + "\n"
+                self.assert_untouched(text)
+
+    def test_real_secrets_in_credential_columns_are_still_masked(self):
+        key40 = SECRET_VALUE
+        admin = "Secret" + "-Admin-2024!"
+        self.assertGreaterEqual(len(key40), 39)
+        for header, value in (("| Nombre | Password |", admin), ("| Nombre | Password |", "hunter2"), ("| Nombre | Contraseña |", admin),
+                              ("| Nombre | Passwd |", "hunter2"), ("| Nombre | Pwd |", "hunter2"), ("| Nombre | Password |", "/hunter2"),
+                              ("| Nombre | Password |", "Vault" + "-Admin-2024!"), ("| Nombre | Password |", "pa ss word"),
+                              ("| Nombre | Secret |", key40), ("| Nombre | Password |", key40), ("| Nombre | Secret |", "wJalrXUtnFEMI" + "K7MDENGbPxRfiCYTESTVALUExy"), ("| Nombre | Clave |", key40), ("| Nombre | Token |", key40),
+                              ("| Nombre | API key |", key40), ("| Nombre | Token |", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b")):
+            self.assert_masked(f"{header}\n|---|---|\n| web | {value} |\n", value)
+
+    def test_spanish_and_plain_tables_with_one_dash_separators_mask_too(self):
+        self.assert_masked("|Usuario|Contraseña|\n|-|-|\n|bob|hunter2|\n", "hunter2")
+        self.assert_masked("|Usuario|Clave|\n|:-:|:-:|\n|bob|" + SECRET_VALUE + "|\n", SECRET_VALUE)
 
 
 if __name__ == "__main__":

@@ -377,7 +377,10 @@ class FinalCleanupDocsTests(unittest.TestCase):
 
     def test_scope_errors_and_unknown_regions_are_documented(self):
         self.assertIn("DET-004, DET-006, DET-007", self.skill)
-        self.assertIn("modo o dominio desconocido", self.skill)
+        self.assertIn("un dominio desconocido", self.skill)
+        self.assertIn("ningún chequeo del catálogo aplica a: <tipos>", self.skill)
+        self.assertNotIn("sin ningún chequeo que aplique", self.skill)
+        self.assertIn("ningún chequeo del catálogo aplica a: <tipos>", read(SKILL_DIR / "references" / "report-format.md"))
         self.assertIn("dominio que no existe en el catálogo", read(SKILL_DIR / "references" / "report-format.md"))
         for needle in ("armás vos", "§4"):
             self.assertIn(needle, self.skill)

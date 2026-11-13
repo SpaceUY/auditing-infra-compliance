@@ -24,7 +24,7 @@ Rules worth knowing:
 - Coverage never turns into a percentage: each ISO/TSC id is FAIL, NO_VERIFICADO, PASS or NOT_TOUCHED (a control touched only by
   DOCUMENTED_ONLY / DOCUMENTED_GAP findings is NO_VERIFICADO: the vault says so, nothing checked it).
 - summary.verdict is exactly one of NO_OPTIMO (any FAIL, any finding whose actual_status is FAIL: DRIFT, UNDOCUMENTED or another, a
-  critical/high DOCUMENTED_GAP), NO_VERIFICABLE (no AWS credentials, no evaluated PASS or FAIL at all, a partial run, blocked regions,
+  critical/high DOCUMENTED_GAP), NO_VERIFICABLE (no AWS credentials, no evaluated PASS or FAIL at all, a DRIFT from breaks_tests without a failing actual_status, a partial run, blocked regions,
   an incomplete inventory, or anything not verified: NO_VERIFICADO, DOCUMENTED_ONLY, DOCUMENTED_GAP, scoped components without claims)
   and OPTIMO (credentials used, complete run, at least one evaluated PASS/FAIL, nothing of the above). Never OPTIMO without credentials. summary.verdict_text is the one-line Spanish version; there are no scores.
 - <run-dir>/scope.json (optional) lists the scoped components: those with no finding at all come out in `unverified_scope`.
@@ -535,6 +535,9 @@ def _verdict(findings, aws_used, incomplete, counts):
     elif not any(f["status"] in ("PASS", "FAIL") for f in findings):
         reasons.append("ningún chequeo se evaluó (no hay resultados PASS ni FAIL)")
     reasons += incomplete
+    unconfirmed = sum(1 for f in findings if f["status"] == "DRIFT" and f.get("breaks_tests") and f.get("actual_status") != "FAIL")
+    if unconfirmed:  # a recommendation that would break tests, with no real state checked: nothing says the account is fine
+        reasons.append(f"{unconfirmed} diferencia(s) con una recomendación que rompería tests de Drata o Vanta, sin estado real comprobado")
     if counts["total"]:
         reasons.append(f"{counts['total']} elemento(s) sin verificar en AWS")
     if reasons:
