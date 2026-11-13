@@ -127,7 +127,7 @@ class SkillDocsTests(unittest.TestCase):
         self.assertIn("in English or Spanish", frontmatter(self.text)["description"])
 
     def test_skill_md_is_lean(self):
-        self.assertLessEqual(len(self.text.splitlines()), 195)  # detail lives in references/
+        self.assertLessEqual(len(self.text.splitlines()), 220)  # detail lives in references/
 
     def test_every_mentioned_script_exists(self):
         names = set(SCRIPT_MENTION.findall(self.text))
@@ -294,7 +294,7 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
                 self.assertIn(needle, text, needle)
         self.assertIn("not verified against AWS", self.refs["report-format.md"])
         self.assertIn("not verified against AWS", self.scripts["assemble_findings.py"])
-        for phrase in ("without insisting on credentials", "With credentials only: continue", "Ask for a source only if there is none"):
+        for phrase in ("do not insist", "With credentials only: continue", "Ask for a source only if there is none"):
             self.assertIn(phrase, self.skill, phrase)
         self.assertNotIn("Never `OPTIMAL` without credentials", self.skill)
 
@@ -427,6 +427,57 @@ class FinalCleanupDocsTests(unittest.TestCase):
     def test_shell_caveats_for_zsh_are_documented(self):
         self.assertIn("zsh", self.skill)
         self.assertIn("`| head`", self.skill)
+
+
+class FlowRulingsTests(unittest.TestCase):
+    """Review 3 D: vault-only skips collect, AWS needs a confirmed account, the run folder is absolute and outside the vault."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.skill = read(SKILL_MD)
+        cls.vault_reading = read(SKILL_DIR / "references" / "vault-reading.md")
+        cls.readme = read(ROOT / "README.md")
+
+    def step(self, title):
+        return self.skill.split(f"### {title}", 1)[1].split("\n### ", 1)[0]
+
+    def test_collect_is_skipped_without_credentials_or_without_aws_resources(self):
+        step = self.step("5. Collect")
+        self.assertIn("**Skip this step**", step)
+        for needle in ("no credentials", "vault-only run", "`scope.resources` would be empty"):
+            self.assertIn(needle, step)
+        self.assertIn("skip step 5", self.step("2. Preflight"))
+
+    def test_a_vault_without_profile_is_vault_only_and_aws_needs_a_confirmed_account(self):
+        self.assertIn("vault-only** unless the user asks", self.skill)
+        preflight = self.step("2. Preflight")
+        for needle in ("always** run `aws sts get-caller-identity", "Account id and ARN", "confirmation of that account"):
+            self.assertIn(needle, preflight)
+        self.assertIn("a profile or the ambient credentials", self.readme.replace("\n", " "))
+
+    def test_the_run_folder_is_absolute_and_never_inside_the_vault(self):
+        preflight = self.step("2. Preflight")
+        for needle in ("**absolute**", "inside the vault", "parent directory", ".gitignore"):
+            self.assertIn(needle, preflight)
+        self.assertIn("Exit `2` = invalid vault or output inside the vault", self.step("3. Vault index"))
+
+    def test_feature_without_a_vault_goes_straight_to_the_inventory_search(self):
+        self.assertIn("without a vault, skip `vault_index.py feature`", self.step("4. Resolve the scope and write `scope.json`"))
+        self.assertIn("**with no vault**", self.vault_reading)
+
+    def test_the_catalog_list_example_returns_results(self):
+        self.assertIn("--grep encrypt`", self.skill)
+        self.assertNotIn("--grep encryption", self.skill + self.readme)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = validate_catalog.main(["--list", "--type", "rds_instance", "--grep", "encrypt"])
+        self.assertEqual(code, 0)
+        self.assertIn("ENC-003", out.getvalue())
+
+    def test_the_vault_only_fail_exception_is_stated_wherever_pass_fail_is_ruled_out(self):
+        self.assertIn("with one exception: a secret or sensitive file", self.skill)
+        self.assertIn("except a secret or sensitive file", read(SKILL_DIR / "references" / "report-format.md"))
+        self.assertIn("except a secret or sensitive file", self.readme)
 
 
 if __name__ == "__main__":

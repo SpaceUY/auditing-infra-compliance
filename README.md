@@ -16,8 +16,9 @@ vault (typed or free-form) or with both. The verdict (`OPTIMAL` / `NOT_OPTIMAL` 
 it is based on** (`summary.verdict_basis`: `aws`, `vault` or `aws+vault`). A verdict based only on the vault never says
 AWS verified anything.
 
-**Language.** The skill talks to the user in the user's language (English or Spanish requests both trigger it); the
-report and all files it produces are English.
+**Language.** The skill talks to the user in the user's language (English or Spanish requests are both accepted); the
+report and all files it produces are English (claims included: Spanish vault text appears only as a short quotation).
+In the chat the verdict is given in your language and `verdict_text` is quoted as the English line it is.
 
 ## Contents
 
@@ -54,7 +55,7 @@ report and all files it produces are English.
 - Builds the remediation commands for CloudShell and **verifies them without executing them** (syntax, pending values,
   conflicts between fixes, tests that depend on the resource); it suggests an order of application.
 - Produces `report.html`, `findings.json`, `checks-result.json`, `inventory.json` and `raw/` in
-  `./compliance-reports/<platform>-<scope>-<date>/`, always outside the vault.
+  `<absolute base>/compliance-reports/<platform>-<scope>-<date>/`, always outside the vault.
 - Shows the collection progress and leaves a usable partial result if the run is cut short.
 - The scripts decide PASS/FAIL and build the commands, the mappings and the HTML; Claude reads the vault, resolves the
   scope and judges only what the scripts cannot decide.
@@ -128,7 +129,7 @@ Python evaluators or DNS queries). Claude does not re-evaluate a script's PASS o
 | Sources | What is evaluated | `verdict_basis` |
 |---|---|---|
 | AWS credentials only | What is real: the discovered inventory and the catalog of checks | `aws` |
-| Vault only | What is documented: nothing is marked `PASS` or `FAIL`; the findings are `DOCUMENTED_*` | `vault` |
+| Vault only | What is documented: nothing is marked `PASS` or `FAIL` (except a secret or sensitive file detected in the vault: `FAIL` `critical`); the findings are `DOCUMENTED_*` | `vault` |
 | Credentials and vault | What is real, plus the differences between what is documented and what is deployed (drift) | `aws+vault` |
 | None | There is no report: `assemble_findings.py` ends with exit `2` ("no sources") | |
 
@@ -160,6 +161,11 @@ Examples of `verdict_text`: "Optimal based on what the vault documents (not veri
 only with `actual_status: FAIL` (reality violates the check) does it keep the complete fix. A live resource the vault
 does not mention is `UNDOCUMENTED` (severity `low` by default; ISO 5.9 asks for an asset inventory). A vault `status`
 of `proposed`, `todo` or `draft` means "does not exist": it is reported as `DOCUMENTED_GAP` and never as a control in force.
+
+**Vault given, no profile:** the run is vault-only (no `collect.py`) unless you ask to also check AWS. When AWS is used
+(a profile or the ambient credentials), the skill runs `aws sts get-caller-identity`, shows the account id and ARN and waits
+for you to confirm that account before collecting. With no credentials, or when the confirmed components have no AWS
+resource, the collection step is skipped.
 
 **Without credentials:** the report states in the header that nothing was verified against AWS, shows the counts of what is
 documented and what is unverified instead of zeros that would read as "clean", and lists the scope components "not
@@ -204,7 +210,9 @@ Do you confirm this list, or should I add/remove something?
 `proposed`, `todo` or `draft` components are not audited as live resources: they come out as `DOCUMENTED_GAP`. The security
 groups, VPCs, subnets and roles that surround the feature are also listed separately, as "context", so you
 confirm whether they enter the scope. If the feature is not documented and there are credentials, it offers to look for it in the inventory
-(by tags and name) and marks everything found as **inferred**. With a free-form vault it warns that the feature map is
+(by tags and name) and marks everything found as **inferred**; with no vault it goes straight to that search. Context
+resources with no catalog check (SNS topics, subnets, launch templates, HTTP APIs, CloudFront WAF ACLs) show as unverified,
+so the skill warns you before adding them. With a free-form vault it warns that the feature map is
 inferred and less reliable.
 
 **`resource` mode.** The type comes from the prefix (`i-…`, `sg-…`, `db-…`) or the ARN; the resource and its immediate context are audited
@@ -281,7 +289,7 @@ understand what it does at each step:
 ```bash
 SKILL_DIR="/absolute/path/to/auditing-infra-compliance"
 RUN="/absolute/path/compliance-reports/acme-notes-full-2026-11-12-1030"
-mkdir -p "$RUN"
+mkdir -p "$RUN"   # outside the vault
 
 # 1. Vault index (optional; nothing is written inside the vault)
 python3 "$SKILL_DIR/scripts/vault_index.py" index "<vault>" -o "$RUN/vault-index.json"
@@ -290,7 +298,7 @@ python3 "$SKILL_DIR/scripts/vault_index.py" feature "$RUN/vault-index.json" "ema
 
 # 2. Write $RUN/scope.json (see the example below)
 
-# 3. Collect (read-only); --quiet turns off the progress on stderr
+# 3. Collect (read-only; skipped without credentials or with no AWS resource in scope); --quiet turns off the progress on stderr
 python3 "$SKILL_DIR/scripts/collect.py" --scope "$RUN/scope.json" --out "$RUN" [--quiet]
 
 # 4. (Claude) write $RUN/vault-claims.json
@@ -346,8 +354,9 @@ that an SCP blocks are dropped with a warning, reported as not verified (never a
 
 ### Run folder
 
-`./compliance-reports/<platform>-<scope>-<YYYY-MM-DD-HHMM>/` in the working directory, never inside the vault
-(the repo ignores `compliance-reports/`). Examples: `acme-notes-full-2026-11-12-1030`,
+`<absolute base>/compliance-reports/<platform>-<scope>-<YYYY-MM-DD-HHMM>/`, never inside the vault (if the working
+directory is inside the vault, the skill proposes the vault's parent directory instead). This repo ignores `compliance-reports/`;
+add it to the `.gitignore` of the project where you run the skill, since the report holds the account id and findings. Examples: `acme-notes-full-2026-11-12-1030`,
 `acme-notes-feature-email-2026-11-12-1030`.
 
 | File | Written by | Content |
@@ -615,7 +624,7 @@ secrets and stay as they are. Spanish labels in a vault (Contraseña, Clave, "en
 as content and flagged; it is not obeyed.
 
 **The vault is not modified.** The skill only reads regular `.md` files, ignores everything that starts with `.`, does not follow symlinks and
-refuses to write the index inside the vault. The report goes to `./compliance-reports/…`.
+refuses to write the index inside the vault (exit `2`). The report goes to an absolute `compliance-reports/…` folder outside it.
 
 **Credentials.** Only through `AWS_PROFILE`, the `profile` of `scope.json` or the already configured environment. The skill neither asks for nor
 accepts keys pasted in the chat; the only `aws` Claude runs directly is `aws sts get-caller-identity` in the
@@ -718,7 +727,7 @@ infra-compliance-audit/
 python3 -m unittest discover -s tests          # the whole suite
 python3 -m unittest discover -s tests -v       # detail
 python3 auditing-infra-compliance/scripts/validate_catalog.py          # validates the catalog
-python3 auditing-infra-compliance/scripts/validate_catalog.py --list --type rds_instance --grep encryption
+python3 auditing-infra-compliance/scripts/validate_catalog.py --list --type rds_instance --grep encrypt
 ```
 
 - The tests use only the standard library and a fake AWS (`tests/helpers.py`, `FakeRunner`): they do not call AWS or the
