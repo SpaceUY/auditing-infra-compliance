@@ -331,7 +331,7 @@ class RdsNotPublicTests(unittest.TestCase):
         self.assertEqual((flagged["publicly_accessible"], flagged["public_subnets"]), (True, []))
         self.assertEqual((subnet["publicly_accessible"], subnet["public_subnets"]), (False, [SUB_PUB]))
         self.assertEqual((both["publicly_accessible"], both["public_subnets"]), (True, [SUB_PUB]))
-        self.assertEqual(subnet["reasons"], ["la subnet subnet-0a1b2c3d4e5f60718 tiene una ruta hacia un internet gateway"])
+        self.assertEqual(subnet["reasons"], ["subnet subnet-0a1b2c3d4e5f60718 has a route to an internet gateway"])
         self.assertEqual(flagged["reasons"], ["PubliclyAccessible=true"])
         self.assertEqual(main["public_subnets"], ["subnet-0d4e5f60718293a4b"])
 
@@ -398,7 +398,7 @@ class WafAssociatedTests(unittest.TestCase):
         self.assertEqual(flags(found), [("acme-notes-open", "offender"), ("acme-notes-internal", "not_applicable"), ("acme-notes-nlb", "not_applicable")])
         offender = found[0]
         self.assertEqual((offender["resource_id"], offender["region"]), ("acme-notes-open", REGION))
-        self.assertEqual(offender["detail"], {"kind": "alb", "arn": ALB_BARE, "reason": "el ALB público no tiene un web ACL de WAF asociado"})
+        self.assertEqual(offender["detail"], {"kind": "alb", "arn": ALB_BARE, "reason": "the public ALB has no WAF web ACL associated"})
 
     def test_region_without_web_acls_fails_every_public_alb(self):
         found = evaluate("waf_associated", self.responses(acls="wafv2-list-web-acls-none"))
@@ -409,7 +409,7 @@ class WafAssociatedTests(unittest.TestCase):
         apis = [o for o in found if o["resource_id"] in ("a1b2c3d4e5", "b2c3d4e5f6", "c3d4e5f6a7")]
         self.assertEqual(flags(apis), [("a1b2c3d4e5", "offender"), ("b2c3d4e5f6", "offender"), ("c3d4e5f6a7", "not_applicable")])
         self.assertEqual(apis[0]["detail"], {"kind": "api_gateway", "api": "acme-notes-api", "stages": ["dev"],
-                                             "reason": "el API público tiene stages sin un web ACL de WAF asociado"})
+                                             "reason": "the public API has stages without an associated WAF web ACL"})
         self.assertEqual(apis[1]["detail"]["stages"], ["prod"])
 
     def test_a_rest_api_with_every_stage_associated_passes(self):
@@ -571,7 +571,7 @@ class NetworkCatalogTests(unittest.TestCase):
             (command,) = rem["commands"]
             self.assertIn("revoke-security-group-ingress", command, check_id)
             self.assertIn("--ip-permissions {detail_json:ip_permissions}", command, check_id)
-            self.assertNotIn("__COMPLETAR_IP_PERMISSIONS__", command, check_id)
+            self.assertNotIn("__FILL_IN_IP_PERMISSIONS__", command, check_id)
             self.assertNotIn("--protocol", command, check_id)
             self.assertNotIn("--cidr", command, check_id)
             self.assertIn("detail.ip_permissions", rem["notes"], check_id)
@@ -631,7 +631,7 @@ class NetworkCatalogTests(unittest.TestCase):
             self.assertRegex(command, r"describe-network-interfaces --filters \"Name=group-id,Values=\$SG_ID\"")
             self.assertIn("length(NetworkInterfaces)", command)
             self.assertIn('[ "$ENIS" != "0" ]', command)
-            self.assertIn("DETENIDO", command)
+            self.assertIn("STOPPED", command)
             # the revoke only runs in the branch reached when no interface uses the group
             self.assertGreater(command.index("revoke-security-group-"), command.index('"$ENIS" != "0"'))
 
@@ -705,7 +705,7 @@ class NetworkCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_nothing_is_unverified(self):
         self.assertEqual(self.code, 0)
-        self.assertEqual([(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NO_VERIFICADO"], [])
+        self.assertEqual([(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NOT_VERIFIED"], [])
 
     def test_security_group_outcomes(self):
         ssh = self.rows("NET-001")

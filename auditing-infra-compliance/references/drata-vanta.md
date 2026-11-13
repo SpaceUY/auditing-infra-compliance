@@ -2,11 +2,11 @@
 
 Se carga ante preguntas sobre roles y permisos de las herramientas, tags de Vanta, "pasa por vacío", mapeos documentados vs inferidos, o si hay un MCP de Drata o Vanta conectado. Los números y nombres de test salen **solo** de `references/mappings/drata-dcf.json` y del catálogo (`references/checks/*.json`); las fuentes completas están en `docs/research/vanta-drata-tests.md` del repo del skill. Si un dato no está ahí, no se afirma.
 
-## 1. Cómo se obtienen los mapeos (y cuándo decir "inferido")
+## 1. Cómo se obtienen los mapeos (y cuándo decir "inferred")
 
 - **Drata no mapea por test:** mapea test → control DCF → requisitos. Los controles DCF exponen requisitos de SOC 2 (61) e ISO 27001:2022 (123, con cláusulas). El mapeo de 130 tests está en `references/mappings/drata-dcf.json` (snapshot del 2026-11-12, sin datos de ninguna cuenta).
 - Para los chequeos con test de Drata en ese archivo, TSC e ISO salen de ahí con `sourced: "drata-dcf-2026-11-12"`.
-- Los chequeos **sin test de Drata** (AWS Config, Security Hub, Access Analyzer, política TLS del ALB, SES…) llevan mapeo `sourced: false`: el HTML lo muestra como **"inferido"**. Los nombres de test de Vanta (CIS) son documentados; su mapeo a TSC/ISO es inferido.
+- Los chequeos **sin test de Drata** (AWS Config, Security Hub, Access Analyzer, política TLS del ALB, SES…) llevan mapeo `sourced: false`: el HTML lo muestra como **"inferred"**. Los nombres de test de Vanta (CIS) son documentados; su mapeo a TSC/ISO es inferido.
 - Una cuenta de Drata puede personalizar mapeos y la de Vanta tiene su propia configuración. Sin conexión viva no se afirma nada sobre el estado de la cuenta (qué tests están habilitados, `UNUSED` o `DISABLED`).
 - Drata y Vanta **no tienen tests de SES**: los chequeos de email son propios (severidad máxima `medium`, salvo DMARC ausente en un dominio que envía: `high`).
 - Los números `cis_aws` del catálogo pueden venir de **versiones distintas del CIS AWS Foundations Benchmark** (por ejemplo LOG-007 usa la numeración 1.4 y otros chequeos una posterior): comprobarlos contra la versión que usa la cuenta. La referencia verificable son los ids de Security Hub (`security_hub`); ante una duda de numeración, citar ese id.
@@ -23,7 +23,7 @@ Algunos tests de Drata pasan solo porque no hay recursos de ese tipo (por ejempl
 | Drata | `DrataAutopilotRole` (nombre exacto) | `SecurityAudit` administrada por AWS | Política inline con `backup:ListRecoveryPointsByResource` y `backup:ListBackupJobs` para los tests 132, 133, 134 y 301. En cada CMK, la key policy debe darle `kms:ListKeys`, `kms:DescribeKey` y `kms:GetKeyRotationStatus` (test 223). Se necesita el rol en cada cuenta monitoreada. Chequeos: INT-001, INT-002, INT-004. |
 | Vanta | `vanta-auditor` | `SecurityAudit` + `VantaAdditionalPermissions` como política **administrada por el cliente** (una inline no se detecta) | Las key policies personalizadas deben permitirle `kms:DescribeKey`, `GetPublicKey`, `ListAliases`, `ListGrants`, `ListKeyPolicies`, `ListResourceTags`, `ListRetirableGrants` (o `kms:*` a la raíz de la cuenta). Los buckets con política restrictiva deben darle lectura. Solo escanea las regiones seleccionadas. Chequeos: INT-003, INT-004. |
 
-Una SCP que restringe regiones debe alinearse con el alcance de la conexión. Cuando una SCP niega las lecturas, `collect.py` marca las filas "bloqueado por SCP" (sin permiso faltante que sugerir) y las regiones sin acceso a su inventario quedan en `aws.blocked_regions` y en una advertencia del reporte: se informan como no verificadas, y que una región esté bloqueada no significa que cumpla. Si el rol no existe en la cuenta, el chequeo es `N/A` (pase vacío), no `PASS`.
+Una SCP que restringe regiones debe alinearse con el alcance de la conexión. Cuando una SCP niega las lecturas, `collect.py` marca las filas "blocked by SCP" (sin permiso faltante que sugerir) y las regiones sin acceso a su inventario quedan en `aws.blocked_regions` y en una advertencia del reporte: se informan como no verificadas, y que una región esté bloqueada no significa que cumpla. Si el rol no existe en la cuenta, el chequeo es `N/A` (pase vacío), no `PASS`.
 
 **Identidad para auditar con este skill:** un rol de solo lectura (`SecurityAudit` + `ViewOnlyAccess`), nunca uno con permisos de escritura.
 
@@ -70,4 +70,4 @@ Lo que el catálogo no cubre o cubre solo en parte; no se afirma nada sobre eso 
 - **Contactos alternativos de la cuenta:** solo se verifica el de **seguridad** (IAM-016); los de operaciones y facturación no.
 - **Varias cuentas (AWS Organizations):** el skill audita una cuenta por corrida; no consolida ni avisa del resto de la organización.
 - **Evidencia en `raw/`:** para los chequeos JMESPath es escasa, y el inventario no se copia a `raw/` (el listado normalizado está en `inventory.json`).
-- **Llamadas no revisadas:** un `Could not connect to the endpoint URL` queda `NO_VERIFICADO` (no se distingue de una falla de red): nunca se toma por "sin recursos".
+- **Llamadas no revisadas:** un `Could not connect to the endpoint URL` queda `NOT_VERIFIED` (no se distingue de una falla de red): nunca se toma por "sin recursos".

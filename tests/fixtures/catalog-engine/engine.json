@@ -3,7 +3,7 @@
   "checks": [
     {
       "id": "IAM-901",
-      "title": "La cuenta root tiene MFA habilitado",
+      "title": "The root account has MFA enabled",
       "domain": "iam",
       "scope": "account",
       "resource_types": [],
@@ -21,12 +21,12 @@
       },
       "vault_signals": ["mfa root"],
       "mappings": {"drata": [], "vanta": [], "tsc_inferred": ["CC6.1"], "iso_inferred": ["A.8.5"], "security_hub": ["IAM.9"], "cis_aws": ["1.5"]},
-      "remediation": {"kind": "console_only", "risk": "low", "downtime": false, "steps": ["Activar MFA en root."], "commands": [], "verify_after": "", "notes": ""},
+      "remediation": {"kind": "console_only", "risk": "low", "downtime": false, "steps": ["Turn on MFA on root."], "commands": [], "verify_after": "", "notes": ""},
       "sources": ["https://example.invalid/docs/root-mfa"]
     },
     {
       "id": "DAT-901",
-      "title": "Los buckets S3 tienen versionado habilitado",
+      "title": "S3 buckets have versioning enabled",
       "domain": "data",
       "scope": "resource",
       "resource_types": ["s3_bucket"],
@@ -45,12 +45,12 @@
       },
       "vault_signals": ["versionado s3"],
       "mappings": {"drata": [], "vanta": [], "tsc_inferred": ["A1.2"], "iso_inferred": ["A.8.13"], "security_hub": [], "cis_aws": []},
-      "remediation": {"kind": "cli", "risk": "low", "downtime": false, "steps": ["Habilitar versionado."], "commands": ["BUCKET=\"__COMPLETAR_BUCKET__\"\naws s3api put-bucket-versioning --bucket \"$BUCKET\" --versioning-configuration Status=Enabled"], "verify_after": "aws s3api get-bucket-versioning --bucket __COMPLETAR_BUCKET__", "notes": ""},
+      "remediation": {"kind": "cli", "risk": "low", "downtime": false, "steps": ["Habilitar versionado."], "commands": ["BUCKET=\"__FILL_IN_BUCKET__\"\naws s3api put-bucket-versioning --bucket \"$BUCKET\" --versioning-configuration Status=Enabled"], "verify_after": "aws s3api get-bucket-versioning --bucket __FILL_IN_BUCKET__", "notes": ""},
       "sources": ["https://example.invalid/docs/s3-versioning"]
     },
     {
       "id": "LOG-901",
-      "title": "Los trails de CloudTrail se evaluan con un evaluador python",
+      "title": "CloudTrail trails are evaluated with a python evaluator",
       "domain": "logging",
       "scope": "account",
       "resource_types": [],
@@ -64,7 +64,7 @@
         ],
         "evaluator": "python:always_empty",
         "params": {},
-        "pass_when_text": "Siempre pasa (evaluador de ejemplo)",
+        "pass_when_text": "Always passes (example evaluator)",
         "needs": ["cloudtrail:DescribeTrails"]
       },
       "vault_signals": ["cloudtrail"],
@@ -74,7 +74,7 @@
     },
     {
       "id": "DET-901",
-      "title": "Security Hub esta habilitado en todas las regiones",
+      "title": "Security Hub is enabled in all regions",
       "domain": "detection",
       "scope": "account",
       "resource_types": [],
@@ -87,7 +87,7 @@
         ],
         "evaluator": "jmespath",
         "offenders": "HubArn == null && [`account`] || `[]`",
-        "pass_when_text": "describe-hub devuelve un hub",
+        "pass_when_text": "describe-hub returns a hub",
         "needs": ["securityhub:DescribeHub"]
       },
       "vault_signals": ["security hub"],

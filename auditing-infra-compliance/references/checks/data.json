@@ -283,7 +283,7 @@
           "Verificar con describe-db-instances que DeletionProtection es true."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# miembro de un cluster: la protección es del cluster; si no pertenece a ninguno, es de la instancia\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text) || CLUSTER_ID=\"LECTURA_FALLIDA\"\nif [ \"$CLUSTER_ID\" = \"LECTURA_FALLIDA\" ]; then echo \"DETENIDO: no se pudo leer la instancia $DB_ID (rds:DescribeDBInstances); no se cambió nada\"; elif [ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ]; then aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --deletion-protection --region \"$REGION\"; else aws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --deletion-protection --region \"$REGION\"; fi"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# miembro de un cluster: la protección es del cluster; si no pertenece a ninguno, es de la instancia\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text) || CLUSTER_ID=\"READ_FAILED\"\nif [ \"$CLUSTER_ID\" = \"READ_FAILED\" ]; then echo \"STOPPED: no se pudo leer la instancia $DB_ID (rds:DescribeDBInstances); no se cambió nada\"; elif [ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ]; then aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --deletion-protection --region \"$REGION\"; else aws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --deletion-protection --region \"$REGION\"; fi"
         ],
         "verify_after": "aws rds describe-db-instances --db-instance-identifier \"{resource_id}\" --region \"{region}\" --query 'DBInstances[0].DeletionProtection'",
         "notes": "Sin downtime y reversible con --no-deletion-protection. Mientras esté activa, delete-db-instance falla: para borrar la base a propósito (o con terraform destroy) hay que desactivarla antes. Se aplica de inmediato, por eso no lleva --apply-immediately."
@@ -323,7 +323,7 @@
           }
         ],
         "evaluator": "python:ddb_pitr",
-        "pass_when_text": "PointInTimeRecoveryStatus=ENABLED en cada tabla (test 301 de Drata). Una tabla borrada entre el listado y la lectura no aplica; una tabla que no se puede leer queda NO_VERIFICADO sin ocultar las demás.",
+        "pass_when_text": "PointInTimeRecoveryStatus=ENABLED en cada tabla (test 301 de Drata). Una tabla borrada entre el listado y la lectura no aplica; una tabla que no se puede leer queda NOT_VERIFIED sin ocultar las demás.",
         "needs": [
           "dynamodb:DescribeContinuousBackups"
         ]
@@ -401,7 +401,7 @@
           }
         ],
         "evaluator": "python:s3_versioning",
-        "pass_when_text": "Status=Enabled en cada bucket (test 108 de Drata). Un bucket con el versionado suspendido o nunca habilitado falla. Un bucket borrado entre el listado y la lectura no aplica; un bucket que no se puede leer queda NO_VERIFICADO sin ocultar los demás.",
+        "pass_when_text": "Status=Enabled en cada bucket (test 108 de Drata). Un bucket con el versionado suspendido o nunca habilitado falla. Un bucket borrado entre el listado y la lectura no aplica; un bucket que no se puede leer queda NOT_VERIFIED sin ocultar los demás.",
         "needs": [
           "s3:GetBucketVersioning"
         ]
@@ -478,7 +478,7 @@
           }
         ],
         "evaluator": "python:s3_bpa",
-        "pass_when_text": "BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy y RestrictPublicBuckets son true en la configuración propia del bucket (test 104 de Drata, que no evalúa el Block Public Access de la cuenta). Un bucket sin configuración (NoSuchPublicAccessBlockConfiguration) falla. Un bucket borrado entre el listado y la lectura no aplica; un bucket que no se puede leer queda NO_VERIFICADO sin ocultar los demás.",
+        "pass_when_text": "BlockPublicAcls, IgnorePublicAcls, BlockPublicPolicy y RestrictPublicBuckets son true en la configuración propia del bucket (test 104 de Drata, que no evalúa el Block Public Access de la cuenta). Un bucket sin configuración (NoSuchPublicAccessBlockConfiguration) falla. Un bucket borrado entre el listado y la lectura no aplica; un bucket que no se puede leer queda NOT_VERIFIED sin ocultar los demás.",
         "needs": [
           "s3:GetBucketPublicAccessBlock"
         ]
@@ -605,7 +605,7 @@
         ],
         "commands": [
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\n# solo lectura: jobs de la bóveda que no terminaron bien\naws backup list-backup-jobs --by-backup-vault-name \"$VAULT_NAME\" --region \"$REGION\" --query 'BackupJobs[?State!=`COMPLETED`].[BackupJobId,ResourceArn,State,StatusMessage,CreationDate]' --output table",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\nRESOURCE_ARN=\"__COMPLETAR_ARN_RECURSO__\"\nROLE_ARN=\"__COMPLETAR_ARN_ROL_BACKUP__\"\naws backup start-backup-job --backup-vault-name \"$VAULT_NAME\" --resource-arn \"$RESOURCE_ARN\" --iam-role-arn \"$ROLE_ARN\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\nRESOURCE_ARN=\"__FILL_IN_RESOURCE_ARN__\"\nROLE_ARN=\"__FILL_IN_BACKUP_ROLE_ARN__\"\naws backup start-backup-job --backup-vault-name \"$VAULT_NAME\" --resource-arn \"$RESOURCE_ARN\" --iam-role-arn \"$ROLE_ARN\" --region \"$REGION\""
         ],
         "verify_after": "aws backup list-backup-jobs --by-backup-vault-name \"{resource_id}\" --by-state COMPLETED --region \"{region}\" --query 'BackupJobs[0].[BackupJobId,State,CreationDate]'",
         "notes": "Si el hallazgo dice que la bóveda no tuvo ningún job, revisar que los planes tengan una regla diaria que use esta bóveda (DAT-010) y que los recursos estén asignados al plan (backup selection). Un backup a pedido consume almacenamiento y puede cargar el recurso (RDS, EFS): hacerlo fuera de horario pico. Drata necesita backup:ListRecoveryPointsByResource y backup:ListBackupJobs inline en el rol DrataAutopilotRole; sin ellos el test da AccessDenied. El test 134 de Drata exige además relanzar un backup fallido dentro de las 24 horas."
@@ -690,9 +690,9 @@
           "Verificar con get-backup-vault-notifications."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_NAME=\"__COMPLETAR_NOMBRE_TOPICO__\"\nALERT_EMAIL=\"__COMPLETAR_EMAIL_ALERTAS__\"\nTOPIC_ARN=$(aws sns create-topic --name \"$TOPIC_NAME\" --region \"$REGION\" --query 'TopicArn' --output text) && aws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"$ALERT_EMAIL\" --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__COMPLETAR_ARN_TOPICO__\"\n# solo para un tópico NUEVO: set-topic-attributes reemplaza la policy completa; en un tópico existente, agregar la statement a su policy actual\naws sns set-topic-attributes --topic-arn \"$TOPIC_ARN\" --attribute-name Policy --attribute-value '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AllowAwsBackupPublish\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"backup.amazonaws.com\"},\"Action\":\"sns:Publish\",\"Resource\":\"'\"$TOPIC_ARN\"'\"}]}' --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\nTOPIC_ARN=\"__COMPLETAR_ARN_TOPICO__\"\naws backup put-backup-vault-notifications --backup-vault-name \"$VAULT_NAME\" --sns-topic-arn \"$TOPIC_ARN\" --backup-vault-events BACKUP_JOB_FAILED --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_NAME=\"__FILL_IN_TOPIC_NAME__\"\nALERT_EMAIL=\"__FILL_IN_ALERTS_EMAIL__\"\nTOPIC_ARN=$(aws sns create-topic --name \"$TOPIC_NAME\" --region \"$REGION\" --query 'TopicArn' --output text) && aws sns subscribe --topic-arn \"$TOPIC_ARN\" --protocol email --notification-endpoint \"$ALERT_EMAIL\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nTOPIC_ARN=\"__FILL_IN_TOPIC_ARN__\"\n# solo para un tópico NUEVO: set-topic-attributes reemplaza la policy completa; en un tópico existente, agregar la statement a su policy actual\naws sns set-topic-attributes --topic-arn \"$TOPIC_ARN\" --attribute-name Policy --attribute-value '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AllowAwsBackupPublish\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"backup.amazonaws.com\"},\"Action\":\"sns:Publish\",\"Resource\":\"'\"$TOPIC_ARN\"'\"}]}' --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nVAULT_NAME=\"{resource_id}\"\nTOPIC_ARN=\"__FILL_IN_TOPIC_ARN__\"\naws backup put-backup-vault-notifications --backup-vault-name \"$VAULT_NAME\" --sns-topic-arn \"$TOPIC_ARN\" --backup-vault-events BACKUP_JOB_FAILED --region \"$REGION\""
         ],
         "verify_after": "aws backup get-backup-vault-notifications --backup-vault-name \"{resource_id}\" --region \"{region}\"",
         "notes": "put-backup-vault-notifications reemplaza la configuración de notificaciones de la bóveda: si ya tenía otros eventos (por ejemplo COPY_JOB_FAILED o BACKUP_JOB_EXPIRED), incluirlos en --backup-vault-events. El tópico necesita una policy que permita sns:Publish al servicio backup.amazonaws.com; set-topic-attributes pisa la policy entera, por eso el segundo bloque es solo para tópicos nuevos. Recomendado: acotar la policy con la condición aws:SourceAccount. Un tópico cifrado con KMS necesita además que la clave permita a AWS Backup. Drata puede aceptar otros mecanismos de alerta (por ejemplo una regla de EventBridge sobre los jobs fallidos); si ya existe uno, confirmar en el test 133 antes de duplicar."
@@ -776,9 +776,9 @@
           "Verificar con get-backup-plan que existe la regla diaria con la retención elegida."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__COMPLETAR_NOMBRE_PLAN__\"\nVAULT_NAME=\"__COMPLETAR_NOMBRE_VAULT__\"\nROLE_ARN=\"__COMPLETAR_ARN_ROL_BACKUP__\"\nRESOURCE_ARN=\"__COMPLETAR_ARN_RECURSO__\"\nPLAN_ID=$(aws backup create-backup-plan --backup-plan \"{\\\"BackupPlanName\\\":\\\"$PLAN_NAME\\\",\\\"Rules\\\":[{\\\"RuleName\\\":\\\"diario\\\",\\\"TargetBackupVaultName\\\":\\\"$VAULT_NAME\\\",\\\"ScheduleExpression\\\":\\\"cron(0 5 ? * * *)\\\",\\\"Lifecycle\\\":{\\\"DeleteAfterDays\\\":35}}]}\" --region \"$REGION\" --query 'BackupPlanId' --output text) && aws backup create-backup-selection --backup-plan-id \"$PLAN_ID\" --backup-selection \"{\\\"SelectionName\\\":\\\"$PLAN_NAME-recursos\\\",\\\"IamRoleArn\\\":\\\"$ROLE_ARN\\\",\\\"Resources\\\":[\\\"$RESOURCE_ARN\\\"]}\" --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__COMPLETAR_NOMBRE_PLAN__\"\n# solo lectura: reglas actuales del plan\nPLAN_ID=$(aws backup list-backup-plans --region \"$REGION\" --query \"BackupPlansList[?BackupPlanName=='$PLAN_NAME'].BackupPlanId | [0]\" --output text) && aws backup get-backup-plan --backup-plan-id \"$PLAN_ID\" --region \"$REGION\" --query 'BackupPlan.Rules'",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_ID=\"__COMPLETAR_ID_PLAN__\"\n# update-backup-plan REEMPLAZA todo el plan: el JSON debe traer las reglas actuales más la nueva regla diaria\nPLAN_JSON='__COMPLETAR_PLAN_JSON__'\naws backup update-backup-plan --backup-plan-id \"$PLAN_ID\" --backup-plan \"$PLAN_JSON\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\nVAULT_NAME=\"__FILL_IN_VAULT_NAME__\"\nROLE_ARN=\"__FILL_IN_BACKUP_ROLE_ARN__\"\nRESOURCE_ARN=\"__FILL_IN_RESOURCE_ARN__\"\nPLAN_ID=$(aws backup create-backup-plan --backup-plan \"{\\\"BackupPlanName\\\":\\\"$PLAN_NAME\\\",\\\"Rules\\\":[{\\\"RuleName\\\":\\\"diario\\\",\\\"TargetBackupVaultName\\\":\\\"$VAULT_NAME\\\",\\\"ScheduleExpression\\\":\\\"cron(0 5 ? * * *)\\\",\\\"Lifecycle\\\":{\\\"DeleteAfterDays\\\":35}}]}\" --region \"$REGION\" --query 'BackupPlanId' --output text) && aws backup create-backup-selection --backup-plan-id \"$PLAN_ID\" --backup-selection \"{\\\"SelectionName\\\":\\\"$PLAN_NAME-recursos\\\",\\\"IamRoleArn\\\":\\\"$ROLE_ARN\\\",\\\"Resources\\\":[\\\"$RESOURCE_ARN\\\"]}\" --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_NAME=\"__FILL_IN_PLAN_NAME__\"\n# solo lectura: reglas actuales del plan\nPLAN_ID=$(aws backup list-backup-plans --region \"$REGION\" --query \"BackupPlansList[?BackupPlanName=='$PLAN_NAME'].BackupPlanId | [0]\" --output text) && aws backup get-backup-plan --backup-plan-id \"$PLAN_ID\" --region \"$REGION\" --query 'BackupPlan.Rules'",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nPLAN_ID=\"__FILL_IN_PLAN_ID__\"\n# update-backup-plan REEMPLAZA todo el plan: el JSON debe traer las reglas actuales más la nueva regla diaria\nPLAN_JSON='__FILL_IN_PLAN_JSON__'\naws backup update-backup-plan --backup-plan-id \"$PLAN_ID\" --backup-plan \"$PLAN_JSON\" --region \"$REGION\""
         ],
         "verify_after": "aws backup list-backup-plans --region \"{region}\" --query 'BackupPlansList[].[BackupPlanName,BackupPlanId]'",
         "notes": "update-backup-plan reemplaza el plan completo (cada llamada crea una versión nueva): si el JSON omite una regla existente, esa regla se pierde; partir siempre de la salida del segundo bloque. Un plan sin backup selection no protege nada: el primer bloque crea también la asignación de recursos, que puede hacerse por tag. Costo: los puntos de recuperación ocupan almacenamiento durante toda la retención. El rol de AWS Backup necesita la política AWSBackupServiceRolePolicyForBackup. 7 días es un criterio de diseño del catálogo, no de Drata ni de Vanta."

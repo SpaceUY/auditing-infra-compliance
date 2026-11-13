@@ -25,7 +25,7 @@ def root_hardware_mfa(responses: dict, params: dict) -> list[dict]:
     region, summary = _first(responses, "summary")
     _, devices = _first(responses, "virtual_mfa")
     if not summary["SummaryMap"]["AccountMFAEnabled"]:
-        return [_offender("root", region, reason="sin MFA")]
+        return [_offender("root", region, reason="no MFA")]
     if any(_is_root_virtual_device(d) for d in devices.get("VirtualMFADevices", [])):
         return [_offender("root", region, reason="MFA virtual")]
     return []
@@ -70,7 +70,7 @@ def _credential_users(responses: dict) -> tuple[str, list[dict]]:
 def _unlisted_users(responses: dict, users: list[dict]) -> list[dict]:
     """Inventory users absent from the credential report (created after it was generated, which can be 4 hours old): unverified."""
     listed = {u["user"] for u in users}
-    return [_unverified(i["id"], i["region"], reason="usuario ausente del reporte de credenciales (se generó antes de que existiera)")
+    return [_unverified(i["id"], i["region"], reason="user missing from the credential report (it was generated before the user existed)")
             for i in responses.get("__inventory__", []) if i["type"] == "iam_user" and i["id"] not in listed]
 
 
@@ -151,7 +151,7 @@ def _password_policy(responses: dict) -> tuple[str, dict | None]:
 
 
 def _no_password_policy(region: str) -> dict:
-    return _offender("account", region, reason="sin política de contraseñas")
+    return _offender("account", region, reason="no password policy")
 
 
 @register("password_min_length")
@@ -222,5 +222,5 @@ def admin_policies(responses: dict, params: dict) -> list[dict]:
 def alternate_contact_present(responses: dict, params: dict) -> list[dict]:
     region, data = _first(responses, "contact")
     if "__error__" in data or not (data.get("AlternateContact") or {}).get("EmailAddress"):
-        return [_offender("account", region, reason="sin contacto alternativo SECURITY")]
+        return [_offender("account", region, reason="no SECURITY alternate contact")]
     return []

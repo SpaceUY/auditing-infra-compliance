@@ -8,7 +8,7 @@
       "region": "us-east-1"
     },
     "vault_note": "systems/Uploads Bucket.md",
-    "vault_claim": "El bucket de uploads bloquea todo acceso público",
+    "vault_claim": "The uploads bucket blocks all public access",
     "actual": "Block Public Access desactivado",
     "status": null,
     "detail": null,
@@ -25,7 +25,7 @@
     },
     "vault_note": null,
     "vault_claim": null,
-    "actual": "Cola sin documentar en el vault",
+    "actual": "Queue not documented in the vault",
     "status": null,
     "detail": null,
     "severity": null,
@@ -40,7 +40,7 @@
       "region": "us-east-1"
     },
     "vault_note": "systems/Mail Queue.md",
-    "vault_claim": "Existe la cola acme-notes-mail-queue",
+    "vault_claim": "The queue acme-notes-mail-queue exists",
     "actual": null,
     "status": null,
     "detail": null,
@@ -52,7 +52,7 @@
     "check_id": "LOG-001",
     "resource": null,
     "vault_note": "failures/No multi-region trail.md",
-    "vault_claim": "Falta un trail multirregión; pendiente de ticket",
+    "vault_claim": "A multi-region trail is missing; pending a ticket",
     "actual": null,
     "status": null,
     "detail": null,
@@ -68,7 +68,7 @@
       "region": "us-east-1"
     },
     "vault_note": "decisions/Open SSH to office.md",
-    "vault_claim": "Recomendación: cerrar el SSH del grupo web",
+    "vault_claim": "Recommendation: close SSH on the web group",
     "actual": null,
     "status": null,
     "detail": null,
@@ -89,7 +89,7 @@
     "actual": null,
     "status": "PASS",
     "detail": {
-      "reason": "Las políticas administrativas están acotadas a un rol de emergencia"
+      "reason": "Administrative policies are scoped to an emergency role"
     },
     "severity": null,
     "breaks_tests": []

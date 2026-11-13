@@ -64,8 +64,8 @@ class DefaultConfigSetTests(unittest.TestCase):
                           (ADDRESS, fx("sesv2-get-email-identity-config-set-quiet"))],
                          [(OPTIONAL, fx("sesv2-get-configuration-set-optional")), (QUIET, fx("sesv2-get-configuration-set-no-tls"))])
         self.assertEqual([(o["resource_id"], o["region"]) for o in found], [(DOMAIN, REGION), (SUBDOMAIN, REGION), (ADDRESS, REGION)])
-        self.assertEqual(found[0]["detail"], {"config_set": OPTIONAL, "tls_policy": "OPTIONAL", "reason": "el configuration set por defecto no exige TLS (TlsPolicy distinto de REQUIRE)"})
-        self.assertRegex(found[1]["detail"]["reason"], "sin configuration set por defecto")
+        self.assertEqual(found[0]["detail"], {"config_set": OPTIONAL, "tls_policy": "OPTIONAL", "reason": "the default configuration set does not require TLS (TlsPolicy other than REQUIRE)"})
+        self.assertRegex(found[1]["detail"]["reason"], "no default configuration set")
         self.assertEqual(found[2]["detail"]["tls_policy"], "OPTIONAL")  # no TlsPolicy means the AWS default, OPTIONAL
 
     def test_tls_policy_is_compared_ignoring_case(self):
@@ -76,7 +76,7 @@ class DefaultConfigSetTests(unittest.TestCase):
     def test_a_default_config_set_that_no_longer_exists_fails(self):
         (found,) = self.tls([(DOMAIN, fx("sesv2-get-email-identity-verified-dkim"))], [(TRANSACTIONAL, {"__error__": "NotFoundException"})])
         self.assertEqual((found["resource_id"], found["detail"]["config_set"]), (DOMAIN, TRANSACTIONAL))
-        self.assertRegex(found["detail"]["reason"], "no existe")
+        self.assertRegex(found["detail"]["reason"], "does not exist")
 
     def test_blocked_reads_are_unverified_and_a_vanished_identity_is_not_applicable(self):
         denied = {"__error__": "ACCESS_DENIED"}
@@ -104,8 +104,8 @@ class DefaultConfigSetTests(unittest.TestCase):
                             [(OPTIONAL, fx("sesv2-get-configuration-set-event-destinations-none")),
                              (QUIET, fx("sesv2-get-configuration-set-event-destinations-disabled"))])
         self.assertEqual([(o["resource_id"], o["region"]) for o in found], [(DOMAIN, REGION), (SUBDOMAIN, REGION), (ADDRESS, REGION)])
-        self.assertEqual(found[0]["detail"], {"config_set": OPTIONAL, "event_destinations": 0, "reason": "el configuration set por defecto no tiene un event destination habilitado"})
-        self.assertRegex(found[1]["detail"]["reason"], "sin configuration set por defecto")
+        self.assertEqual(found[0]["detail"], {"config_set": OPTIONAL, "event_destinations": 0, "reason": "the default configuration set has no enabled event destination"})
+        self.assertRegex(found[1]["detail"]["reason"], "no default configuration set")
         self.assertEqual(found[2]["detail"]["event_destinations"], 1)  # present but disabled
 
     def test_blocked_event_destinations_are_unverified(self):
@@ -125,8 +125,8 @@ class AccountSendingTests(unittest.TestCase):
     def test_ses_account_sending_fail_reports_offenders(self):
         found = evaluate("ses_account_sending", self.responses((REGION, "sesv2-get-account-sandbox"), (OTHER, "sesv2-get-account-no-suppression")))
         self.assertEqual([(o["resource_id"], o["region"]) for o in found], [(DOMAIN, REGION), (ADDRESS, REGION), ("acme-notes.eu.example", OTHER)])
-        self.assertEqual(found[0]["detail"]["reasons"], ["la cuenta SES está en sandbox (sin acceso a producción)"])
-        self.assertEqual(found[2]["detail"]["reasons"], ["la lista de supresión de la cuenta no suprime rebotes ni quejas"])
+        self.assertEqual(found[0]["detail"]["reasons"], ["the SES account is in the sandbox (no production access)"])
+        self.assertEqual(found[2]["detail"]["reasons"], ["the account suppression list does not suppress bounces or complaints"])
 
     def test_both_problems_are_reported_together(self):
         data = fx("sesv2-get-account-sandbox")
@@ -273,7 +273,7 @@ class EmailCatalogTests(unittest.TestCase):
     def test_eml_003_commands_create_an_sns_event_destination(self):
         text = "\n".join(catalog_check("EML-003")["remediation"]["commands"])
         self.assertIn("create-configuration-set-event-destination", text)
-        self.assertIn("__COMPLETAR_SNS_TOPIC_ARN__", text)
+        self.assertIn("__FILL_IN_SNS_TOPIC_ARN__", text)
         self.assertIn("BOUNCE", text)
         self.assertIn("COMPLAINT", text)
 
@@ -356,7 +356,7 @@ class EmailCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_nothing_is_unverified(self):
         self.assertEqual(self.code, 0)
-        self.assertEqual([r for r in self.result["results"] if r["status"] == "NO_VERIFICADO"], [])
+        self.assertEqual([r for r in self.result["results"] if r["status"] == "NOT_VERIFIED"], [])
 
     def test_identity_and_dkim_outcomes(self):
         self.assertEqual(self.rows("EML-001"), [("PASS", DOMAIN), ("FAIL", SUBDOMAIN), ("PASS", ADDRESS)])

@@ -174,7 +174,7 @@ class EngineTests(CollectCase):
         responses[("iam", "get-account-summary", "us-east-1")] = err(ACCESS_DENIED)
         self.run_collect(responses)
         (row,) = self.rows("IAM-901")
-        self.assertEqual(row["status"], "NO_VERIFICADO")
+        self.assertEqual(row["status"], "NOT_VERIFIED")
         self.assertEqual(row["missing"], ["iam:GetAccountSummary"])
         self.assertEqual(row["detail"]["failed_calls"][0]["error_kind"], "ACCESS_DENIED")
         self.assertNotIn("PASS", [r["status"] for r in self.rows("IAM-901")])
@@ -184,13 +184,13 @@ class EngineTests(CollectCase):
         responses[("iam", "get-account-summary", "us-east-1")] = err("An error occurred (ServiceFailure) boom")
         self.run_collect(responses)
         (row,) = self.rows("IAM-901")
-        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", []))
+        self.assertEqual((row["status"], row["missing"]), ("NOT_VERIFIED", []))
 
     def test_not_enabled_means_fail_when_declared(self):
         self.run_collect()
         rows = self.rows("DET-901")
         self.assertEqual([(r["status"], r["region"], r["resource_id"]) for r in rows], [("FAIL", "eu-west-1", "account")])
-        self.assertEqual(rows[0]["detail"]["reason"], "servicio no habilitado")
+        self.assertEqual(rows[0]["detail"]["reason"], "service not enabled")
 
     def test_not_enabled_is_not_verified_otherwise(self):
         data = json.loads((ENGINE_DIR / "engine.json").read_text(encoding="utf-8"))
@@ -201,7 +201,7 @@ class EngineTests(CollectCase):
         (catalog_dir / "nv.json").write_text(json.dumps({"domain": "detection", "checks": [det]}), encoding="utf-8")
         self.run_collect(checks_dir=catalog_dir)
         (row,) = self.rows("DET-901")
-        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", []))
+        self.assertEqual((row["status"], row["missing"]), ("NOT_VERIFIED", []))
 
     def test_no_resources_is_vacuous_na(self):
         responses = base_responses()
@@ -216,7 +216,7 @@ class EngineTests(CollectCase):
         responses[("s3api", "list-buckets", "us-east-1")] = err("An error occurred (AccessDenied) when calling the ListBuckets operation: not authorized")
         self.run_collect(responses)
         (row,) = self.rows("DAT-901")
-        self.assertEqual(row["status"], "NO_VERIFICADO")
+        self.assertEqual(row["status"], "NOT_VERIFIED")
         self.assertTrue(any("s3_bucket" in w for w in self.result["warnings"]))
 
     def test_for_each_expands_calls(self):
@@ -318,7 +318,7 @@ class EngineTests(CollectCase):
         lines = self.stdout.splitlines()
         self.assertLessEqual(len(lines), 40)
         self.assertIn(str(self.out), self.stdout)
-        self.assertIn("NO_VERIFICADO: 0", self.stdout)
+        self.assertIn("NOT_VERIFIED: 0", self.stdout)
         self.assertEqual(sum(1 for line in lines if line.startswith("  critical")), 10)
 
     def test_outputs_are_masked_but_vanta_owner_and_identifiers_stay(self):
@@ -400,13 +400,13 @@ class EngineTests(CollectCase):
             {"type": "s3_bucket", "id": "arn:aws:s3:::acme-notes-logs", "region": "us-east-1"}])
         self.run_collect(responses, scope=scope, inventory=inventory_file)
         self.assertEqual([(r["status"], r["resource_id"]) for r in self.rows("DAT-901")], [("FAIL", "acme-notes-logs")])
-        self.assertFalse(any("sin coincidencia" in w for w in self.result["warnings"]))
+        self.assertFalse(any("no match in the inventory" in w for w in self.result["warnings"]))
 
     def test_unmatched_scope_entry_warns_and_is_not_silent(self):
         scope = self.scope_file("scope-resource.json", resources=[
             {"type": "s3_bucket", "id": "acme-notes-ghost", "region": "us-east-1"}])
         self.run_collect(scope=scope)
-        self.assertTrue(any("acme-notes-ghost" in w and "sin coincidencia" in w for w in self.result["warnings"]))
+        self.assertTrue(any("acme-notes-ghost" in w and "no match in the inventory" in w for w in self.result["warnings"]))
         (row,) = self.rows("DAT-901")
         self.assertEqual((row["status"], row["vacuous"]), ("N/A", True))
 
@@ -422,7 +422,7 @@ class EngineTests(CollectCase):
         shutil.copy(self.catalog_with(bad_path) / "extra.json", directory / "extra.json")
         self.run_collect(checks_dir=directory)
         (row,) = self.rows("DAT-905")
-        self.assertEqual(row["status"], "NO_VERIFICADO")
+        self.assertEqual(row["status"], "NOT_VERIFIED")
         self.assertIn("reason", row["detail"])
         self.assertEqual([r["status"] for r in self.rows("IAM-901")], ["FAIL"])
 
@@ -494,7 +494,7 @@ class EngineTests(CollectCase):
         self.assertEqual(seen["acme-notes-data"], {"__error__": "ACCESS_DENIED"})
         self.assertEqual(seen["acme-notes-logs"], {"Policy": "{}"})
         rows = self.rows("TLS-902")
-        self.assertEqual([(r["status"], r["resource_id"]) for r in rows], [("NO_VERIFICADO", "acme-notes-data"), ("PASS", "acme-notes-logs")])
+        self.assertEqual([(r["status"], r["resource_id"]) for r in rows], [("NOT_VERIFIED", "acme-notes-data"), ("PASS", "acme-notes-logs")])
         self.assertEqual(rows[0]["missing"], ["iam:GetAccountSummary"])
         self.assertEqual(rows[1]["missing"], [])
 
@@ -506,7 +506,7 @@ class EngineTests(CollectCase):
         directory, seen = self.item_errors_check(["NoSuchBucketPolicy"])
         self.run_collect(responses, checks_dir=directory)
         self.assertEqual(seen, {"acme-notes-data": {"__error__": "ERROR"}, "acme-notes-logs": {"__error__": "NoSuchBucketPolicy"}})
-        self.assertEqual([r["status"] for r in self.rows("TLS-902")], ["NO_VERIFICADO", "PASS"])
+        self.assertEqual([r["status"] for r in self.rows("TLS-902")], ["NOT_VERIFIED", "PASS"])
 
     def test_item_errors_never_hide_missing_credentials(self):
         responses = base_responses()
@@ -514,7 +514,7 @@ class EngineTests(CollectCase):
         directory, seen = self.item_errors_check()
         self.run_collect(responses, checks_dir=directory)
         (row,) = self.rows("TLS-902")
-        self.assertEqual(row["status"], "NO_VERIFICADO")
+        self.assertEqual(row["status"], "NOT_VERIFIED")
         self.assertEqual(seen, {})
 
     def test_item_errors_do_not_apply_to_calls_without_for_each(self):
@@ -529,14 +529,14 @@ class EngineTests(CollectCase):
         responses[("s3api", "list-buckets", "us-east-1")] = [ok(load_fixture("aws/core/s3api-list-buckets.json")), err(self.DENIED)]
         self.run_collect(responses, checks_dir=directory)
         (row,) = self.rows("TLS-902")
-        self.assertEqual((row["status"], row["resource_id"]), ("NO_VERIFICADO", "account"))
+        self.assertEqual((row["status"], row["resource_id"]), ("NOT_VERIFIED", "account"))
 
     def test_unlisted_error_is_still_not_verified(self):
         responses = base_responses()
         responses[("s3api", "get-bucket-policy", "us-east-1")] = err("An error occurred (InternalFailure) boom")
         self.run_collect(responses, checks_dir=self.policy_check(["NoSuchBucketPolicy"]))
         (row,) = self.rows("TLS-901")
-        self.assertEqual(row["status"], "NO_VERIFICADO")
+        self.assertEqual(row["status"], "NOT_VERIFIED")
 
     def test_ok_errors_never_hides_access_denied(self):
         responses = base_responses()
@@ -544,7 +544,7 @@ class EngineTests(CollectCase):
             "An error occurred (AccessDenied) when calling the GetBucketPolicy operation: not authorized to perform")
         self.run_collect(responses, checks_dir=self.policy_check(["AccessDenied"]))
         (row,) = self.rows("TLS-901")
-        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["iam:GetAccountSummary"]))
+        self.assertEqual((row["status"], row["missing"]), ("NOT_VERIFIED", ["iam:GetAccountSummary"]))
 
     def test_not_applicable_entries_suppress_the_pass_row_and_are_not_failures(self):
         @evaluators.register("test_na")
@@ -579,13 +579,13 @@ class EngineTests(CollectCase):
         self.run_collect(checks_dir=self.catalog_with(python_check))
         (row,) = self.rows("DAT-904")
         self.assertEqual((row["status"], row["resource_id"], row["vacuous"]), ("N/A", "account", True))
-        self.assertEqual(row["detail"], {"reason": "ningún recurso aplica"})
+        self.assertEqual(row["detail"], {"reason": "no resource applies"})
 
     def test_unverified_entry_becomes_a_not_verified_row_without_pass(self):
         @evaluators.register("test_unverified")
         def unverified(responses, params):
             return [{"resource_id": "account", "region": "us-east-1", "unverified": True,
-                     "detail": {"error_code": "ACCESS_DENIED", "reason": "no se pudo leer"}}]
+                     "detail": {"error_code": "ACCESS_DENIED", "reason": "could not be read"}}]
 
         self.addCleanup(evaluators.EVALUATORS.pop, "test_unverified")
 
@@ -598,8 +598,8 @@ class EngineTests(CollectCase):
         self.run_collect(checks_dir=self.catalog_with(python_check))
         (row,) = self.rows("DET-903")
         self.assertEqual((row["status"], row["region"], row["missing"]),
-                         ("NO_VERIFICADO", "us-east-1", ["inspector2:BatchGetAccountStatus"]))
-        self.assertEqual(row["detail"]["reason"], "no se pudo leer")
+                         ("NOT_VERIFIED", "us-east-1", ["inspector2:BatchGetAccountStatus"]))
+        self.assertEqual(row["detail"]["reason"], "could not be read")
 
     def inventory_reader(self, key):
         def python_check(check):
@@ -630,7 +630,7 @@ class EngineTests(CollectCase):
         responses[("s3api", "list-buckets", "us-east-1")] = err(self.BUCKETS_DENIED)
         self.run_collect(responses, checks_dir=self.inventory_reader("params"))
         (row,) = self.rows("DET-904")
-        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["inventory:s3_bucket"]))
+        self.assertEqual((row["status"], row["missing"]), ("NOT_VERIFIED", ["inventory:s3_bucket"]))
         self.assertIsNone(self.seen_errors, "the evaluator must not run on an incomplete inventory")
 
     def test_account_context_for_never_blocks_evaluation(self):
@@ -661,12 +661,12 @@ class EngineTests(CollectCase):
         responses[("s3api", "list-buckets", "us-east-1")] = ok(buckets)
         self.run_collect(responses, checks_dir=self.catalog_with(python_check))
         self.assertEqual([(r["status"], r["resource_id"]) for r in self.rows("DAT-906")],
-                         [("NO_VERIFICADO", "acme-notes-archive"), ("PASS", "acme-notes-clean"), ("FAIL", "acme-notes-data")])
+                         [("NOT_VERIFIED", "acme-notes-archive"), ("PASS", "acme-notes-clean"), ("FAIL", "acme-notes-data")])
 
     def test_unverified_entry_with_account_id_survives_the_scope_filter(self):
         @evaluators.register("test_unverified_account")
         def unverified(responses, params):
-            return [{"resource_id": "account", "region": "us-east-1", "detail": {"reason": "no se pudo leer"}, "unverified": True}]
+            return [{"resource_id": "account", "region": "us-east-1", "detail": {"reason": "could not be read"}, "unverified": True}]
 
         self.addCleanup(evaluators.EVALUATORS.pop, "test_unverified_account")
 
@@ -679,7 +679,7 @@ class EngineTests(CollectCase):
         scope = self.scope_file("scope-resource.json")
         self.run_collect(checks_dir=self.catalog_with(python_check), scope=scope)
         statuses = {(r["status"], r["resource_id"]) for r in self.rows("DAT-907")}
-        self.assertIn(("NO_VERIFICADO", "account"), statuses)
+        self.assertIn(("NOT_VERIFIED", "account"), statuses)
 
     def test_inventory_errors_are_exposed_to_evaluators_when_the_check_does_not_depend_on_them(self):
         responses = base_responses()
@@ -735,7 +735,7 @@ class EngineTests(CollectCase):
         self.run_collect(checks_dir=self.catalog_with(missing, crash))
         for check_id in ("LOG-903", "LOG-904"):
             (row,) = self.rows(check_id)
-            self.assertEqual(row["status"], "NO_VERIFICADO")
+            self.assertEqual(row["status"], "NOT_VERIFIED")
 
     def test_write_operation_in_catalog_is_not_executed(self):
         def write(check):
@@ -744,7 +744,7 @@ class EngineTests(CollectCase):
 
         self.run_collect(checks_dir=self.catalog_with(write))
         (row,) = self.rows("IAM-903")
-        self.assertEqual(row["status"], "NO_VERIFICADO")
+        self.assertEqual(row["status"], "NOT_VERIFIED")
         self.assertEqual(self.calls("iam", "delete-account-alias"), [])
 
 
@@ -773,26 +773,26 @@ class PartialRegionTests(CollectCase):
         self.run_collect(self.regional_responses(ok(ROOT_OFFENDER), err(ACCESS_DENIED)), checks_dir=self.catalog_with(self.regional))
         rows = self.rows("IAM-902")
         self.assertEqual([(r["status"], r["resource_id"], r["region"]) for r in rows],
-                         [("NO_VERIFICADO", "account", "eu-west-1"), ("FAIL", "root", "us-east-1")])
+                         [("NOT_VERIFIED", "account", "eu-west-1"), ("FAIL", "root", "us-east-1")])
         self.assertEqual(rows[0]["missing"], ["iam:GetAccountSummary"])
         self.assertEqual(rows[0]["detail"]["failed_calls"][0]["region"], "eu-west-1")
 
     def test_failing_region_never_yields_an_account_pass(self):
         self.run_collect(self.regional_responses(ok([]), err("An error occurred (ServiceFailure) boom")),
                          checks_dir=self.catalog_with(self.regional))
-        self.assertEqual([(r["status"], r["region"]) for r in self.rows("IAM-902")], [("NO_VERIFICADO", "eu-west-1")])
+        self.assertEqual([(r["status"], r["region"]) for r in self.rows("IAM-902")], [("NOT_VERIFIED", "eu-west-1")])
 
     def test_all_regions_failing_keeps_the_single_row(self):
         self.run_collect(self.regional_responses(err(ACCESS_DENIED), err(ACCESS_DENIED)), checks_dir=self.catalog_with(self.regional))
         (row,) = self.rows("IAM-902")
-        self.assertEqual((row["status"], row["region"], row["missing"]), ("NO_VERIFICADO", None, ["iam:GetAccountSummary"]))
+        self.assertEqual((row["status"], row["region"], row["missing"]), ("NOT_VERIFIED", None, ["iam:GetAccountSummary"]))
 
     def test_scp_denial_is_reported_as_blocked_not_as_a_missing_permission(self):
         padded = SCP_DENIED.replace("is not authorized", "is " + "very " * 60 + "not authorized")  # the phrase sits past 300 chars
         self.run_collect(self.regional_responses(ok([]), err(padded)), checks_dir=self.catalog_with(self.regional))
         (row,) = self.rows("IAM-902")
-        self.assertEqual((row["status"], row["region"], row["missing"]), ("NO_VERIFICADO", "eu-west-1", []))
-        self.assertEqual(row["detail"]["reason"], "bloqueado por SCP")
+        self.assertEqual((row["status"], row["region"], row["missing"]), ("NOT_VERIFIED", "eu-west-1", []))
+        self.assertEqual(row["detail"]["reason"], "blocked by SCP")
 
     def test_mixed_scp_and_real_denial_still_asks_for_the_permission(self):
         self.run_collect(self.regional_responses(err(ACCESS_DENIED), err(SCP_DENIED)), checks_dir=self.catalog_with(self.regional))
@@ -822,7 +822,7 @@ class PartialRegionTests(CollectCase):
         self.run_collect(self.regional_responses(ok({}), err(ACCESS_DENIED)), checks_dir=self.python_regional(seen))
         self.assertEqual(seen["regions"], ["us-east-1"])
         self.assertEqual([(r["status"], r["region"]) for r in self.rows("IAM-903")],
-                         [("NO_VERIFICADO", "eu-west-1"), ("FAIL", "us-east-1")])
+                         [("NOT_VERIFIED", "eu-west-1"), ("FAIL", "us-east-1")])
 
     def test_for_each_failure_in_one_region_unverifies_only_that_region(self):
         def mutate(check):
@@ -837,7 +837,7 @@ class PartialRegionTests(CollectCase):
         responses[("ec2", "describe-instances", "eu-west-1")] = err("An error occurred (ServiceFailure) boom")
         scope = self.scope_file(regions=["us-east-1", "eu-west-1"])
         self.run_collect(responses, scope=scope, checks_dir=self.catalog_with(mutate))
-        self.assertEqual([(r["status"], r["region"]) for r in self.rows("IAM-904")], [("NO_VERIFICADO", "eu-west-1")])
+        self.assertEqual([(r["status"], r["region"]) for r in self.rows("IAM-904")], [("NOT_VERIFIED", "eu-west-1")])
 
     def test_scp_blocked_region_is_dropped_from_the_inventory_with_a_warning(self):
         responses = base_responses()
@@ -910,7 +910,7 @@ class PartialRegionTests(CollectCase):
         entries = [{"resource_id": "acme-notes-data", "region": "us-east-1", "detail": {}, "unverified": True},
                    {"resource_id": "acme-notes-logs", "region": "us-east-1", "detail": {}, "unverified": True}]
         self.run_collect(scope=self.scope_file("scope-resource.json"), checks_dir=self.scope_probe(entries))
-        self.assertEqual([(r["status"], r["resource_id"]) for r in self.rows("DAT-908")], [("NO_VERIFICADO", "acme-notes-logs")])
+        self.assertEqual([(r["status"], r["resource_id"]) for r in self.rows("DAT-908")], [("NOT_VERIFIED", "acme-notes-logs")])
 
 
 class CallCacheTests(CollectCase):
@@ -958,7 +958,7 @@ class CallCacheTests(CollectCase):
         responses[("iam", "get-account-summary", "us-east-1")] = [err("An error occurred (ServiceFailure) boom"), ok(ROOT_OFFENDER)]
         self.run_collect(responses, checks_dir=self.same_call_checks(2))
         statuses = sorted(r["status"] for n in range(2) for r in self.rows(f"IAM-91{n}"))
-        self.assertEqual(statuses, ["FAIL", "NO_VERIFICADO"])
+        self.assertEqual(statuses, ["FAIL", "NOT_VERIFIED"])
 
     def test_denied_calls_are_memoized(self):
         responses = base_responses()
@@ -1042,7 +1042,7 @@ class ProgressAndCheckpointTests(CollectCase):
         self.assertEqual(self.result["pending_checks"], ["ZZZ-999"])
         self.assertEqual([r["status"] for r in self.rows("IAM-901")], ["FAIL"])
         self.assertTrue((self.out / "inventory.json").exists())
-        self.assertIn("PARCIAL", self.stdout)
+        self.assertIn("PARTIAL", self.stdout)
 
     def test_unexpected_exception_writes_the_partial_result_and_propagates(self):
         class Boom(BaseException):
@@ -1077,7 +1077,7 @@ class InventoryInterruptTests(CollectCase):
         self.assertEqual(self.result["pending_checks"], ["DAT-901", "DET-901", "IAM-901", "LOG-901"])
         self.assertEqual(self.result["results"], [])
         self.assertEqual(self.result["aws"]["account_id"], "111122223333")
-        self.assertIn("PARCIAL", self.stdout)
+        self.assertIn("PARTIAL", self.stdout)
         self.assertNotIn("Traceback", self.stderr)
 
     def test_keyboard_interrupt_during_the_inventory_writes_a_partial_result(self):
@@ -1133,7 +1133,7 @@ class AllowlistTests(CollectCase):
         ctx, runner = self.make_ctx(frozenset({("iam", "list-users")}), {})
         res = collect._aws(ctx, "iam", "list-roles", [], "us-east-1")
         self.assertEqual((res.ok, res.error_kind), (False, "ERROR"))
-        self.assertIn("fuera del catálogo", res.error_message)
+        self.assertIn("outside the catalog", res.error_message)
         self.assertEqual(runner.calls, [])
 
     def test_operation_in_the_catalog_runs(self):
@@ -1216,14 +1216,14 @@ class DnsEvaluatorTests(CollectCase):
                 dig_calls = self.dns_run([bad], [{"stdout": '"v=DMARC1"\n'}], params={**self.PARAMS, "name_template": "{domain}"})
                 self.assertEqual(dig_calls, [])
                 (row,) = self.rows("EML-901")
-                self.assertEqual(row["status"], "NO_VERIFICADO")
-                self.assertEqual(row["detail"]["reason"], "nombre DNS inválido")
+                self.assertEqual(row["status"], "NOT_VERIFIED")
+                self.assertEqual(row["detail"]["reason"], "invalid DNS name")
 
     def test_dig_missing_is_not_verified(self):
         self.dns_run(["acme-notes.example"], None, which=lambda name: None)
         (row,) = self.rows("EML-901")
-        self.assertEqual(row["status"], "NO_VERIFICADO")
-        self.assertEqual(row["detail"]["reason"], "consulta DNS fallida")
+        self.assertEqual(row["status"], "NOT_VERIFIED")
+        self.assertEqual(row["detail"]["reason"], "DNS query failed")
 
 
 class InventorySpecTests(unittest.TestCase):

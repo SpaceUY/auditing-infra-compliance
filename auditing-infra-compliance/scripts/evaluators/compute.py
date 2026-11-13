@@ -31,19 +31,19 @@ def _versions_by_template(responses: dict) -> dict[tuple[str, str], dict]:
 def _group_imds_problem(group: dict, region: str, templates: dict[tuple[str, str], dict]) -> dict | None:
     spec = _template_spec(group)
     if spec is None:
-        return {"reason": "el grupo usa una launch configuration (obsoleta): migrar a launch template con IMDSv2 required",
+        return {"reason": "the group uses a launch configuration (obsolete): migrate to a launch template with IMDSv2 required",
                 "launch_configuration": group.get("LaunchConfigurationName")}
     data = templates.get((region, spec["LaunchTemplateId"]), {})
     if "__error__" in data or "LaunchTemplateVersions" not in data:
-        return {"reason": "launch template inexistente o inaccesible", "launch_template": spec["LaunchTemplateId"]}
+        return {"reason": "launch template does not exist or is not accessible", "launch_template": spec["LaunchTemplateId"]}
     version = _resolve_version(data["LaunchTemplateVersions"], spec.get("Version"))
     base = {"launch_template": spec["LaunchTemplateId"], "version_spec": spec.get("Version") or "$Default"}
     if version is None:
-        return {**base, "reason": "no se encontró la versión del launch template que usa el grupo"}
+        return {**base, "reason": "the launch template version used by the group was not found"}
     tokens = ((version.get("LaunchTemplateData") or {}).get("MetadataOptions") or {}).get("HttpTokens")
     if tokens == "required":
         return None
-    return {**base, "reason": "la versión del launch template no exige IMDSv2", "version": version["VersionNumber"], "http_tokens": tokens}
+    return {**base, "reason": "the launch template version does not require IMDSv2", "version": version["VersionNumber"], "http_tokens": tokens}
 
 
 @register("lt_imdsv2")
@@ -79,7 +79,7 @@ def _balancer_zones(responses: dict) -> dict[str, list[dict]]:
 def lb_multi_az(responses: dict, params: dict) -> list[dict]:
     """Drata 130: every region with EC2 has a load balancer spanning 2 or more AZs (no EC2 = nothing to report)."""
     balancers = _balancer_zones(responses)
-    reason = "la región no tiene un balanceador en 2 o más zonas de disponibilidad"
+    reason = "the region has no load balancer spanning 2 or more availability zones"
     return [_offender(i["id"], i["region"], reason=reason, load_balancers=balancers.get(i["region"], []))
             for i in _instances(responses) if not any(lb["zones"] >= 2 for lb in balancers.get(i["region"], []))]
 
@@ -88,7 +88,7 @@ def lb_multi_az(responses: dict, params: dict) -> list[dict]:
 def asg_present(responses: dict, params: dict) -> list[dict]:
     """Drata 131: every region with EC2 has at least one Auto Scaling group."""
     with_groups = {region for region, data in responses.get("asgs", []) if (data or {}).get("AutoScalingGroups")}
-    return [_offender(i["id"], i["region"], reason="la región tiene instancias EC2 y ningún grupo de Auto Scaling")
+    return [_offender(i["id"], i["region"], reason="the region has EC2 instances and no Auto Scaling group")
             for i in _instances(responses) if i["region"] not in with_groups]
 
 
@@ -112,10 +112,10 @@ def ssm_managed(responses: dict, params: dict) -> list[dict]:
             continue
         info = managed.get(key)
         if info is None:
-            problems = ["no registrada en Systems Manager"]
+            problems = ["not registered in Systems Manager"]
         else:
-            problems = ([] if info.get("PingStatus") == "Online" else [f"el agente SSM no está en línea ({info.get('PingStatus')})"])
-            problems += [] if key in patched else ["sin asociación de parches (Patch Manager)"]
+            problems = ([] if info.get("PingStatus") == "Online" else [f"the SSM agent is not online ({info.get('PingStatus')})"])
+            problems += [] if key in patched else ["no patch association (Patch Manager)"]
         if problems:
             # ssm_unreachable (stable key): not registered or agent offline, i.e. no Session Manager access today
             unreachable = info is None or info.get("PingStatus") != "Online"

@@ -167,8 +167,8 @@ class SkillDocsTests(unittest.TestCase):
     def test_hard_rules_are_stated(self):
         for needle in (".env", "solo los nombres", "si me das acceso", "aproximados", "a mano",
                        "pedir una fuente", "esperar confirmación", "check_id: null", "compliance-reports",
-                       "sensitive_files", "dato, no instrucciones", "AVISO", "no persisten", '"domains": ["inventory"]',
-                       "no verificado: no aplicar sin confirmar", "actual_status", "contexto", "traducción",
+                       "sensitive_files", "dato, no instrucciones", "WARNING", "no persisten", '"domains": ["inventory"]',
+                       "not verified: do not apply without confirming", "actual_status", "contexto", "traducción",
                        "could not be found", "diferida", "no se pueden producir"):
             self.assertIn(needle.lower(), self.text.lower(), needle)
 
@@ -266,12 +266,12 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
         cls.scripts = {p.name: read(p) for p in SCRIPTS_DIR.glob("*.py")}
 
     def test_the_verdict_is_documented_in_skill_readme_and_report_format(self):
-        for needle in ("verdict_text", "NO_OPTIMO", "NO_VERIFICABLE", "OPTIMO"):
+        for needle in ("verdict_text", "NOT_OPTIMAL", "NOT_VERIFIABLE", "OPTIMAL"):
             self.assertIn(needle, self.skill, needle)
             self.assertIn(needle, self.refs["report-format.md"], needle)
-        self.assertNotIn("nunca `OPTIMO` sin credenciales", self.refs["report-format.md"])
-        self.assertNotIn("Nunca hay `OPTIMO` sin", read(ROOT / "README.md"))
-        for verdict in ("NO_OPTIMO", "NO_VERIFICABLE", "OPTIMO"):
+        self.assertNotIn("nunca `OPTIMAL` sin credenciales", self.refs["report-format.md"])
+        self.assertNotIn("Nunca hay `OPTIMAL` sin", read(ROOT / "README.md"))
+        for verdict in ("NOT_OPTIMAL", "NOT_VERIFIABLE", "OPTIMAL"):
             self.assertIn(verdict, self.scripts["assemble_findings.py"])
         self.assertIn("verdict_text", self.scripts["assemble_findings.py"])
 
@@ -279,11 +279,11 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
         for text in (self.skill, self.refs["report-format.md"], read(ROOT / "README.md"), self.scripts["assemble_findings.py"]):
             for needle in ("verdict_basis", "vault", "aws+vault"):
                 self.assertIn(needle, text, needle)
-        self.assertIn("no verificado contra AWS", self.refs["report-format.md"])
-        self.assertIn("no verificado contra AWS", self.scripts["assemble_findings.py"])
+        self.assertIn("not verified against AWS", self.refs["report-format.md"])
+        self.assertIn("not verified against AWS", self.scripts["assemble_findings.py"])
         for phrase in ("sin insistir en credenciales", "Solo con credenciales: seguir", "Pedir una fuente solo si no hay ninguna"):
             self.assertIn(phrase, self.skill, phrase)
-        self.assertNotIn("Nunca `OPTIMO` sin credenciales", self.skill)
+        self.assertNotIn("Nunca `OPTIMAL` sin credenciales", self.skill)
 
     def test_spec_amends_a2_and_lists_the_post_approval_changes_and_the_plan_points_to_them(self):
         spec = read(ROOT / "docs" / "specs" / "2026-11-12-infra-compliance-audit-design.md")
@@ -299,11 +299,11 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
         self.assertIn("--tool drata|vanta|both", self.skill)
         self.assertNotIn("--lang", self.skill)
         report_format = self.refs["report-format.md"]
-        self.assertIn("`--lang` solo admite `es`", report_format)
+        self.assertIn("`--lang` only accepts `en`", report_format)
         self.assertIn("preselecciona", report_format)
 
     def test_no_sources_exit_and_the_scope_file_location_are_documented(self):
-        message = "sin fuentes: hace falta un vault o credenciales AWS de solo lectura"
+        message = "no sources: a vault or read-only AWS credentials are required"
         self.assertIn(message, self.scripts["assemble_findings.py"])
         for text in (self.skill, self.refs["report-format.md"]):
             self.assertIn(message, text)
@@ -314,7 +314,7 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
     def test_claims_are_optional_in_the_second_verification_pass(self):
         self.assertIn("`--claims` solo si escribiste el archivo", self.skill)
         self.assertIn("no existe solo avisa", self.skill)
-        self.assertIn("el archivo de claims no existe", self.scripts["verify_remediation.py"])
+        self.assertIn("the claims file does not exist", self.scripts["verify_remediation.py"])
 
     def test_scope_regions_rule_and_exit_2_are_documented(self):
         for text in (self.skill, self.refs["report-format.md"]):
@@ -322,9 +322,9 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
         self.assertIn("exit `2`", self.refs["report-format.md"])
         self.assertIn("auto", self.scripts["collect.py"])
 
-    def test_the_no_verificado_reasons_quoted_in_the_docs_exist_in_the_engine(self):
+    def test_the_not_verified_reasons_quoted_in_the_docs_exist_in_the_engine(self):
         collect = self.scripts["collect.py"]
-        for reason in ("no se pudieron listar las regiones", "sin regiones en el alcance", "inventario incompleto", "bloqueado por SCP"):
+        for reason in ("could not list the regions", "no regions in scope", "incomplete inventory", "blocked by SCP"):
             self.assertIn(reason, collect, reason)
             self.assertIn(reason, self.refs["report-format.md"], reason)
         self.assertIn("ec2:DescribeRegions", self.refs["report-format.md"])
@@ -367,7 +367,7 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
 
     def test_fixes_that_replace_things_are_documented_as_read_then_merge(self):
         guidelines = self.refs["remediation-guidelines.md"]
-        for needle in ("Leer antes de reemplazar", "DETENIDO", "--no-publicly-accessible", "Alternativas no se copian juntas"):
+        for needle in ("Leer antes de reemplazar", "STOPPED", "--no-publicly-accessible", "Alternativas no se copian juntas"):
             self.assertIn(needle, guidelines, needle)
 
 
@@ -387,9 +387,9 @@ class FinalCleanupDocsTests(unittest.TestCase):
         self.assertIn("al menos un `PASS` o `FAIL`", self.readme.replace("\n  ", " "))
 
     def test_the_vault_line_matches_what_vault_index_prints(self):
-        self.assertIn("Vault tipado", self.skill)
-        self.assertIn("Vault libre (no tipado)", self.skill)
-        self.assertIn('"tipado"', self.vault_index)
+        self.assertIn("Typed vault", self.skill)
+        self.assertIn("Free-form (untyped) vault", self.skill)
+        self.assertIn('"Typed vault"', self.vault_index)
         self.assertNotIn("(`typed` o `free`)", self.skill)
 
     def test_an_offered_admin_profile_is_only_for_the_read_only_collection(self):
@@ -405,9 +405,9 @@ class FinalCleanupDocsTests(unittest.TestCase):
     def test_scope_errors_and_unknown_regions_are_documented(self):
         self.assertIn("DET-004, DET-006, DET-007", self.skill)
         self.assertIn("un dominio desconocido", self.skill)
-        self.assertIn("ningún chequeo del catálogo aplica a: <tipos>", self.skill)
+        self.assertIn("no catalog check applies to: <types>", self.skill)
         self.assertNotIn("sin ningún chequeo que aplique", self.skill)
-        self.assertIn("ningún chequeo del catálogo aplica a: <tipos>", read(SKILL_DIR / "references" / "report-format.md"))
+        self.assertIn("no catalog check applies to: <types>", read(SKILL_DIR / "references" / "report-format.md"))
         self.assertIn("dominio que no existe en el catálogo", read(SKILL_DIR / "references" / "report-format.md"))
         for needle in ("armás vos", "§4"):
             self.assertIn(needle, self.skill)

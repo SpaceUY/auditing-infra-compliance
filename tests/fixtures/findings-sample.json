@@ -4,7 +4,7 @@
     "mode": "full",
     "target": null,
     "generated_at": "2026-11-12T10:30:00-03:00",
-    "lang": "es",
+    "lang": "en",
     "tool": null,
     "catalog_checks": 98,
     "vault": {
@@ -20,16 +20,16 @@
     }
   },
   "summary": {
-    "verdict": "NO_OPTIMO",
+    "verdict": "NOT_OPTIMAL",
     "verdict_basis": "aws+vault",
-    "verdict_text": "No óptimo según AWS y el vault: 12 hallazgo(s) abierto(s), 8 de severidad crítica o alta.",
+    "verdict_text": "Not optimal based on AWS and the vault: 12 open finding(s), 8 of critical or high severity.",
     "verdict_reasons": [
-      "11 hallazgo(s) que fallan",
-      "1 brecha(s) documentada(s) de severidad crítica o alta (lo dice el vault, no se verificó)"
+      "11 failing finding(s)",
+      "1 documented gap(s) of critical or high severity (stated by the vault, not verified)"
     ],
     "aws_verified": true,
     "unverified": {
-      "no_verificado": 1,
+      "not_verified": 1,
       "documented_only": 1,
       "documented_gap": 1,
       "scope_without_claims": 0,
@@ -40,7 +40,7 @@
       "DRIFT": 2,
       "UNDOCUMENTED": 1,
       "DOCUMENTED_GAP": 1,
-      "NO_VERIFICADO": 1,
+      "NOT_VERIFIED": 1,
       "DOCUMENTED_ONLY": 1,
       "PASS": 4,
       "N/A": 1
@@ -70,7 +70,7 @@
     {
       "id": "F-0001",
       "check_id": "IAM-001",
-      "title": "La cuenta root tiene MFA habilitado",
+      "title": "The root account has MFA enabled",
       "domain": "iam",
       "status": "FAIL",
       "severity": "critical",
@@ -131,16 +131,16 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Iniciar sesión en la consola de AWS como usuario root (email de la cuenta y contraseña).",
-          "Abrir el menú de la cuenta (arriba a la derecha) y entrar a Security credentials.",
-          "En Multi-factor authentication (MFA) elegir Assign MFA device.",
-          "Elegir el tipo de dispositivo. Para este chequeo alcanza una app autenticadora; para Drata 225 hace falta una llave de hardware (ver IAM-002).",
-          "Registrar el dispositivo con dos códigos consecutivos y confirmar.",
-          "Guardar el acceso de recuperación en un lugar compartido y protegido del equipo (no en el repo ni en un chat)."
+          "Sign in to the AWS console as the root user (account email and password).",
+          "Open the account menu (top right) and go to Security credentials.",
+          "Under Multi-factor authentication (MFA) choose Assign MFA device.",
+          "Choose the device type. An authenticator app is enough for this check; Drata 225 needs a hardware key (see IAM-002).",
+          "Register the device with two consecutive codes and confirm.",
+          "Store the recovery access in a shared, protected place of the team (not in the repo or in a chat)."
         ],
         "commands": [],
         "verify_after": "aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled'",
-        "notes": "AWS CLI no puede habilitar MFA para el root: solo se hace desde la consola con el usuario root."
+        "notes": "The AWS CLI cannot enable MFA for the root user: it can only be done from the console as the root user."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -151,22 +151,22 @@
     {
       "id": "F-0002",
       "check_id": null,
-      "title": "Credenciales en texto plano en el vault",
+      "title": "Plaintext credentials in the vault",
       "domain": "vault",
       "status": "FAIL",
       "severity": "critical",
       "resource": {
         "type": "vault_note",
-        "id": "ops/Credenciales de staging.md",
+        "id": "ops/Staging credentials.md",
         "region": null,
-        "name": "ops/Credenciales de staging.md"
+        "name": "ops/Staging credentials.md"
       },
       "evidence": {
-        "path": "ops/Credenciales de staging.md",
+        "path": "ops/Staging credentials.md",
         "pattern": "aws_access_key_id"
       },
       "vault_claim": null,
-      "vault_note": "ops/Credenciales de staging.md",
+      "vault_note": "ops/Staging credentials.md",
       "mappings": {
         "drata": [],
         "vanta": [],
@@ -180,13 +180,13 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Revocar o rotar la credencial expuesta desde la consola de AWS (IAM) antes de editar la nota.",
-          "Quitar el valor de la nota del vault y guardar la referencia al gestor de secretos en su lugar.",
-          "Revisar el historial del vault y de los repos que lo sincronizan por copias de la credencial."
+          "Revoke or rotate the exposed credential from the AWS console (IAM) before editing the note.",
+          "Remove the value from the vault note and keep a reference to the secrets manager in its place.",
+          "Review the history of the vault and of the repos that sync it for copies of the credential."
         ],
         "commands": [],
         "verify_after": "",
-        "notes": "Una credencial escrita en el vault debe darse por comprometida."
+        "notes": "A credential written in the vault must be treated as compromised."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -197,7 +197,7 @@
     {
       "id": "F-0003",
       "check_id": "DAT-007",
-      "title": "Los buckets de S3 tienen Block Public Access activo en sus 4 ajustes",
+      "title": "S3 buckets have Block Public Access on in all 4 settings",
       "domain": "data",
       "status": "DRIFT",
       "severity": "critical",
@@ -210,7 +210,7 @@
       "evidence": {
         "actual": "Block Public Access desactivado"
       },
-      "vault_claim": "El bucket de uploads bloquea todo acceso público",
+      "vault_claim": "The uploads bucket blocks all public access",
       "vault_note": "systems/Uploads Bucket.md",
       "mappings": {
         "drata": [
@@ -258,16 +258,16 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Revisar si el bucket acme-notes-uploads sirve contenido público a propósito (sitio web estático o ACL pública) y, si es así, ponerlo detrás de CloudFront con acceso privado antes de bloquear.",
-          "Activar los 4 ajustes de Block Public Access en el bucket.",
-          "Verificar con get-public-access-block que los 4 ajustes son true."
+          "Check whether the bucket acme-notes-uploads serves public content on purpose (static website or public ACL) and, if so, put it behind CloudFront with private access before blocking.",
+          "Turn on the 4 Block Public Access settings on the bucket.",
+          "Verify with get-public-access-block that the 4 settings are true."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# solo lectura: si el bucket es público según su policy\naws s3api get-bucket-policy-status --bucket \"acme-notes-uploads\" --region \"$REGION\"",
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# read-only: whether the bucket is public according to its policy\naws s3api get-bucket-policy-status --bucket \"acme-notes-uploads\" --region \"$REGION\"",
           "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\naws s3api put-public-access-block --bucket \"acme-notes-uploads\" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --region \"$REGION\""
         ],
         "verify_after": "aws s3api get-public-access-block --bucket \"acme-notes-uploads\" --region \"us-east-1\"",
-        "notes": "Sin downtime, pero si el bucket sirve contenido público a propósito (sitio web estático con acceso anónimo, ACL públicas), deja de ser accesible: pasarlo antes a CloudFront con Origin Access Control. get-bucket-policy-status responde NoSuchBucketPolicy si el bucket no tiene policy: no es un error. Reversible con put-public-access-block en false. El Block Public Access de la cuenta (aws s3control put-public-access-block) se recomienda también, pero Drata no lo evalúa."
+        "notes": "No downtime, but if the bucket serves public content on purpose (static website with anonymous access, public ACLs), it stops being accessible: move it behind CloudFront with Origin Access Control first. get-bucket-policy-status answers NoSuchBucketPolicy if the bucket has no policy: that is not an error. Reversible with put-public-access-block set to false. The account-level Block Public Access (aws s3control put-public-access-block) is also recommended, but Drata does not evaluate it."
       },
       "evaluated_by": "claude",
       "vacuous": false,
@@ -278,7 +278,7 @@
     {
       "id": "F-0004",
       "check_id": "DAT-007",
-      "title": "Los buckets de S3 tienen Block Public Access activo en sus 4 ajustes",
+      "title": "S3 buckets have Block Public Access on in all 4 settings",
       "domain": "data",
       "status": "PASS",
       "severity": "critical",
@@ -337,16 +337,16 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Revisar si el bucket acme-notes-assets sirve contenido público a propósito (sitio web estático o ACL pública) y, si es así, ponerlo detrás de CloudFront con acceso privado antes de bloquear.",
-          "Activar los 4 ajustes de Block Public Access en el bucket.",
-          "Verificar con get-public-access-block que los 4 ajustes son true."
+          "Check whether the bucket acme-notes-assets serves public content on purpose (static website or public ACL) and, if so, put it behind CloudFront with private access before blocking.",
+          "Turn on the 4 Block Public Access settings on the bucket.",
+          "Verify with get-public-access-block that the 4 settings are true."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# solo lectura: si el bucket es público según su policy\naws s3api get-bucket-policy-status --bucket \"acme-notes-assets\" --region \"$REGION\"",
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# read-only: whether the bucket is public according to its policy\naws s3api get-bucket-policy-status --bucket \"acme-notes-assets\" --region \"$REGION\"",
           "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\naws s3api put-public-access-block --bucket \"acme-notes-assets\" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --region \"$REGION\""
         ],
         "verify_after": "aws s3api get-public-access-block --bucket \"acme-notes-assets\" --region \"us-east-1\"",
-        "notes": "Sin downtime, pero si el bucket sirve contenido público a propósito (sitio web estático con acceso anónimo, ACL públicas), deja de ser accesible: pasarlo antes a CloudFront con Origin Access Control. get-bucket-policy-status responde NoSuchBucketPolicy si el bucket no tiene policy: no es un error. Reversible con put-public-access-block en false. El Block Public Access de la cuenta (aws s3control put-public-access-block) se recomienda también, pero Drata no lo evalúa."
+        "notes": "No downtime, but if the bucket serves public content on purpose (static website with anonymous access, public ACLs), it stops being accessible: move it behind CloudFront with Origin Access Control first. get-bucket-policy-status answers NoSuchBucketPolicy if the bucket has no policy: that is not an error. Reversible with put-public-access-block set to false. The account-level Block Public Access (aws s3control put-public-access-block) is also recommended, but Drata does not evaluate it."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -368,7 +368,7 @@
     {
       "id": "F-0005",
       "check_id": "INV-001",
-      "title": "Los recursos de inventario tienen el tag VantaOwner con el email de un dueño",
+      "title": "Inventory resources have the VantaOwner tag with an owner's email",
       "domain": "inventory",
       "status": "FAIL",
       "severity": "high",
@@ -411,15 +411,15 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Decidir quién es el dueño de acme-notes-assets: una persona activa en Vanta (no una casilla compartida ni un usuario dado de baja).",
-          "Poner el tag VantaOwner con el email de esa persona.",
-          "Verificar que el tag aparece y esperar a la próxima sincronización de Vanta (aproximadamente cada hora)."
+          "Decide who owns acme-notes-assets: an active person in Vanta (not a shared mailbox or a deactivated user).",
+          "Set the VantaOwner tag to that person's email.",
+          "Verify that the tag shows up and wait for the next Vanta sync (roughly every hour)."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nRESOURCE_ARN=\"__COMPLETAR_RESOURCE_ARN__\"\nOWNER_EMAIL=\"__COMPLETAR_OWNER_EMAIL__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"VantaOwner=$OWNER_EMAIL\" --region \"$REGION\""
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nRESOURCE_ARN=\"__FILL_IN_RESOURCE_ARN__\"\nOWNER_EMAIL=\"__FILL_IN_OWNER_EMAIL__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"VantaOwner=$OWNER_EMAIL\" --region \"$REGION\""
         ],
-        "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"__COMPLETAR_RESOURCE_ARN__\" --region \"us-east-1\" --query 'ResourceTagMappingList[].Tags[?Key==`VantaOwner`]'",
-        "notes": "__COMPLETAR_RESOURCE_ARN__ es el ARN del recurso acme-notes-assets, tomado del inventario. tag-resources agrega o pisa solo los tags indicados y deja el resto (put-bucket-tagging de S3 reemplaza todos). Para un bucket de S3 usar la región del bucket en REGION. Sin downtime. Vanta solo lee los tags, nunca los escribe. El email tiene que coincidir con un usuario activo de Vanta: si no, el recurso queda sin dueño aunque este chequeo pase. Si el equipo usa otro nombre de tag para el dueño (por ejemplo owner), Vanta permite mapearlo a VantaOwner en Settings, pero este chequeo busca VantaOwner. tag-resources informa los fallos en FailedResourcesMap: revisarlo."
+        "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"__FILL_IN_RESOURCE_ARN__\" --region \"us-east-1\" --query 'ResourceTagMappingList[].Tags[?Key==`VantaOwner`]'",
+        "notes": "__FILL_IN_RESOURCE_ARN__ is the ARN of the resource acme-notes-assets, taken from the inventory. tag-resources adds or overwrites only the given tags and leaves the rest (S3 put-bucket-tagging replaces all of them). For an S3 bucket use the bucket's region in REGION. No downtime. Vanta only reads the tags, it never writes them. The email must match an active Vanta user: otherwise the resource is left without an owner even if this check passes. If the team uses another tag name for the owner (for example owner), Vanta lets you map it to VantaOwner in Settings, but this check looks for VantaOwner. tag-resources reports failures in FailedResourcesMap: review it."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -441,7 +441,7 @@
     {
       "id": "F-0006",
       "check_id": "INV-001",
-      "title": "Los recursos de inventario tienen el tag VantaOwner con el email de un dueño",
+      "title": "Inventory resources have the VantaOwner tag with an owner's email",
       "domain": "inventory",
       "status": "FAIL",
       "severity": "high",
@@ -484,16 +484,16 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Usar el argumento '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'",
-          "Decidir quién es el dueño de acme-notes-assets: una persona activa en Vanta (no una casilla compartida ni un usuario dado de baja).",
-          "Poner el tag VantaOwner con el email de esa persona.",
-          "Verificar que el tag aparece y esperar a la próxima sincronización de Vanta (aproximadamente cada hora)."
+          "Use the argument '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'",
+          "Decide who owns acme-notes-assets: an active person in Vanta (not a shared mailbox or a deactivated user).",
+          "Set the VantaOwner tag to that person's email.",
+          "Verify that the tag shows up and wait for the next Vanta sync (roughly every hour)."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nRESOURCE_ARN=\"__COMPLETAR_RESOURCE_ARN__\"\nOWNER_EMAIL=\"__COMPLETAR_OWNER_EMAIL__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"VantaOwner=$OWNER_EMAIL\" --region \"$REGION\""
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nRESOURCE_ARN=\"__FILL_IN_RESOURCE_ARN__\"\nOWNER_EMAIL=\"__FILL_IN_OWNER_EMAIL__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"VantaOwner=$OWNER_EMAIL\" --region \"$REGION\""
         ],
-        "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"__COMPLETAR_RESOURCE_ARN__\" --region \"us-east-1\" --query 'ResourceTagMappingList[].Tags[?Key==`VantaOwner`]'",
-        "notes": "Excepción:com.amazonaws.services.s3.model.AmazonS3Exception'[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'"
+        "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"__FILL_IN_RESOURCE_ARN__\" --region \"us-east-1\" --query 'ResourceTagMappingList[].Tags[?Key==`VantaOwner`]'",
+        "notes": "Exception:com.amazonaws.services.s3.model.AmazonS3Exception'[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]','[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'"
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -504,7 +504,7 @@
     {
       "id": "F-0007",
       "check_id": "INV-001",
-      "title": "Los recursos de inventario tienen el tag VantaOwner con el email de un dueño",
+      "title": "Inventory resources have the VantaOwner tag with an owner's email",
       "domain": "inventory",
       "status": "FAIL",
       "severity": "high",
@@ -547,15 +547,15 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Decidir quién es el dueño de acme-notes-uploads: una persona activa en Vanta (no una casilla compartida ni un usuario dado de baja).",
-          "Poner el tag VantaOwner con el email de esa persona.",
-          "Verificar que el tag aparece y esperar a la próxima sincronización de Vanta (aproximadamente cada hora)."
+          "Decide who owns acme-notes-uploads: an active person in Vanta (not a shared mailbox or a deactivated user).",
+          "Set the VantaOwner tag to that person's email.",
+          "Verify that the tag shows up and wait for the next Vanta sync (roughly every hour)."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nRESOURCE_ARN=\"arn:aws:s3:::acme-notes-uploads\"\nOWNER_EMAIL=\"__COMPLETAR_OWNER_EMAIL__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"VantaOwner=$OWNER_EMAIL\" --region \"$REGION\""
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nRESOURCE_ARN=\"arn:aws:s3:::acme-notes-uploads\"\nOWNER_EMAIL=\"__FILL_IN_OWNER_EMAIL__\"\naws resourcegroupstaggingapi tag-resources --resource-arn-list \"$RESOURCE_ARN\" --tags \"VantaOwner=$OWNER_EMAIL\" --region \"$REGION\""
         ],
         "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"arn:aws:s3:::acme-notes-uploads\" --region \"us-east-1\" --query 'ResourceTagMappingList[].Tags[?Key==`VantaOwner`]'",
-        "notes": "arn:aws:s3:::acme-notes-uploads es el ARN del recurso acme-notes-uploads, tomado del inventario. tag-resources agrega o pisa solo los tags indicados y deja el resto (put-bucket-tagging de S3 reemplaza todos). Para un bucket de S3 usar la región del bucket en REGION. Sin downtime. Vanta solo lee los tags, nunca los escribe. El email tiene que coincidir con un usuario activo de Vanta: si no, el recurso queda sin dueño aunque este chequeo pase. Si el equipo usa otro nombre de tag para el dueño (por ejemplo owner), Vanta permite mapearlo a VantaOwner en Settings, pero este chequeo busca VantaOwner. tag-resources informa los fallos en FailedResourcesMap: revisarlo."
+        "notes": "arn:aws:s3:::acme-notes-uploads is the ARN of the resource acme-notes-uploads, taken from the inventory. tag-resources adds or overwrites only the given tags and leaves the rest (S3 put-bucket-tagging replaces all of them). For an S3 bucket use the bucket's region in REGION. No downtime. Vanta only reads the tags, it never writes them. The email must match an active Vanta user: otherwise the resource is left without an owner even if this check passes. If the team uses another tag name for the owner (for example owner), Vanta lets you map it to VantaOwner in Settings, but this check looks for VantaOwner. tag-resources reports failures in FailedResourcesMap: review it."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -566,7 +566,7 @@
     {
       "id": "F-0008",
       "check_id": "NET-001",
-      "title": "Ningún security group de una región con interfaces de red activas abre SSH (puerto 22) a 0.0.0.0/0 ni a ::/0",
+      "title": "No security group in a region with active network interfaces opens SSH (port 22) to 0.0.0.0/0 or ::/0",
       "domain": "network",
       "status": "FAIL",
       "severity": "high",
@@ -640,15 +640,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Identificar quién entra hoy por SSH al security group sg-0a1b2c3d4e5f60718 (detail.ip_permissions del hallazgo y los VPC Flow Logs) y habilitar antes un acceso alternativo: Session Manager, o una regla con un CIDR fijo (la IP de la oficina o de la VPN) o con otro security group como origen.",
-          "Revocar las reglas ofensoras con el comando: usa el JSON exacto de detail.ip_permissions de este hallazgo (protocolo, puertos y solo los CIDR ofensores), así que no toca ninguna otra regla del grupo.",
-          "Verificar con describe-security-groups que ya no queda ninguna regla de entrada abierta a 0.0.0.0/0 ni a ::/0 sobre el puerto."
+          "Identify who connects through SSH to the security group sg-0a1b2c3d4e5f60718 today (detail.ip_permissions of the finding and the VPC Flow Logs) and first enable an alternative access: Session Manager, or a rule with a fixed CIDR (the office or VPN IP) or with another security group as the source.",
+          "Revoke the offending rules with the command: it uses the exact JSON of detail.ip_permissions of this finding (protocol, ports and only the offending CIDRs), so it does not touch any other rule of the group.",
+          "Verify with describe-security-groups that no inbound rule open to 0.0.0.0/0 or ::/0 is left on the port."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nSG_ID=\"sg-0a1b2c3d4e5f60718\"\n# detail.ip_permissions: solo las reglas ofensoras de este hallazgo, con su protocolo, puertos y CIDR exactos\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'"
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nSG_ID=\"sg-0a1b2c3d4e5f60718\"\n# detail.ip_permissions: only the offending rules of this finding, with their exact protocol, ports and CIDRs\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'"
         ],
         "verify_after": "aws ec2 describe-security-groups --group-ids \"sg-0a1b2c3d4e5f60718\" --region \"us-east-1\" --query 'SecurityGroups[0].IpPermissions[?contains(IpRanges[].CidrIp, `0.0.0.0/0`) || contains(Ipv6Ranges[].CidrIpv6, `::/0`)]'",
-        "notes": "Revocar es inmediato y reversible con authorize-security-group-ingress. Riesgo: cortar el acceso de quien hoy entra desde internet; abrir antes el acceso alternativo. El comando usa revoke-security-group-ingress con --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]', que se completa con el JSON exacto de las reglas ofensoras (clave estable detail.ip_permissions: IpProtocol, FromPort, ToPort y solo los CIDR ofensores): si una regla no coincide, AWS responde InvalidPermission.NotFound y no toca nada, y nunca se revocan las demás reglas del grupo. Una regla con un rango (por ejemplo 0-65535) o con el protocolo -1 también abre otros puertos: al revocarla se cierran todos, revisar detail.ip_permissions. Las prefix lists no se expanden: si una prefix list contiene 0.0.0.0/0, este chequeo no la ve. El artículo de Drata indica que un CIDR concreto no cuenta como pass para el test 102: si sigue fallando con CIDRs concretos, preferir Session Manager o un security group como origen."
+        "notes": "Revoking is immediate and reversible with authorize-security-group-ingress. Risk: cutting the access of whoever connects from the internet today; open the alternative access first. The command uses revoke-security-group-ingress with --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]', which is filled in with the exact JSON of the offending rules (stable key detail.ip_permissions: IpProtocol, FromPort, ToPort and only the offending CIDRs): if a rule does not match, AWS answers InvalidPermission.NotFound and changes nothing, and the other rules of the group are never revoked. A rule with a range (for example 0-65535) or with protocol -1 also opens other ports: revoking it closes all of them, review detail.ip_permissions. Prefix lists are not expanded: if a prefix list contains 0.0.0.0/0, this check does not see it. The Drata article says a specific CIDR does not count as a pass for test 102: if it keeps failing with specific CIDRs, prefer Session Manager or a security group as the source."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -659,7 +659,7 @@
     {
       "id": "F-0009",
       "check_id": "NET-001",
-      "title": "Ningún security group abre SSH (puerto 22) a 0.0.0.0/0 ni a ::/0",
+      "title": "No security group opens SSH (port 22) to 0.0.0.0/0 or ::/0",
       "domain": "network",
       "status": "FAIL",
       "severity": "high",
@@ -737,15 +737,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Identificar quién entra hoy por SSH al security group sg-0a1b2c3d4e5f60718 (detail.ip_permissions del hallazgo y los VPC Flow Logs) y habilitar antes un acceso alternativo: Session Manager, o una regla con un CIDR fijo (la IP de la oficina o de la VPN) o con otro security group como origen.",
-          "Revocar las reglas ofensoras con el comando: usa el JSON exacto de detail.ip_permissions de este hallazgo (protocolo, puertos y solo los CIDR ofensores), así que no toca ninguna otra regla del grupo.",
-          "Verificar con describe-security-groups que ya no queda ninguna regla de entrada abierta a 0.0.0.0/0 ni a ::/0 sobre el puerto."
+          "Identify who connects through SSH to the security group sg-0a1b2c3d4e5f60718 today (detail.ip_permissions of the finding and the VPC Flow Logs) and first enable an alternative access: Session Manager, or a rule with a fixed CIDR (the office or VPN IP) or with another security group as the source.",
+          "Revoke the offending rules with the command: it uses the exact JSON of detail.ip_permissions of this finding (protocol, ports and only the offending CIDRs), so it does not touch any other rule of the group.",
+          "Verify with describe-security-groups that no inbound rule open to 0.0.0.0/0 or ::/0 is left on the port."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# nota con `backtick` en el comentario\nSG_ID=\"sg-0badbadbadbadbad0\"\nSTAMP=`date +%s`\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'"
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# note with a `backtick` in the comment\nSG_ID=\"sg-0badbadbadbadbad0\"\nSTAMP=`date +%s`\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions '[{\"IpProtocol\":\"tcp\",\"FromPort\":22,\"ToPort\":22,\"IpRanges\":[{\"CidrIp\":\"0.0.0.0/0\"}]}]'"
         ],
         "verify_after": "aws ec2 describe-security-groups --group-ids \"sg-0a1b2c3d4e5f60718\" --region \"us-east-1\" --query 'SecurityGroups[0].IpPermissions[?contains(IpRanges[].CidrIp, `0.0.0.0/0`) || contains(Ipv6Ranges[].CidrIpv6, `::/0`)]'",
-        "notes": "Hostil a propósito: el nombre del recurso es <script>alert(1)</script>. Revocar es reversible."
+        "notes": "Hostile on purpose: the resource name is <script>alert(1)</script>. Revoking is reversible."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -756,7 +756,7 @@
     {
       "id": "F-0010",
       "check_id": "NET-001",
-      "title": "Ningún security group de una región con interfaces de red activas abre SSH (puerto 22) a 0.0.0.0/0 ni a ::/0",
+      "title": "No security group in a region with active network interfaces opens SSH (port 22) to 0.0.0.0/0 or ::/0",
       "domain": "network",
       "status": "DRIFT",
       "severity": "high",
@@ -767,7 +767,7 @@
         "name": "acme-notes-web"
       },
       "evidence": {},
-      "vault_claim": "Recomendación: cerrar el SSH del grupo web",
+      "vault_claim": "Recommendation: close SSH on the web group",
       "vault_note": "decisions/Open SSH to office.md",
       "mappings": {
         "drata": [
@@ -817,15 +817,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Identificar quién entra hoy por SSH al security group sg-0f1e2d3c4b5a69788 (detail.ip_permissions del hallazgo y los VPC Flow Logs) y habilitar antes un acceso alternativo: Session Manager, o una regla con un CIDR fijo (la IP de la oficina o de la VPN) o con otro security group como origen.",
-          "Revocar las reglas ofensoras con el comando: usa el JSON exacto de detail.ip_permissions de este hallazgo (protocolo, puertos y solo los CIDR ofensores), así que no toca ninguna otra regla del grupo.",
-          "Verificar con describe-security-groups que ya no queda ninguna regla de entrada abierta a 0.0.0.0/0 ni a ::/0 sobre el puerto."
+          "Identify who connects through SSH to the security group sg-0f1e2d3c4b5a69788 today (detail.ip_permissions of the finding and the VPC Flow Logs) and first enable an alternative access: Session Manager, or a rule with a fixed CIDR (the office or VPN IP) or with another security group as the source.",
+          "Revoke the offending rules with the command: it uses the exact JSON of detail.ip_permissions of this finding (protocol, ports and only the offending CIDRs), so it does not touch any other rule of the group.",
+          "Verify with describe-security-groups that no inbound rule open to 0.0.0.0/0 or ::/0 is left on the port."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nSG_ID=\"sg-0f1e2d3c4b5a69788\"\n# detail.ip_permissions: solo las reglas ofensoras de este hallazgo, con su protocolo, puertos y CIDR exactos\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions __COMPLETAR_IP_PERMISSIONS__"
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nSG_ID=\"sg-0f1e2d3c4b5a69788\"\n# detail.ip_permissions: only the offending rules of this finding, with their exact protocol, ports and CIDRs\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions __FILL_IN_IP_PERMISSIONS__"
         ],
         "verify_after": "aws ec2 describe-security-groups --group-ids \"sg-0f1e2d3c4b5a69788\" --region \"us-east-1\" --query 'SecurityGroups[0].IpPermissions[?contains(IpRanges[].CidrIp, `0.0.0.0/0`) || contains(Ipv6Ranges[].CidrIpv6, `::/0`)]'",
-        "notes": "Revocar es inmediato y reversible con authorize-security-group-ingress. Riesgo: cortar el acceso de quien hoy entra desde internet; abrir antes el acceso alternativo. El comando usa revoke-security-group-ingress con --ip-permissions __COMPLETAR_IP_PERMISSIONS__, que se completa con el JSON exacto de las reglas ofensoras (clave estable detail.ip_permissions: IpProtocol, FromPort, ToPort y solo los CIDR ofensores): si una regla no coincide, AWS responde InvalidPermission.NotFound y no toca nada, y nunca se revocan las demás reglas del grupo. Una regla con un rango (por ejemplo 0-65535) o con el protocolo -1 también abre otros puertos: al revocarla se cierran todos, revisar detail.ip_permissions. Las prefix lists no se expanden: si una prefix list contiene 0.0.0.0/0, este chequeo no la ve. El artículo de Drata indica que un CIDR concreto no cuenta como pass para el test 102: si sigue fallando con CIDRs concretos, preferir Session Manager o un security group como origen."
+        "notes": "Revoking is immediate and reversible with authorize-security-group-ingress. Risk: cutting the access of whoever connects from the internet today; open the alternative access first. The command uses revoke-security-group-ingress with --ip-permissions __FILL_IN_IP_PERMISSIONS__, which is filled in with the exact JSON of the offending rules (stable key detail.ip_permissions: IpProtocol, FromPort, ToPort and only the offending CIDRs): if a rule does not match, AWS answers InvalidPermission.NotFound and changes nothing, and the other rules of the group are never revoked. A rule with a range (for example 0-65535) or with protocol -1 also opens other ports: revoking it closes all of them, review detail.ip_permissions. Prefix lists are not expanded: if a prefix list contains 0.0.0.0/0, this check does not see it. The Drata article says a specific CIDR does not count as a pass for test 102: if it keeps failing with specific CIDRs, prefer Session Manager or a security group as the source."
       },
       "evaluated_by": "claude",
       "vacuous": false,
@@ -862,7 +862,7 @@
     {
       "id": "F-0011",
       "check_id": "LOG-001",
-      "title": "Existe un trail de CloudTrail multi-región y está registrando (IsLogging=true)",
+      "title": "A multi-region CloudTrail trail exists and is logging (IsLogging=true)",
       "domain": "logging",
       "status": "DOCUMENTED_GAP",
       "severity": "high",
@@ -873,7 +873,7 @@
         "name": null
       },
       "evidence": {},
-      "vault_claim": "Falta un trail multirregión; pendiente de ticket",
+      "vault_claim": "A multi-region trail is missing; pending a ticket",
       "vault_note": "failures/No multi-region trail.md",
       "mappings": {
         "drata": [],
@@ -907,17 +907,17 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Decidir el nombre del trail y el bucket de S3 donde se guardan los logs (un bucket exclusivo para logs, con versionado y una bucket policy que permita escribir a CloudTrail; ver LOG-006).",
-          "Si no existe ningún trail, crear uno multi-región con validación de archivos y arrancarlo con start-logging.",
-          "Si el trail ya existe pero está detenido, volver a arrancarlo con start-logging.",
-          "Confirmar con get-trail-status que IsLogging es true y que no hay errores de entrega."
+          "Decide the trail name and the S3 bucket where the logs are stored (a bucket dedicated to logs, with versioning and a bucket policy that lets CloudTrail write; see LOG-006).",
+          "If no trail exists, create a multi-region one with file validation and start it with start-logging.",
+          "If the trail already exists but is stopped, start it again with start-logging.",
+          "Confirm with get-trail-status that IsLogging is true and that there are no delivery errors."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nTRAIL_NAME=\"__COMPLETAR_NOMBRE_TRAIL__\"\nLOG_BUCKET=\"__COMPLETAR_BUCKET_LOGS__\"\n# create-trail no arranca el registro: start-logging solo corre si el trail se creó bien\naws cloudtrail create-trail --name \"$TRAIL_NAME\" --s3-bucket-name \"$LOG_BUCKET\" --is-multi-region-trail --include-global-service-events --enable-log-file-validation --region \"$REGION\" && aws cloudtrail start-logging --name \"$TRAIL_NAME\" --region \"$REGION\"",
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nTRAIL_NAME=\"__COMPLETAR_NOMBRE_TRAIL__\"\n# solo si el trail ya existe y está detenido\naws cloudtrail start-logging --name \"$TRAIL_NAME\" --region \"$REGION\""
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nTRAIL_NAME=\"__FILL_IN_TRAIL_NAME__\"\nLOG_BUCKET=\"__FILL_IN_LOGS_BUCKET__\"\n# create-trail does not start logging: start-logging only runs if the trail was created\naws cloudtrail create-trail --name \"$TRAIL_NAME\" --s3-bucket-name \"$LOG_BUCKET\" --is-multi-region-trail --include-global-service-events --enable-log-file-validation --region \"$REGION\" && aws cloudtrail start-logging --name \"$TRAIL_NAME\" --region \"$REGION\"",
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nTRAIL_NAME=\"__FILL_IN_TRAIL_NAME__\"\n# only if the trail already exists and is stopped\naws cloudtrail start-logging --name \"$TRAIL_NAME\" --region \"$REGION\""
         ],
-        "verify_after": "aws cloudtrail get-trail-status --name \"__COMPLETAR_NOMBRE_TRAIL__\" --region \"us-east-1\"",
-        "notes": "El bucket debe tener antes la bucket policy que permite a cloudtrail.amazonaws.com escribir; sin ella create-trail falla con InsufficientS3BucketPolicyException. La primera copia de eventos de administración es gratis; trails adicionales y data events se cobran. Decisión: nombre del trail y bucket de destino. Si el trail ya existe con otro nombre, usar el segundo bloque."
+        "verify_after": "aws cloudtrail get-trail-status --name \"__FILL_IN_TRAIL_NAME__\" --region \"us-east-1\"",
+        "notes": "The bucket must first have the bucket policy that lets cloudtrail.amazonaws.com write; without it create-trail fails with InsufficientS3BucketPolicyException. The first copy of management events is free; additional trails and data events are charged. Decision: trail name and destination bucket. If the trail already exists under another name, use the second block."
       },
       "evaluated_by": "claude",
       "vacuous": false,
@@ -928,9 +928,9 @@
     {
       "id": "F-0012",
       "check_id": "DAT-001",
-      "title": "Las instancias RDS tienen backups automáticos con retención mayor a 0 días (recomendado: al menos 7)",
+      "title": "RDS instances have automated backups with retention greater than 0 days (recommended: at least 7)",
       "domain": "data",
-      "status": "NO_VERIFICADO",
+      "status": "NOT_VERIFIED",
       "severity": "high",
       "resource": {
         "type": "account",
@@ -980,16 +980,16 @@
         "risk": "medium",
         "downtime": true,
         "steps": [
-          "Elegir la retención (7 días es el mínimo recomendado) para la base account.",
-          "Aplicarla con el primer bloque (instancia independiente) o con el segundo (miembro de un cluster Aurora o Multi-AZ DB cluster, donde la retención es del cluster).",
-          "Verificar con describe-db-instances que BackupRetentionPeriod es el elegido."
+          "Choose the retention (7 days is the recommended minimum) for the account database.",
+          "Apply it with the first block (standalone instance) or with the second (member of an Aurora cluster or Multi-AZ DB cluster, where retention belongs to the cluster).",
+          "Verify with describe-db-instances that BackupRetentionPeriod is the chosen one."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nDB_ID=\"account\"\n# instancia que no pertenece a un cluster\naws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --backup-retention-period 7 --apply-immediately --region \"$REGION\"",
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nDB_ID=\"account\"\n# miembro de un cluster: la retención se cambia en el cluster\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text)\n[ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ] && aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --backup-retention-period 7 --apply-immediately --region \"$REGION\""
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nDB_ID=\"account\"\n# instance that does not belong to a cluster\naws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --backup-retention-period 7 --apply-immediately --region \"$REGION\"",
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nDB_ID=\"account\"\n# cluster member: retention is changed on the cluster\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text)\n[ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ] && aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --backup-retention-period 7 --apply-immediately --region \"$REGION\""
         ],
         "verify_after": "aws rds describe-db-instances --db-instance-identifier \"account\" --region \"us-east-1\" --query 'DBInstances[0].BackupRetentionPeriod'",
-        "notes": "Pasar de 0 a un valor mayor corta la base unos minutos en una instancia Single-AZ (RDS toma un snapshot y suspende el I/O); subir de un valor mayor a 0 a 7 no corta. Aplicarlo en una ventana acordada. Los backups cuestan almacenamiento por encima del tamaño de la base. --apply-immediately aplica también cualquier otro cambio pendiente de la instancia. Una réplica de lectura sin backups también falla este test. 7 días es un criterio de diseño del catálogo, no un umbral de Drata (que solo pide mayor a 0): por eso 1 a 6 se reporta con severity_override low."
+        "notes": "Going from 0 to a higher value interrupts the database for a few minutes on a Single-AZ instance (RDS takes a snapshot and suspends I/O); raising from a value above 0 to 7 does not. Apply it in an agreed window. Backups cost storage beyond the size of the database. --apply-immediately also applies any other pending change of the instance. A read replica without backups also fails this test. 7 days is a catalog design criterion, not a Drata threshold (which only asks for more than 0): that is why 1 to 6 is reported with severity_override low."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -1002,7 +1002,7 @@
     {
       "id": "F-0013",
       "check_id": "DET-001",
-      "title": "GuardDuty está activo en cada región con recursos (las regiones sin recursos y sin detector se reportan con severidad baja)",
+      "title": "GuardDuty is active in every region with resources (regions without resources and without a detector are reported with low severity)",
       "domain": "detection",
       "status": "PASS",
       "severity": "high",
@@ -1062,16 +1062,16 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Habilitar GuardDuty en la región us-east-1 con S3 Protection activado, ejecutando el comando en esa región.",
-          "Si la región ya tiene un detector deshabilitado, create-detector falla: reactivarlo con update-detector (segundo bloque).",
-          "Verificar con get-detector que Status es ENABLED."
+          "Enable GuardDuty in the us-east-1 region with S3 Protection on, running the command in that region.",
+          "If the region already has a disabled detector, create-detector fails: re-enable it with update-detector (second block).",
+          "Verify with get-detector that Status is ENABLED."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# falla con BadRequestException si la región ya tiene un detector: usar el bloque siguiente\naws guardduty create-detector --enable --region \"us-east-1\" --features '[{\"Name\":\"S3_DATA_EVENTS\",\"Status\":\"ENABLED\"}]'",
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# solo si la región ya tiene un detector deshabilitado\nDETECTOR_ID=$(aws guardduty list-detectors --region \"$REGION\" --query 'DetectorIds[0]' --output text) && aws guardduty update-detector --detector-id \"$DETECTOR_ID\" --enable --features '[{\"Name\":\"S3_DATA_EVENTS\",\"Status\":\"ENABLED\"}]' --region \"$REGION\""
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# fails with BadRequestException if the region already has a detector: use the next block\naws guardduty create-detector --enable --region \"us-east-1\" --features '[{\"Name\":\"S3_DATA_EVENTS\",\"Status\":\"ENABLED\"}]'",
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# only if the region already has a disabled detector\nDETECTOR_ID=$(aws guardduty list-detectors --region \"$REGION\" --query 'DetectorIds[0]' --output text) && aws guardduty update-detector --detector-id \"$DETECTOR_ID\" --enable --features '[{\"Name\":\"S3_DATA_EVENTS\",\"Status\":\"ENABLED\"}]' --region \"$REGION\""
         ],
         "verify_after": "aws guardduty get-detector --detector-id \"$(aws guardduty list-detectors --region \"us-east-1\" --query 'DetectorIds[0]' --output text)\" --region \"us-east-1\" --query '{Status: Status, S3: Features[?Name==`S3_DATA_EVENTS`].Status | [0]}'",
-        "notes": "Sin downtime. Costo: 30 días de prueba gratis y después GuardDuty cobra por volumen de eventos analizados (CloudTrail, flow logs, DNS y, con S3 Protection, eventos de datos de S3); en una región sin actividad el costo es mínimo. Los findings de regiones sin recursos tienen severidad baja: habilitarlos igual cierra el hueco de las regiones sin monitoreo que recomienda la línea base de seguridad de AWS. El detector es por región: repetir el comando en cada región ofensora."
+        "notes": "No downtime. Cost: 30 days free trial, then GuardDuty charges by the volume of events analyzed (CloudTrail, flow logs, DNS and, with S3 Protection, S3 data events); in a region with no activity the cost is minimal. Findings for regions without resources have low severity: enabling them anyway closes the gap of unmonitored regions that the AWS security baseline recommends. The detector is per region: repeat the command in each offending region."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -1082,7 +1082,7 @@
     {
       "id": "F-0014",
       "check_id": "NET-001",
-      "title": "Ningún security group de una región con interfaces de red activas abre SSH (puerto 22) a 0.0.0.0/0 ni a ::/0",
+      "title": "No security group in a region with active network interfaces opens SSH (port 22) to 0.0.0.0/0 or ::/0",
       "domain": "network",
       "status": "PASS",
       "severity": "high",
@@ -1143,15 +1143,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Identificar quién entra hoy por SSH al security group sg-0f1e2d3c4b5a69788 (detail.ip_permissions del hallazgo y los VPC Flow Logs) y habilitar antes un acceso alternativo: Session Manager, o una regla con un CIDR fijo (la IP de la oficina o de la VPN) o con otro security group como origen.",
-          "Revocar las reglas ofensoras con el comando: usa el JSON exacto de detail.ip_permissions de este hallazgo (protocolo, puertos y solo los CIDR ofensores), así que no toca ninguna otra regla del grupo.",
-          "Verificar con describe-security-groups que ya no queda ninguna regla de entrada abierta a 0.0.0.0/0 ni a ::/0 sobre el puerto."
+          "Identify who connects through SSH to the security group sg-0f1e2d3c4b5a69788 today (detail.ip_permissions of the finding and the VPC Flow Logs) and first enable an alternative access: Session Manager, or a rule with a fixed CIDR (the office or VPN IP) or with another security group as the source.",
+          "Revoke the offending rules with the command: it uses the exact JSON of detail.ip_permissions of this finding (protocol, ports and only the offending CIDRs), so it does not touch any other rule of the group.",
+          "Verify with describe-security-groups that no inbound rule open to 0.0.0.0/0 or ::/0 is left on the port."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nSG_ID=\"sg-0f1e2d3c4b5a69788\"\n# detail.ip_permissions: solo las reglas ofensoras de este hallazgo, con su protocolo, puertos y CIDR exactos\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions __COMPLETAR_IP_PERMISSIONS__"
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nSG_ID=\"sg-0f1e2d3c4b5a69788\"\n# detail.ip_permissions: only the offending rules of this finding, with their exact protocol, ports and CIDRs\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions __FILL_IN_IP_PERMISSIONS__"
         ],
         "verify_after": "aws ec2 describe-security-groups --group-ids \"sg-0f1e2d3c4b5a69788\" --region \"us-east-1\" --query 'SecurityGroups[0].IpPermissions[?contains(IpRanges[].CidrIp, `0.0.0.0/0`) || contains(Ipv6Ranges[].CidrIpv6, `::/0`)]'",
-        "notes": "Revocar es inmediato y reversible con authorize-security-group-ingress. Riesgo: cortar el acceso de quien hoy entra desde internet; abrir antes el acceso alternativo. El comando usa revoke-security-group-ingress con --ip-permissions __COMPLETAR_IP_PERMISSIONS__, que se completa con el JSON exacto de las reglas ofensoras (clave estable detail.ip_permissions: IpProtocol, FromPort, ToPort y solo los CIDR ofensores): si una regla no coincide, AWS responde InvalidPermission.NotFound y no toca nada, y nunca se revocan las demás reglas del grupo. Una regla con un rango (por ejemplo 0-65535) o con el protocolo -1 también abre otros puertos: al revocarla se cierran todos, revisar detail.ip_permissions. Las prefix lists no se expanden: si una prefix list contiene 0.0.0.0/0, este chequeo no la ve. El artículo de Drata indica que un CIDR concreto no cuenta como pass para el test 102: si sigue fallando con CIDRs concretos, preferir Session Manager o un security group como origen."
+        "notes": "Revoking is immediate and reversible with authorize-security-group-ingress. Risk: cutting the access of whoever connects from the internet today; open the alternative access first. The command uses revoke-security-group-ingress with --ip-permissions __FILL_IN_IP_PERMISSIONS__, which is filled in with the exact JSON of the offending rules (stable key detail.ip_permissions: IpProtocol, FromPort, ToPort and only the offending CIDRs): if a rule does not match, AWS answers InvalidPermission.NotFound and changes nothing, and the other rules of the group are never revoked. A rule with a range (for example 0-65535) or with protocol -1 also opens other ports: revoking it closes all of them, review detail.ip_permissions. Prefix lists are not expanded: if a prefix list contains 0.0.0.0/0, this check does not see it. The Drata article says a specific CIDR does not count as a pass for test 102: if it keeps failing with specific CIDRs, prefer Session Manager or a security group as the source."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -1183,7 +1183,7 @@
     {
       "id": "F-0015",
       "check_id": "NET-004",
-      "title": "Ningún security group de una región con interfaces de red activas tiene una regla de entrada 'todo el tráfico' desde un CIDR",
+      "title": "No security group in a region with active network interfaces has an 'all traffic' inbound rule from a CIDR",
       "domain": "network",
       "status": "PASS",
       "severity": "high",
@@ -1241,15 +1241,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Decidir qué puertos, protocolos y orígenes necesita el security group sg-0f1e2d3c4b5a69788 y abrir primero esas reglas específicas con authorize-security-group-ingress, para no cortar el tráfico legítimo.",
-          "Revocar las reglas 'todo el tráfico' desde CIDR con el comando: usa el JSON exacto de detail.ip_permissions de este hallazgo, así que no toca ninguna otra regla del grupo.",
-          "Verificar que el grupo ya no tiene reglas de entrada con el protocolo -1 desde un CIDR."
+          "Decide which ports, protocols and sources the security group sg-0f1e2d3c4b5a69788 needs and first open those specific rules with authorize-security-group-ingress, so as not to cut legitimate traffic.",
+          "Revoke the 'all traffic' rules from CIDRs with the command: it uses the exact JSON of detail.ip_permissions of this finding, so it does not touch any other rule of the group.",
+          "Verify that the group no longer has inbound rules with protocol -1 from a CIDR."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nSG_ID=\"sg-0f1e2d3c4b5a69788\"\n# detail.ip_permissions: solo las reglas ofensoras de este hallazgo, con su protocolo, puertos y CIDR exactos\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions __COMPLETAR_IP_PERMISSIONS__"
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nSG_ID=\"sg-0f1e2d3c4b5a69788\"\n# detail.ip_permissions: only the offending rules of this finding, with their exact protocol, ports and CIDRs\naws ec2 revoke-security-group-ingress --group-id \"$SG_ID\" --region \"$REGION\" --ip-permissions __FILL_IN_IP_PERMISSIONS__"
         ],
         "verify_after": "aws ec2 describe-security-groups --group-ids \"sg-0f1e2d3c4b5a69788\" --region \"us-east-1\" --query 'SecurityGroups[0].IpPermissions[?IpProtocol==`-1`]'",
-        "notes": "Es la regla 'todo el tráfico': al revocarla se corta todo lo que dependía de ella, así que primero hay que abrir las reglas específicas, por ejemplo: aws ec2 authorize-security-group-ingress --group-id <sg> --protocol tcp --port 443 --cidr <rango> --region <región>. El comando usa --ip-permissions __COMPLETAR_IP_PERMISSIONS__, que se completa con el JSON exacto de las reglas -1 con CIDR de este grupo (clave estable detail.ip_permissions); las reglas con otro protocolo o con un security group de origen no se tocan, y si una regla no coincide AWS responde InvalidPermission.NotFound sin tocar nada. Revocar es reversible con authorize-security-group-ingress."
+        "notes": "This is the 'all traffic' rule: revoking it cuts everything that depended on it, so the specific rules must be opened first, for example: aws ec2 authorize-security-group-ingress --group-id <sg> --protocol tcp --port 443 --cidr <range> --region <region>. The command uses --ip-permissions __FILL_IN_IP_PERMISSIONS__, which is filled in with the exact JSON of the -1 rules with a CIDR of this group (stable key detail.ip_permissions); rules with another protocol or with a source security group are not touched, and if a rule does not match AWS answers InvalidPermission.NotFound without changing anything. Revoking is reversible with authorize-security-group-ingress."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -1281,7 +1281,7 @@
     {
       "id": "F-0016",
       "check_id": "LOG-002",
-      "title": "Los trails tienen la validación de integridad de archivos de log habilitada",
+      "title": "Trails have log file integrity validation enabled",
       "domain": "logging",
       "status": "N/A",
       "severity": "high",
@@ -1292,7 +1292,7 @@
         "name": "account"
       },
       "evidence": {
-        "reason": "sin recursos en el alcance"
+        "reason": "no resources in scope"
       },
       "vault_claim": null,
       "vault_note": null,
@@ -1342,13 +1342,13 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Activar la validación de integridad en el trail account, ejecutando el comando en la región de origen del trail."
+          "Turn on integrity validation on the trail account, running the command in the home region of the trail."
         ],
         "commands": [
           "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\naws cloudtrail update-trail --name \"account\" --enable-log-file-validation --region \"$REGION\""
         ],
         "verify_after": "aws cloudtrail describe-trails --trail-name-list \"account\" --region \"us-east-1\" --query 'trailList[].LogFileValidationEnabled'",
-        "notes": "Sin downtime. CloudTrail empieza a entregar archivos de digest cada hora; los logs anteriores a este cambio no se pueden validar. Si el trail es multi-región, update-trail se corre en su región de origen (HomeRegion)."
+        "notes": "No downtime. CloudTrail starts delivering digest files every hour; logs from before this change cannot be validated. If the trail is multi-region, update-trail runs in its home region (HomeRegion)."
       },
       "evaluated_by": "script",
       "vacuous": true,
@@ -1359,7 +1359,7 @@
     {
       "id": "F-0017",
       "check_id": "DAT-007",
-      "title": "Los buckets de S3 tienen Block Public Access activo en sus 4 ajustes",
+      "title": "S3 buckets have Block Public Access on in all 4 settings",
       "domain": "data",
       "status": "FAIL",
       "severity": "medium",
@@ -1423,15 +1423,15 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Revisar si el bucket acme-notes-archive sirve contenido público a propósito (sitio web estático o ACL pública) y, si es así, ponerlo detrás de CloudFront con acceso privado antes de bloquear.",
-          "Activar los 4 ajustes de Block Public Access en el bucket.",
-          "Verificar con get-public-access-block que los 4 ajustes son true."
+          "Check whether the bucket acme-notes-archive serves public content on purpose (static website or public ACL) and, if so, put it behind CloudFront with private access before blocking.",
+          "Turn on the 4 Block Public Access settings on the bucket.",
+          "Verify with get-public-access-block that the 4 settings are true."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nBUCKET_ARN=\"__COMPLETAR_RESOURCE_ARN__\"\naws s3api get-bucket-location --bucket \"$BUCKET_ARN\" --region \"$REGION\""
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nBUCKET_ARN=\"__FILL_IN_RESOURCE_ARN__\"\naws s3api get-bucket-location --bucket \"$BUCKET_ARN\" --region \"$REGION\""
         ],
         "verify_after": "aws s3api get-public-access-block --bucket \"acme-notes-archive\" --region \"us-east-1\"",
-        "notes": "Sin downtime, pero si el bucket sirve contenido público a propósito (sitio web estático con acceso anónimo, ACL públicas), deja de ser accesible: pasarlo antes a CloudFront con Origin Access Control. get-bucket-policy-status responde NoSuchBucketPolicy si el bucket no tiene policy: no es un error. Reversible con put-public-access-block en false. El Block Public Access de la cuenta (aws s3control put-public-access-block) se recomienda también, pero Drata no lo evalúa."
+        "notes": "No downtime, but if the bucket serves public content on purpose (static website with anonymous access, public ACLs), it stops being accessible: move it behind CloudFront with Origin Access Control first. get-bucket-policy-status answers NoSuchBucketPolicy if the bucket has no policy: that is not an error. Reversible with put-public-access-block set to false. The account-level Block Public Access (aws s3control put-public-access-block) is also recommended, but Drata does not evaluate it."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -1442,7 +1442,7 @@
     {
       "id": "F-0018",
       "check_id": "DAT-007",
-      "title": "Los buckets de S3 tienen Block Public Access activo en sus 4 ajustes",
+      "title": "S3 buckets have Block Public Access on in all 4 settings",
       "domain": "data",
       "status": "FAIL",
       "severity": "medium",
@@ -1506,16 +1506,16 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Revisar si el bucket acme-notes-exports sirve contenido público a propósito (sitio web estático o ACL pública) y, si es así, ponerlo detrás de CloudFront con acceso privado antes de bloquear.",
-          "Activar los 4 ajustes de Block Public Access en el bucket.",
-          "Verificar con get-public-access-block que los 4 ajustes son true."
+          "Check whether the bucket acme-notes-exports serves public content on purpose (static website or public ACL) and, if so, put it behind CloudFront with private access before blocking.",
+          "Turn on the 4 Block Public Access settings on the bucket.",
+          "Verify with get-public-access-block that the 4 settings are true."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# solo lectura: si el bucket es público según su policy\naws s3api get-bucket-policy-status --bucket \"acme-notes-exports\" --region \"$REGION\"",
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# read-only: whether the bucket is public according to its policy\naws s3api get-bucket-policy-status --bucket \"acme-notes-exports\" --region \"$REGION\"",
           "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\naws s3api put-public-access-block --bucket \"acme-notes-exports\" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --region \"$REGION\""
         ],
         "verify_after": "aws s3api get-public-access-block --bucket \"acme-notes-exports\" --region \"us-east-1\"",
-        "notes": "Sin downtime, pero si el bucket sirve contenido público a propósito (sitio web estático con acceso anónimo, ACL públicas), deja de ser accesible: pasarlo antes a CloudFront con Origin Access Control. get-bucket-policy-status responde NoSuchBucketPolicy si el bucket no tiene policy: no es un error. Reversible con put-public-access-block en false. El Block Public Access de la cuenta (aws s3control put-public-access-block) se recomienda también, pero Drata no lo evalúa."
+        "notes": "No downtime, but if the bucket serves public content on purpose (static website with anonymous access, public ACLs), it stops being accessible: move it behind CloudFront with Origin Access Control first. get-bucket-policy-status answers NoSuchBucketPolicy if the bucket has no policy: that is not an error. Reversible with put-public-access-block set to false. The account-level Block Public Access (aws s3control put-public-access-block) is also recommended, but Drata does not evaluate it."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -1526,7 +1526,7 @@
     {
       "id": "F-0019",
       "check_id": "IAM-013",
-      "title": "Las políticas propias no usan comodines amplios sin justificación (revisión)",
+      "title": "Customer-managed policies do not use broad wildcards without justification (review)",
       "domain": "iam",
       "status": "FAIL",
       "severity": "medium",
@@ -1578,15 +1578,15 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Leer la política con los comandos de abajo y listar qué acciones con comodín usa y sobre qué recursos.",
-          "Reemplazar cada comodín por la lista de acciones y recursos que la aplicación necesita realmente.",
-          "Crear una versión nueva de la política y comprobar que la aplicación sigue funcionando."
+          "Read the policy with the commands below and list which wildcard actions it uses and on which resources.",
+          "Replace each wildcard with the list of actions and resources the application really needs.",
+          "Create a new version of the policy and check that the application keeps working."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nPOLICY_ARN=\"__COMPLETAR_POLICY_ARN__\"\nVERSION_ID=$(aws iam get-policy --policy-arn \"$POLICY_ARN\" --query Policy.DefaultVersionId --output text)\naws iam get-policy-version --policy-arn \"$POLICY_ARN\" --version-id \"$VERSION_ID\""
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nPOLICY_ARN=\"__FILL_IN_POLICY_ARN__\"\nVERSION_ID=$(aws iam get-policy --policy-arn \"$POLICY_ARN\" --query Policy.DefaultVersionId --output text)\naws iam get-policy-version --policy-arn \"$POLICY_ARN\" --version-id \"$VERSION_ID\""
         ],
-        "verify_after": "aws iam get-policy --policy-arn \"__COMPLETAR_POLICY_ARN__\"",
-        "notes": "Es una revisión de criterio (la hace Claude, no una regla fija): un comodín puede ser aceptable. Acotar permisos sin probar rompe la aplicación que los usa."
+        "verify_after": "aws iam get-policy --policy-arn \"__FILL_IN_POLICY_ARN__\"",
+        "notes": "This is a judgment review (done by Claude, not a fixed rule): a wildcard can be acceptable. Narrowing permissions without testing breaks the application that uses them."
       },
       "evaluated_by": "claude",
       "vacuous": false,
@@ -1597,7 +1597,7 @@
     {
       "id": "F-0020",
       "check_id": "DAT-007",
-      "title": "Los buckets de S3 tienen Block Public Access activo en sus 4 ajustes",
+      "title": "S3 buckets have Block Public Access on in all 4 settings",
       "domain": "data",
       "status": "FAIL",
       "severity": "low",
@@ -1659,16 +1659,16 @@
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Revisar si el bucket acme-notes-uploads sirve contenido público a propósito (sitio web estático o ACL pública) y, si es así, ponerlo detrás de CloudFront con acceso privado antes de bloquear.",
-          "Activar los 4 ajustes de Block Public Access en el bucket.",
-          "Verificar con get-public-access-block que los 4 ajustes son true."
+          "Check whether the bucket acme-notes-uploads serves public content on purpose (static website or public ACL) and, if so, put it behind CloudFront with private access before blocking.",
+          "Turn on the 4 Block Public Access settings on the bucket.",
+          "Verify with get-public-access-block that the 4 settings are true."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# solo lectura: si el bucket es público según su policy\naws s3api get-bucket-policy-status --bucket \"acme-notes-uploads\" --region \"$REGION\"",
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\n# read-only: whether the bucket is public according to its policy\naws s3api get-bucket-policy-status --bucket \"acme-notes-uploads\" --region \"$REGION\"",
           "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\naws s3api put-public-access-block --bucket \"acme-notes-uploads\" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --region \"$REGION\""
         ],
         "verify_after": "aws s3api get-public-access-block --bucket \"acme-notes-uploads\" --region \"us-east-1\"",
-        "notes": "Sin downtime, pero si el bucket sirve contenido público a propósito (sitio web estático con acceso anónimo, ACL públicas), deja de ser accesible: pasarlo antes a CloudFront con Origin Access Control. get-bucket-policy-status responde NoSuchBucketPolicy si el bucket no tiene policy: no es un error. Reversible con put-public-access-block en false. El Block Public Access de la cuenta (aws s3control put-public-access-block) se recomienda también, pero Drata no lo evalúa."
+        "notes": "No downtime, but if the bucket serves public content on purpose (static website with anonymous access, public ACLs), it stops being accessible: move it behind CloudFront with Origin Access Control first. get-bucket-policy-status answers NoSuchBucketPolicy if the bucket has no policy: that is not an error. Reversible with put-public-access-block set to false. The account-level Block Public Access (aws s3control put-public-access-block) is also recommended, but Drata does not evaluate it."
       },
       "evaluated_by": "script",
       "vacuous": false,
@@ -1679,7 +1679,7 @@
     {
       "id": "F-0021",
       "check_id": null,
-      "title": "Recurso o configuración sin documentar en el vault",
+      "title": "Resource or configuration not documented in the vault",
       "domain": "vault",
       "status": "UNDOCUMENTED",
       "severity": "low",
@@ -1690,7 +1690,7 @@
         "name": "acme-notes-dlq"
       },
       "evidence": {
-        "actual": "Cola sin documentar en el vault"
+        "actual": "Queue not documented in the vault"
       },
       "vault_claim": null,
       "vault_note": null,
@@ -1712,7 +1712,7 @@
     {
       "id": "F-0022",
       "check_id": null,
-      "title": "Documentado en el vault, sin recurso verificable en AWS",
+      "title": "Documented in the vault, with no verifiable resource in AWS",
       "domain": "vault",
       "status": "DOCUMENTED_ONLY",
       "severity": "low",
@@ -1723,7 +1723,7 @@
         "name": "acme-notes-mail-queue"
       },
       "evidence": {},
-      "vault_claim": "Existe la cola acme-notes-mail-queue",
+      "vault_claim": "The queue acme-notes-mail-queue exists",
       "vault_note": "systems/Mail Queue.md",
       "mappings": {
         "drata": [],
@@ -1863,7 +1863,7 @@
       {
         "id": "A.8.13",
         "name": "Information backup",
-        "status": "NO_VERIFICADO",
+        "status": "NOT_VERIFIED",
         "category": "technical"
       },
       {
@@ -1967,18 +1967,18 @@
       {
         "id": "A1.2",
         "name": "Environmental protections, backups and recovery infrastructure",
-        "status": "NO_VERIFICADO",
+        "status": "NOT_VERIFIED",
         "category": "technical"
       }
     ]
   },
   "warnings": [
-    "inventario incompleto: rds_instance ACCESS_DENIED en us-east-1",
-    "link roto en systems/Uploads Bucket.md: [[Bucket de logs]]",
-    "credencial detectada en el vault: ops/Credenciales de staging.md (aws_access_key_id)"
+    "incomplete inventory: rds_instance ACCESS_DENIED in us-east-1",
+    "broken link in systems/Uploads Bucket.md: [[Logs bucket]]",
+    "credential detected in the vault: ops/Staging credentials.md (aws_access_key_id)"
   ],
   "notes": [
-    "Sin vault: no se comparó la documentación con AWS.",
-    "Reporte de muestra con datos ficticios de Acme Notes."
+    "No vault: the documentation was not compared with AWS.",
+    "Sample report with fictitious Acme Notes data."
   ]
 }

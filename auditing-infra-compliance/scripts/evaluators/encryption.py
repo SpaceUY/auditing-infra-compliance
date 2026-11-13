@@ -22,9 +22,9 @@ def ebs_default_encryption(responses: dict, params: dict) -> list[dict]:
     for instance in (i for i in responses.get("__inventory__", []) if i["type"] == "ec2_instance"):
         region = instance["region"]
         if region not in enabled:
-            offenders.append(_unverified(instance["id"], region, reason="sin respuesta de get-ebs-encryption-by-default"))
+            offenders.append(_unverified(instance["id"], region, reason="no response from get-ebs-encryption-by-default"))
         elif not enabled[region]:
-            offenders.append(_offender(instance["id"], region, reason="el cifrado de EBS por defecto está desactivado en la región"))
+            offenders.append(_offender(instance["id"], region, reason="EBS encryption by default is disabled in the region"))
     return offenders
 
 
@@ -49,8 +49,8 @@ def rds_encrypted(responses: dict, params: dict) -> list[dict]:
             offenders.append(_not_applicable(db["DBInstanceIdentifier"], region))
         elif not db.get("StorageEncrypted"):
             offenders.append(_offender(db["DBInstanceIdentifier"], region, kind="instance", engine=db.get("Engine"),
-                                       reason="almacenamiento sin cifrar"))
-    offenders += [_offender(db["DBClusterIdentifier"], region, kind="cluster", engine=db.get("Engine"), reason="almacenamiento sin cifrar")
+                                       reason="unencrypted storage"))
+    offenders += [_offender(db["DBClusterIdentifier"], region, kind="cluster", engine=db.get("Engine"), reason="unencrypted storage")
                   for region, db in clusters if not db.get("StorageEncrypted")]
     return offenders
 
@@ -74,11 +74,11 @@ def s3_default_encryption(responses: dict, params: dict) -> list[dict]:
         if error == "NoSuchBucket":
             offenders.append(_not_applicable(bucket, region))
         elif error == "ServerSideEncryptionConfigurationNotFoundError":
-            offenders.append(_offender(bucket, region, reason="sin cifrado por defecto configurado"))
+            offenders.append(_offender(bucket, region, reason="no default encryption configured"))
         elif error:
             offenders.append(_unreadable(bucket, region, error, "get-bucket-encryption"))
         elif not _default_algorithms(data or {}) & SSE_ALGORITHMS:
-            offenders.append(_offender(bucket, region, reason="la regla de cifrado no define un algoritmo válido"))
+            offenders.append(_offender(bucket, region, reason="the encryption rule does not define a valid algorithm"))
     return offenders
 
 
@@ -86,7 +86,7 @@ def _kms_item_error(key_id: str, region: str, code: str, call: str, tolerated: f
     """Entry for a failed per-key call (item_errors): tolerated codes mean the key is out of scope, the rest is unverified."""
     if code in tolerated:
         return _not_applicable(key_id, region)
-    reason = "la key policy no permite al auditor consultar la clave" if code == "ACCESS_DENIED" else "no se pudo consultar la clave"
+    reason = "the key policy does not allow the auditor to query the key" if code == "ACCESS_DENIED" else "could not query the key"
     return _unverified(key_id, region, error_code=code, call=call, reason=reason)
 
 
@@ -120,11 +120,11 @@ def kms_rotation(responses: dict, params: dict) -> list[dict]:
             continue
         status = rotation.get((region, key_id))
         if status is None:
-            offenders.append(_unverified(key_id, region, reason="sin respuesta de get-key-rotation-status"))
+            offenders.append(_unverified(key_id, region, reason="no response from get-key-rotation-status"))
         elif "__error__" in status:
             offenders.append(_kms_item_error(key_id, region, status["__error__"], "get-key-rotation-status", ROTATION_TOLERATED))
         elif not status.get("KeyRotationEnabled"):
-            offenders.append(_offender(key_id, region, arn=meta.get("Arn"), reason="rotación automática deshabilitada"))
+            offenders.append(_offender(key_id, region, arn=meta.get("Arn"), reason="automatic rotation disabled"))
     return offenders
 
 
@@ -143,7 +143,7 @@ def kms_pending_deletion(responses: dict, params: dict) -> list[dict]:
         meta = (described or {}).get("KeyMetadata") or {}
         if str(meta.get("KeyState", "")).lower() in PENDING_DELETION_STATES:
             offenders.append(_offender(key_id, region, key_state=meta.get("KeyState"), deletion_date=meta.get("DeletionDate"),
-                                       reason="clave programada para borrarse"))
+                                       reason="key scheduled for deletion"))
     return offenders
 
 
@@ -219,13 +219,13 @@ def s3_tls_only(responses: dict, params: dict) -> list[dict]:
         if error == "NoSuchBucket":
             offenders.append(_not_applicable(bucket, region))
         elif error == "NoSuchBucketPolicy":
-            offenders.append(_offender(bucket, region, reason="sin bucket policy"))
+            offenders.append(_offender(bucket, region, reason="no bucket policy"))
         elif error:
             offenders.append(_unreadable(bucket, region, error, "get-bucket-policy"))
         elif (document := _bucket_policy_document(data or {})) is None:
-            offenders.append(_offender(bucket, region, reason="la bucket policy no se pudo leer como JSON"))
+            offenders.append(_offender(bucket, region, reason="the bucket policy could not be read as JSON"))
         elif not _denies_insecure_transport(document, bucket):
-            offenders.append(_offender(bucket, region, reason="ninguna statement niega aws:SecureTransport=false sobre el bucket y sus objetos"))
+            offenders.append(_offender(bucket, region, reason="no statement denies aws:SecureTransport=false on the bucket and its objects"))
     return offenders
 
 
@@ -263,7 +263,7 @@ def _redirects_to_https(action: dict) -> bool:
 def _http_listener_problem(listener: dict) -> dict | None:
     if str(listener.get("Protocol", "")).upper() != "HTTP" or any(_redirects_to_https(a) for a in listener.get("DefaultActions") or []):
         return None
-    return {"port": listener.get("Port"), "reason": "la acción por defecto no redirige a HTTPS:443 con 301 o 302"}
+    return {"port": listener.get("Port"), "reason": "the default action does not redirect to HTTPS:443 with 301 or 302"}
 
 
 def _tls_listener_problem(listener: dict) -> dict | None:
@@ -316,7 +316,7 @@ def _force_ssl_entry(kind: str, ident: str, region: str, db: dict, group: str | 
     values = groups.get((region, group))
     if values is None or "__error__" in values:
         return _unverified(ident, region, kind=kind, parameter_group=group, error_code=(values or {}).get("__error__"),
-                           reason="no se pudieron leer los parámetros del parameter group")
+                           reason="could not read the parameters of the parameter group")
     name, accepted = spec
     value = values.get(name)
     if value is not None and str(value).lower() in accepted:

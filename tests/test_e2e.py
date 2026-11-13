@@ -30,15 +30,15 @@ NO_PUBLIC_ACCESS_BLOCK = ("An error occurred (NoSuchPublicAccessBlockConfigurati
                           "GetPublicAccessBlock operation: The public access block configuration was not found")
 UNVERIFIED_MARKER = '"verification": {'  # key of the embedded verification (the template only has id="verification")
 CR003_MARKER = '"rule_id": "CR-003"'  # per-finding verification issue, only inside the embedded verification
-META = {"platform": "Acme Notes", "mode": "full", "target": None, "lang": "es"}
+META = {"platform": "Acme Notes", "mode": "full", "target": None, "lang": "en"}
 CLAIMS = [
     {"kind": "DRIFT", "check_id": "ENC-006", "resource": {"type": "kms_key", "id": "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d",
                                                             "region": REGION},
-     "vault_note": "constraints/PII handling.md", "vault_claim": "La clave de la base rota automáticamente",
-     "actual": "La rotación automática está desactivada", "status": None, "detail": None, "severity": None,
+     "vault_note": "constraints/PII handling.md", "vault_claim": "The database key rotates automatically",
+     "actual": "Automatic rotation is disabled", "status": None, "detail": None, "severity": None,
      "breaks_tests": []},
     {"kind": "UNDOCUMENTED", "check_id": None, "resource": {"type": "sqs_queue", "id": "acme-notes-dlq", "region": REGION},
-     "vault_note": None, "vault_claim": None, "actual": "Cola sin documentar en el vault", "status": None,
+     "vault_note": None, "vault_claim": None, "actual": "Queue not documented in the vault", "status": None,
      "detail": None, "severity": None, "breaks_tests": []},
 ]
 
@@ -154,7 +154,7 @@ class FullPipelineTests(PipelineCase):
         mon = [f for f in self.find("MON-001", "FAIL") if f["evidence"].get("missing_part") == "confirmed_subscription"]
         self.assertEqual([f["resource"]["id"] for f in mon], ["acme-notes-db"])
         det = self.one("DET-006")
-        self.assertEqual(det["status"], "NO_VERIFICADO")
+        self.assertEqual(det["status"], "NOT_VERIFIED")
         self.assertIn("inspector2:BatchGetAccountStatus", det["missing"])
         self.assertEqual(self.one("ENC-006", "DRIFT")["resource"]["id"], "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d")
         self.assertEqual(self.one(None, "UNDOCUMENTED")["resource"]["id"], "acme-notes-dlq")
@@ -180,7 +180,7 @@ class FullPipelineTests(PipelineCase):
         for marker in (UNVERIFIED_MARKER, CR003_MARKER):  # present only when verification is embedded in the data block
             self.assertNotIn(marker, html)
             self.assertIn(marker, verified_html)
-        self.assertIn("Verificación", verified_html)
+        self.assertIn("Fix verification", verified_html)
         self.assertIn("F-0001", verified_html)
 
     def test_only_allowlisted_operations_are_called(self):
@@ -195,7 +195,7 @@ class FullPipelineTests(PipelineCase):
 
 
 class UnknownRegionsPipelineTests(PipelineCase):
-    """Review 2: if the enabled regions cannot be listed, no "all regions" check may come out PASS and the verdict is never OPTIMO."""
+    """Review 2: if the enabled regions cannot be listed, no "all regions" check may come out PASS and the verdict is never OPTIMAL."""
 
     def test_describe_regions_failure_never_yields_a_pass_for_all_regions_checks(self):
         responses = acme_responses()
@@ -212,11 +212,11 @@ class UnknownRegionsPipelineTests(PipelineCase):
         regional_all = [r for r in results if checks[r["check_id"]]["all_regions"]
                         and any(c.get("region") == "each" for c in checks[r["check_id"]]["verify"]["calls"])]
         self.assertGreater(len(regional_all), 5)
-        self.assertEqual({r["status"] for r in regional_all if r["resource_id"] == "account"} - {"NO_VERIFICADO", "FAIL"}, set())
-        self.assertIn("NO_VERIFICADO", {r["status"] for r in results if r["check_id"] == "DET-005"})
+        self.assertEqual({r["status"] for r in regional_all if r["resource_id"] == "account"} - {"NOT_VERIFIED", "FAIL"}, set())
+        self.assertIn("NOT_VERIFIED", {r["status"] for r in results if r["check_id"] == "DET-005"})
         self.assertNotIn("PASS", {r["status"] for r in results if r["check_id"] in ("DET-005", "IAM-015")})
         findings = assemble_findings.assemble(run_dir, vault_index.build_index(FIXTURES_DIR / "typed-vault"), CLAIMS, dict(META), SKILL_DIR)
-        self.assertNotEqual(findings["summary"]["verdict"], "OPTIMO")
+        self.assertNotEqual(findings["summary"]["verdict"], "OPTIMAL")
 
 
 class _EverythingAnswersEmpty(AcmeAws):
@@ -253,10 +253,10 @@ class EveryCheckWithoutTheRegionListTests(PipelineCase):
         passed = sorted({r["check_id"] for r in results if r["check_id"] in account and r["status"] == "PASS"})
         self.assertEqual(passed, [])
         for check_id in sorted(account):
-            self.assertEqual({r["status"] for r in results if r["check_id"] == check_id}, {"NO_VERIFICADO"}, check_id)
+            self.assertEqual({r["status"] for r in results if r["check_id"] == check_id}, {"NOT_VERIFIED"}, check_id)
         # a resource check may keep the PASS of a resource it did list, but never without a row saying the other regions are unknown
         for check_id in {r["check_id"] for r in results if regional(r["check_id"]) and r["status"] == "PASS"}:
-            self.assertIn("NO_VERIFICADO", {r["status"] for r in results if r["check_id"] == check_id}, check_id)
+            self.assertIn("NOT_VERIFIED", {r["status"] for r in results if r["check_id"] == check_id}, check_id)
 
 
 class WithoutAwsTests(PipelineCase):
@@ -276,8 +276,8 @@ class WithoutAwsTests(PipelineCase):
         secrets = [f for f in self.findings["findings"] if f["status"] == "FAIL" and f["severity"] == "critical"]
         self.assertEqual(len(secrets), 1, secrets)
         self.assertEqual(secrets[0]["title"], assemble_findings.SECRET_TITLE)
-        self.assertTrue(any(w.startswith("link roto en") for w in self.findings["warnings"]), self.findings["warnings"])
-        self.assertIn("Sin credenciales AWS", " ".join(self.findings["notes"]))
+        self.assertTrue(any(w.startswith("broken link in") for w in self.findings["warnings"]), self.findings["warnings"])
+        self.assertIn("No AWS credentials", " ".join(self.findings["notes"]))
 
         html = render_report.render(self.findings, self.template)
         self.assertIn("F-0001", html)

@@ -259,7 +259,7 @@ class UnverifiedTopicTests(unittest.TestCase):
         (entry,) = evaluate(responses)
         self.assertEqual(flags([entry]), [("acme-notes-db", "unverified")])
         self.assertEqual(entry["region"], REGION)
-        self.assertIn("otra cuenta o región", entry["detail"]["reason"])
+        self.assertIn("another account or region", entry["detail"]["reason"])
 
     def test_topic_in_another_account_is_unverified_not_failed(self):
         foreign = f"arn:aws:sns:{REGION}:999988887777:shared-alerts"
@@ -561,9 +561,9 @@ class AlarmCoverageCatalogTests(unittest.TestCase):
             self.assertIn(f"--namespace {namespace}", command, check_id)
             self.assertIn(f"--metric-name {metric}", command, check_id)
             self.assertIn(f"Name={dimension},Value=", command, check_id)
-            self.assertIn("--threshold __COMPLETAR_UMBRAL__", command, check_id)
+            self.assertIn("--threshold __FILL_IN_THRESHOLD__", command, check_id)
             self.assertIn("--alarm-actions", command, check_id)
-            self.assertIn("__COMPLETAR_SNS_TOPIC_ARN__", command, check_id)
+            self.assertIn("__FILL_IN_SNS_TOPIC_ARN__", command, check_id)
 
     def test_multi_metric_checks_have_one_alarm_command_per_metric(self):
         for check_id, count in (("MON-003", 2), ("MON-006", 3), ("MON-009", 1)):
@@ -600,8 +600,8 @@ class AlarmCoverageCatalogTests(unittest.TestCase):
             self.assertEqual(len(blocks), 1, check["id"])
             self.assertNotIn("put-metric-alarm", blocks[0], check["id"])
             self.assertIn("--protocol email", blocks[0], check["id"])
-            self.assertIn("__COMPLETAR_SNS_TOPIC_ARN__", blocks[0], check["id"])
-            self.assertIn("__COMPLETAR_OWNER_EMAIL__", blocks[0], check["id"])
+            self.assertIn("__FILL_IN_SNS_TOPIC_ARN__", blocks[0], check["id"])
+            self.assertIn("__FILL_IN_OWNER_EMAIL__", blocks[0], check["id"])
             self.assertRegex(rem["notes"], r"(?i)confirm", check["id"])
             self.assertRegex(rem["notes"], r"PendingConfirmation", check["id"])
 
@@ -632,7 +632,7 @@ class AlarmCoverageCatalogTests(unittest.TestCase):
                 for threshold in ("--threshold ",):
                     for line in command.splitlines():
                         if threshold in line:
-                            self.assertIn("--threshold __COMPLETAR_UMBRAL__", line, check["id"])
+                            self.assertIn("--threshold __FILL_IN_THRESHOLD__", line, check["id"])
 
 
 class MonitoringCollectTests(unittest.TestCase):
@@ -690,7 +690,7 @@ class MonitoringCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_every_resource_gets_its_own_verdict(self):
         self.assertEqual(self.code, 0)
-        self.assertEqual(self.rows("MON-001"), [("FAIL", "acme-notes-bare"), ("NO_VERIFICADO", "acme-notes-replica"), ("PASS", "acme-notes-db")])
+        self.assertEqual(self.rows("MON-001"), [("FAIL", "acme-notes-bare"), ("NOT_VERIFIED", "acme-notes-replica"), ("PASS", "acme-notes-db")])
         # the Aurora instance has no FreeStorageSpace metric: no row at all
         self.assertEqual(self.rows("MON-002"), [("FAIL", "acme-notes-bare"), ("PASS", "acme-notes-db")])
         self.assertEqual(self.rows("MON-007"), [("FAIL", QUEUE_URL)])
@@ -700,7 +700,7 @@ class MonitoringCollectTests(unittest.TestCase):
         self.assertEqual(parts, {("MON-001", "acme-notes-bare"): "alarm", ("MON-002", "acme-notes-bare"): "alarm", ("MON-007", QUEUE_URL): "action"})
 
     def test_blocked_topic_is_unverified_with_the_missing_permission_for_that_resource_only(self):
-        (row,) = [r for r in self.result["results"] if r["status"] == "NO_VERIFICADO"]
+        (row,) = [r for r in self.result["results"] if r["status"] == "NOT_VERIFIED"]
         self.assertEqual((row["check_id"], row["resource_id"]), ("MON-001", "acme-notes-replica"))
         self.assertEqual(row["missing"], ["cloudwatch:DescribeAlarms", "sns:ListSubscriptionsByTopic", "rds:DescribeDBInstances"])
 

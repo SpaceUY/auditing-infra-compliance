@@ -9,7 +9,7 @@ Se carga al tener vault o carpeta de evidencia, al resolver una feature o un rec
 - Solo lee archivos `.md` regulares. Ignora todo archivo o carpeta que empiece con `.` (un `.env` no se lee: solo se lista por nombre en `sensitive_files`), no sigue symlinks y no indexa `_meta/` como notas.
 - Todo texto que entra al índice está enmascarado (claves `AKIA`/`ASIA`, secretos, emails; el alcance completo de lo que se enmascara está en `references/report-format.md` §1, y sus límites en §9 de este archivo).
 - Cada nota se lee hasta un tope (`MAX_NOTE_BYTES`, 2.000.000 de caracteres): una más larga queda en `truncated_notes` y el ensamblador lo avisa en las advertencias de `findings.json` (se leyó solo el principio: no dar por revisado el resto).
-- Con un vault libre el comando imprime "Vault libre (no tipado): …" y el ensamblador agrega la advertencia "vault no tipado: el mapa de componentes es inferido y menos confiable".
+- Con un vault libre el comando imprime "Free-form (untyped) vault, the component map is inferred and less reliable: …" y el ensamblador agrega la advertencia "untyped vault: the component map is inferred and less reliable".
 - No abras `vault-index.json` entero en un vault grande: leé las notas que importan (Read sobre el `.md`) o filtrá con un `python3 -c` de solo lectura.
 
 ## 2. Vault tipado (contrato de `creating-typed-knowledge-vaults`)
@@ -58,7 +58,7 @@ Feature "envío de email" → nota systems/Email delivery.md (vault tipado)
   2. Mailer Lambda       lambda_function shipped    acme-notes-mailer
   3. Mail Queue          sqs_queue       shipped    acme-notes-mail-queue
   4. Mailer Role         iam_role        shipped    acme-notes-mailer-role (profundidad 2)
-  5. DMARC reject policy (sin recurso)   proposed   PENDIENTE: no existe todavía
+  5. DMARC reject policy (sin recurso)   proposed   PENDING: no existe todavía
 Requisitos declarados: constraints/PII handling.md (hay datos personales)
 ¿Confirmás esta lista, o agrego/quito algo?
 ```

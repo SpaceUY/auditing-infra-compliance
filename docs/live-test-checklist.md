@@ -26,7 +26,7 @@ capturas. Las notas de la prueba van en un lugar privado fuera del repo.
 - [ ] Cada control de Security Hub en `FAILED` que tenga equivalente en el catálogo (campo `security_hub` del
       chequeo) aparece como `FAIL` en el reporte.
 - [ ] Cada control que no aparece como `FAIL` tiene una causa anotada: sin equivalente en el catálogo, recurso
-      fuera del alcance o regiones, o chequeo `NO_VERIFICADO` por permisos.
+      fuera del alcance o regiones, o chequeo `NOT_VERIFIED` por permisos.
 
 ### Drata
 
@@ -42,17 +42,17 @@ capturas. Las notas de la prueba van en un lugar privado fuera del repo.
 
 ### Veredicto
 
-- [ ] `summary.verdict_text` (primera línea del HTML) coincide con lo esperado para la cuenta: `NO_OPTIMO` si hay un
-      `FAIL` conocido, `NO_VERIFICABLE` si falta cualquier verificación (permisos, regiones, corrida parcial) y
-      `OPTIMO` solo si la cuenta está limpia y se verificó todo. Nunca porcentaje ni nota.
+- [ ] `summary.verdict_text` (primera línea del HTML) coincide con lo esperado para la cuenta: `NOT_OPTIMAL` si hay un
+      `FAIL` conocido, `NOT_VERIFIABLE` si falta cualquier verificación (permisos, regiones, corrida parcial) y
+      `OPTIMAL` solo si la cuenta está limpia y se verificó todo. Nunca porcentaje ni nota.
 - [ ] `summary.verdict_basis` es `aws+vault` con credenciales y vault, y el HTML lo muestra junto al veredicto. Una corrida
-      solo con vault (sin credenciales) tiene base `vault` y su texto dice "no verificado contra AWS".
+      solo con vault (sin credenciales) tiene base `vault` y su texto dice "not verified against AWS".
 - [ ] Con `ec2:DescribeRegions` denegado y `regions: "auto"`, ningún chequeo de cuenta con llamada regional (por
-      ejemplo DET-004, DET-006, DET-007) sale `PASS`; todos quedan `NO_VERIFICADO` ("no se pudieron listar las regiones").
+      ejemplo DET-004, DET-006, DET-007) sale `PASS`; todos quedan `NOT_VERIFIED` ("could not list the regions").
 - [ ] Un `scope.json` con modo o dominio inexistente, o sin recursos en modo `resource`, termina con exit `2` y un
       mensaje claro, sin carpeta de resultados.
-- [ ] Cada fila `NO_VERIFICADO` trae su motivo (permiso faltante, "no se pudieron listar las regiones", "inventario
-      incompleto", "bloqueado por SCP"); ninguna región con error aparece como `PASS`.
+- [ ] Cada fila `NOT_VERIFIED` trae su motivo (permiso faltante, "could not list the regions", "incomplete
+      inventory", "blocked by SCP"); ninguna región con error aparece como `PASS`.
 
 ### Seguridad
 

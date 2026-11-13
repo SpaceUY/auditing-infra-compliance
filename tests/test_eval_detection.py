@@ -94,7 +94,7 @@ class GuardDutyRegionsTests(unittest.TestCase):
             guardduty((REGION, "guardduty-list-detectors-one", "guardduty-get-detector-suspended")),
             item("ec2_instance", INSTANCE))
         (offender,) = evaluate("guardduty_regions", responses, self.PARAMS)
-        self.assertEqual((offender["region"], offender["detail"]["reason"]), (REGION, "detector de GuardDuty deshabilitado"))
+        self.assertEqual((offender["region"], offender["detail"]["reason"]), (REGION, "GuardDuty detector disabled"))
 
     def test_s3_buckets_make_the_default_region_a_region_with_resources(self):
         responses = with_inventory(guardduty((REGION, "guardduty-list-detectors-none", None)), item("s3_bucket", "acme-notes-data"))
@@ -166,23 +166,23 @@ class GuardDutyEventBridgeTests(unittest.TestCase):
         responses = self.responses("events-list-rules-other")
         (offender,) = evaluate("guardduty_eventbridge", responses)
         self.assertEqual((offender["resource_id"], offender["region"]), ("account", REGION))
-        self.assertEqual(offender["detail"]["reason"], "sin regla de EventBridge para findings de GuardDuty")
+        self.assertEqual(offender["detail"]["reason"], "no EventBridge rule for GuardDuty findings")
 
     def test_rule_without_targets_fails(self):
         offenders = evaluate("guardduty_eventbridge", self.responses("events-list-rules-guardduty", "events-list-targets-empty"))
         (offender,) = offenders
-        self.assertEqual(offender["detail"]["reason"], "la regla de GuardDuty no tiene destino")
+        self.assertEqual(offender["detail"]["reason"], "the GuardDuty rule has no target")
         self.assertEqual(offender["detail"]["rules"], [RULE])
 
     def test_disabled_rule_fails(self):
         responses = self.responses("events-list-rules-disabled", "events-list-targets-sns")
         (offender,) = evaluate("guardduty_eventbridge", responses)
-        self.assertEqual(offender["detail"]["reason"], "la regla de GuardDuty está deshabilitada")
+        self.assertEqual(offender["detail"]["reason"], "the GuardDuty rule is disabled")
 
     def test_patterns_that_are_not_modelled_are_not_covered(self):
         responses = self.responses("events-list-rules-prefix-source", "events-list-targets-sns")
         (offender,) = evaluate("guardduty_eventbridge", responses)
-        self.assertEqual(offender["detail"]["reason"], "sin regla de EventBridge para findings de GuardDuty")
+        self.assertEqual(offender["detail"]["reason"], "no EventBridge rule for GuardDuty findings")
 
     def test_no_rules_at_all_fails(self):
         (offender,) = evaluate("guardduty_eventbridge", self.responses("events-list-rules-none"))
@@ -243,47 +243,47 @@ class ConfigRecorderTests(unittest.TestCase):
             ("channels", fx("configservice-describe-delivery-channels-none")))}}
         (offender,) = evaluate("config_recorder", responses)
         self.assertEqual((offender["resource_id"], offender["region"]), ("account", OTHER))
-        self.assertEqual(offender["detail"]["problems"], ["sin grabador de AWS Config"])
+        self.assertEqual(offender["detail"]["problems"], ["no AWS Config recorder"])
 
     def test_all_supported_strategy_in_its_real_api_shape_passes_only_with_global_types(self):
         self.assertEqual(evaluate("config_recorder", self.responses(recorders="all-strategy")), [])
         self.assertEqual(self.problems(recorders="all-strategy-no-global-types"),
-                         ["no graba los tipos IAM globales (includeGlobalResourceTypes=false)"])
+                         ["does not record the global IAM types (includeGlobalResourceTypes=false)"])
 
     def test_all_supported_without_global_resource_types_fails(self):
         self.assertEqual(self.problems(recorders="no-global-types"),
-                         ["no graba los tipos IAM globales (includeGlobalResourceTypes=false)"])
+                         ["does not record the global IAM types (includeGlobalResourceTypes=false)"])
 
     def test_last_status_is_compared_case_insensitively(self):
         for status in ("failure", "failure-upper"):
-            self.assertEqual(self.problems(status=status), ["el último estado del grabador es FAILURE"], status)
+            self.assertEqual(self.problems(status=status), ["the recorder's last status is FAILURE"], status)
 
     def test_stopped_recorder(self):
-        self.assertEqual(self.problems(status="stopped"), ["el grabador está detenido (recording=false)"])
+        self.assertEqual(self.problems(status="stopped"), ["the recorder is stopped (recording=false)"])
 
     def test_recorder_whose_last_delivery_failed(self):
-        self.assertEqual(self.problems(status="failure"), ["el último estado del grabador es FAILURE"])
+        self.assertEqual(self.problems(status="failure"), ["the recorder's last status is FAILURE"])
 
     def test_recorder_without_status_entry_is_not_recording(self):
-        self.assertEqual(self.problems(status="none"), ["el grabador está detenido (recording=false)"])
+        self.assertEqual(self.problems(status="none"), ["the recorder is stopped (recording=false)"])
 
     def test_not_all_resource_types(self):
-        self.assertEqual(self.problems(recorders="selected-types"), ["no graba todos los tipos de recurso"])
+        self.assertEqual(self.problems(recorders="selected-types"), ["does not record all resource types"])
 
     def test_exclusion_strategy_is_not_all_types(self):
-        self.assertEqual(self.problems(recorders="exclusion"), ["no graba todos los tipos de recurso"])
+        self.assertEqual(self.problems(recorders="exclusion"), ["does not record all resource types"])
 
     def test_iam_types_must_be_daily(self):
-        expected = ["los tipos IAM globales no se graban a diario (override DAILY)"]
+        expected = ["the global IAM types are not recorded daily (DAILY override)"]
         self.assertEqual(self.problems(recorders="continuous-iam"), expected)
         self.assertEqual(self.problems(recorders="no-mode"), expected)
 
     def test_daily_override_must_cover_all_four_iam_types(self):
         self.assertEqual(self.problems(recorders="partial-iam"),
-                         ["los tipos IAM globales no se graban a diario (override DAILY)"])
+                         ["the global IAM types are not recorded daily (DAILY override)"])
 
     def test_missing_delivery_channel(self):
-        self.assertEqual(self.problems(channels="none"), ["sin delivery channel con bucket de S3"])
+        self.assertEqual(self.problems(channels="none"), ["no delivery channel with an S3 bucket"])
 
     def test_every_problem_is_reported(self):
         self.assertEqual(len(self.problems(recorders="selected-types", status="stopped", channels="none")), 3)
@@ -388,7 +388,7 @@ class DetectionCatalogTests(unittest.TestCase):
 
     def test_det_001_reenables_a_suspended_detector_only_after_looking_it_up(self):
         (command,) = catalog_check("DET-001")["remediation"]["commands"]
-        self.assertRegex(command, r"DETECTOR_ID=\$\(aws guardduty list-detectors [^\n]*\) \|\| DETECTOR_ID=\"LECTURA_FALLIDA\"\n[^\n]*create-detector[^\n]*else aws guardduty update-detector")
+        self.assertRegex(command, r"DETECTOR_ID=\$\(aws guardduty list-detectors [^\n]*\) \|\| DETECTOR_ID=\"READ_FAILED\"\n[^\n]*create-detector[^\n]*else aws guardduty update-detector")
 
     def test_det_002_updates_the_detector_found_by_the_lookup(self):
         (command,) = catalog_check("DET-002")["remediation"]["commands"]
@@ -514,7 +514,7 @@ class DetectionCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_nothing_is_unverified(self):
         self.assertEqual(self.code, 0)
-        unverified = [(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NO_VERIFICADO"]
+        unverified = [(r["check_id"], r["detail"]) for r in self.result["results"] if r["status"] == "NOT_VERIFIED"]
         self.assertEqual(unverified, [])
 
     def test_guardduty_runs_in_every_enabled_region_and_an_empty_one_is_low(self):
@@ -527,7 +527,7 @@ class DetectionCollectTests(unittest.TestCase):
 
     def test_services_that_are_not_enabled_fail(self):
         self.assertEqual(self.rows("DET-004"), [("FAIL", "account", REGION)])
-        self.assertEqual(self.row_details("DET-004")[0]["reason"], "servicio no habilitado")
+        self.assertEqual(self.row_details("DET-004")[0]["reason"], "service not enabled")
 
     def test_config_inspector_and_findings(self):
         self.assertEqual(self.rows("DET-005"), [("FAIL", "account", OTHER)])
@@ -572,13 +572,13 @@ class DetectionInventoryErrorTests(unittest.TestCase):
         denied = err(self.DENIED.format(op="ListBuckets", perm="s3:ListAllMyBuckets"))
         results = self.collect(("s3api", "list-buckets", None, "", denied))
         (row,) = self.rows(results, "DET-002")
-        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["inventory:s3_bucket"]))
+        self.assertEqual((row["status"], row["missing"]), ("NOT_VERIFIED", ["inventory:s3_bucket"]))
 
     def test_guardduty_regions_is_not_verified_when_the_instance_listing_failed(self):
         denied = err(self.DENIED.format(op="DescribeInstances", perm="ec2:DescribeInstances"))
         results = self.collect(("ec2", "describe-instances", None, "", denied))
         (row,) = self.rows(results, "DET-001")
-        self.assertEqual((row["status"], row["missing"]), ("NO_VERIFICADO", ["inventory:ec2_instance"]))
+        self.assertEqual((row["status"], row["missing"]), ("NOT_VERIFIED", ["inventory:ec2_instance"]))
         self.assertEqual([r for r in results if r["check_id"] == "DET-001" and r["status"] == "FAIL"], [])
 
     def test_account_context_for_does_not_block_checks_that_only_select_by_it(self):

@@ -137,7 +137,7 @@ class EbsDefaultEncryptionTests(unittest.TestCase):
     def test_ebs_default_encryption_fail_reports_offenders(self):
         offenders = evaluate("ebs_default_encryption", self.responses("off"))
         self.assertEqual([(o["resource_id"], o["region"]) for o in offenders], [(I1, REGION), (I2, REGION)])
-        self.assertEqual(offenders[0]["detail"]["reason"], "el cifrado de EBS por defecto está desactivado en la región")
+        self.assertEqual(offenders[0]["detail"]["reason"], "EBS encryption by default is disabled in the region")
 
     def test_only_the_instances_of_regions_without_default_encryption_fail(self):
         responses = self.responses("on", instance(I1), instance(I3, OTHER))
@@ -208,7 +208,7 @@ class S3DefaultEncryptionTests(unittest.TestCase):
                                       "acme-notes-uploads": {"__error__": "ServerSideEncryptionConfigurationNotFoundError"}})
         (offender,) = evaluate("s3_default_encryption", responses)
         self.assertEqual((offender["resource_id"], offender["region"]), ("acme-notes-uploads", REGION))
-        self.assertEqual(offender["detail"]["reason"], "sin cifrado por defecto configurado")
+        self.assertEqual(offender["detail"]["reason"], "no default encryption configured")
 
     def test_deleted_bucket_is_not_applicable(self):
         (entry,) = evaluate("s3_default_encryption", self.responses(gone={"__error__": "NoSuchBucket"}))
@@ -254,7 +254,7 @@ class KmsRotationTests(unittest.TestCase):
     def test_kms_rotation_fail_reports_offenders(self):
         (offender,) = evaluate("kms_rotation", self.responses(self.key(K_CUSTOMER, "customer", "off")))
         self.assertEqual((offender["resource_id"], offender["region"]), (K_CUSTOMER, REGION))
-        self.assertEqual(offender["detail"]["reason"], "rotación automática deshabilitada")
+        self.assertEqual(offender["detail"]["reason"], "automatic rotation disabled")
 
     def test_aws_managed_keys_are_not_applicable_even_when_rotation_is_off(self):
         found = evaluate("kms_rotation", self.responses(self.key(K_AWS, "aws-managed", "off")))
@@ -363,8 +363,8 @@ class S3TlsOnlyTests(unittest.TestCase):
         offenders = evaluate("s3_tls_only", responses)
         self.assertEqual([(o["resource_id"], o["region"]) for o in offenders],
                          [("acme-notes-uploads", REGION), ("acme-notes-exports", REGION)])
-        self.assertEqual(offenders[1]["detail"]["reason"], "sin bucket policy")
-        self.assertEqual(offenders[0]["detail"]["reason"], "ninguna statement niega aws:SecureTransport=false sobre el bucket y sus objetos")
+        self.assertEqual(offenders[1]["detail"]["reason"], "no bucket policy")
+        self.assertEqual(offenders[0]["detail"]["reason"], "no statement denies aws:SecureTransport=false on the bucket and its objects")
 
     def test_deleted_bucket_is_not_applicable(self):
         self.assertEqual(flags(self.evaluate({"__error__": "NoSuchBucket"})), [(self.BUCKET, "not_applicable")])
@@ -463,7 +463,7 @@ class AlbListenerTests(unittest.TestCase):
     def test_alb_http_redirect_fail_reports_offenders(self):
         (offender,) = real(evaluate("alb_http_redirect", self.responses("http-forward-and-legacy")))
         self.assertEqual((offender["resource_id"], offender["region"]), ("acme-notes-alb", REGION))
-        self.assertEqual(offender["detail"]["listeners"], [{"port": 80, "reason": "la acción por defecto no redirige a HTTPS:443 con 301 o 302"}])
+        self.assertEqual(offender["detail"]["listeners"], [{"port": 80, "reason": "the default action does not redirect to HTTPS:443 with 301 or 302"}])
         self.assertEqual(offender["detail"]["arn"], ALB_ARN)
 
     def test_network_load_balancers_are_not_applicable(self):
@@ -961,7 +961,7 @@ class EncryptionCatalogTests(unittest.TestCase):
 
     def test_enc_008_needs_a_rotation_function(self):
         rem = catalog_check("ENC-008")["remediation"]
-        self.assertIn("__COMPLETAR_ARN_LAMBDA_ROTACION__", rem["commands"][0])
+        self.assertIn("__FILL_IN_ROTATION_LAMBDA_ARN__", rem["commands"][0])
         self.assertIn("AutomaticallyAfterDays=90", rem["commands"][0])
 
     def test_no_key_shaped_literals(self):
@@ -1066,7 +1066,7 @@ class EncryptionCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_only_the_blocked_key_is_unverified(self):
         self.assertEqual(self.code, 0)
-        unverified = [(r["check_id"], r["resource_id"]) for r in self.result["results"] if r["status"] == "NO_VERIFICADO"]
+        unverified = [(r["check_id"], r["resource_id"]) for r in self.result["results"] if r["status"] == "NOT_VERIFIED"]
         self.assertEqual(unverified, [("ENC-006", self.K_DENIED), ("ENC-007", self.K_DENIED)])
 
     def test_ebs_outcomes(self):
@@ -1081,9 +1081,9 @@ class EncryptionCollectTests(unittest.TestCase):
         self.assertEqual(self.rows("ENC-005"), [("PASS", "acme-notes-data", REGION), ("FAIL", "acme-notes-logs", REGION)])
 
     def test_kms_secrets_outcomes(self):
-        self.assertEqual(self.rows("ENC-006"), [("FAIL", K_CUSTOMER, REGION), ("NO_VERIFICADO", self.K_DENIED, REGION)])
+        self.assertEqual(self.rows("ENC-006"), [("FAIL", K_CUSTOMER, REGION), ("NOT_VERIFIED", self.K_DENIED, REGION)])
         self.assertEqual(self.rows("ENC-007"), [("PASS", K_CUSTOMER, REGION), ("PASS", K_AWS, REGION), ("PASS", K_ASYM, REGION),
-                                                ("FAIL", K_PENDING, REGION), ("NO_VERIFICADO", self.K_DENIED, REGION)])
+                                                ("FAIL", K_PENDING, REGION), ("NOT_VERIFIED", self.K_DENIED, REGION)])
         self.assertEqual(self.rows("ENC-008"), [("FAIL", "acme-notes/api-token", REGION), ("PASS", "acme-notes/db-password", REGION)])
 
     def test_transit_outcomes(self):
@@ -1097,7 +1097,7 @@ class EncryptionCollectTests(unittest.TestCase):
     def test_a_blocked_key_names_the_missing_permissions_and_does_not_hide_the_others(self):
         for check_id in ("ENC-006", "ENC-007"):
             (row,) = [r for r in self.result["results"] if r["check_id"] == check_id and r["resource_id"] == self.K_DENIED]
-            self.assertEqual(row["status"], "NO_VERIFICADO")
+            self.assertEqual(row["status"], "NOT_VERIFIED")
             self.assertEqual(row["detail"]["error_code"], "ACCESS_DENIED")
             self.assertEqual(row["missing"], catalog_check(check_id)["verify"]["needs"])
 

@@ -13,7 +13,7 @@ CLI:
 
 Feature lookup levels (the first one with matches wins): exact title/alias, title/H1 substring, body substring, and finally
 a token level (words of 4+ characters, accents folded, stopwords dropped, matched against titles/H1/aliases; the notes
-with the most tokens win), so "envío de email" finds "Email delivery". Superseded notes are candidates only when nothing else matches.
+with the most tokens win), so "email sending" (or the Spanish "envío de email") finds "Email delivery". Superseded notes are candidates only when nothing else matches.
 The matched note is itself a component (depth 0, via "matched") when it is under systems/ (typed) or names an AWS resource (free), so
 asking for a leaf resource note does not drop that resource. Links resolve through title, alias and folder (`[[notes/Queue]]`; with two
 notes of one name `systems/` wins). Notes are read up to MAX_NOTE_BYTES characters; longer ones are listed in `truncated_notes`.
@@ -87,11 +87,11 @@ SENSITIVE_SKIP_DIRS = frozenset({".git", "node_modules"})
 def _sensitive_reason(name):
     lower = name.lower()
     if lower == ".env" or lower.startswith(".env."):
-        return "archivo .env"
+        return ".env file"
     if lower.endswith((".pem", ".key")):
-        return "archivo de clave privada (.pem/.key)"
+        return "private key file (.pem/.key)"
     if "credentials" in lower:
-        return "nombre con 'credentials'"
+        return "name containing 'credentials'"
     return None
 
 
@@ -236,7 +236,7 @@ def _parse_note(vault, path):
 def build_index(vault: Path) -> dict:
     vault = Path(vault).resolve()
     if not vault.is_dir():
-        raise ValueError(f"el vault no existe o no es un directorio: {vault}")
+        raise ValueError(f"the vault does not exist or is not a directory: {vault}")
     files = _note_files(vault)
     notes, raw_links, secrets, truncated = [], {}, [], []
     for path in files:
@@ -469,7 +469,7 @@ def _inside(path, folder):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Índice del vault y resolución de feature (solo lectura)")
+    parser = argparse.ArgumentParser(description="Vault index and feature resolution (read-only)")
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser("index")
     build.add_argument("vault")
@@ -486,7 +486,7 @@ def main(argv=None) -> int:
     if args.command == "index":
         vault, output = Path(args.vault), Path(args.output)
         if _inside(output, vault):
-            print("el índice no se escribe dentro del vault; usar otra ruta con -o", file=sys.stderr)
+            print("the index is not written inside the vault; use another path with -o", file=sys.stderr)
             return 2
         try:
             index = build_index(vault)
@@ -494,10 +494,10 @@ def main(argv=None) -> int:
             print(str(exc), file=sys.stderr)
             return 2
         output.write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        kind = "tipado" if index["kind"] == "typed" else "libre (no tipado): el mapa de componentes es inferido y menos confiable"
-        print(f"Vault {kind}: {len(index['notes'])} notas, {len(index['broken_links'])} links rotos, "
-              f"{len(index['secrets_detected'])} secretos detectados (enmascarados), "
-              f"{len(index['sensitive_files'])} archivos sensibles (solo el nombre). Índice en: {output}")
+        kind = "Typed vault" if index["kind"] == "typed" else "Free-form (untyped) vault, the component map is inferred and less reliable"
+        print(f"{kind}: {len(index['notes'])} notes, {len(index['broken_links'])} broken links, "
+              f"{len(index['secrets_detected'])} secrets detected (masked), "
+              f"{len(index['sensitive_files'])} sensitive files (name only). Index at: {output}")
         return 0
     index = json.loads(Path(args.index).read_text(encoding="utf-8"))
     print(json.dumps(resolve_feature(index, args.text), indent=2, ensure_ascii=False))

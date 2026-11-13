@@ -68,7 +68,7 @@ class TagPresentTests(unittest.TestCase):
                          [(BUCKET_LOGS, REGION), (BUCKET_BARE, REGION), (INSTANCE, OTHER)])
         self.assertEqual(found[0]["detail"]["value"], "ana")
         self.assertRegex(found[0]["detail"]["reason"], "email")
-        self.assertRegex(found[1]["detail"]["reason"], "falta el tag VantaOwner")
+        self.assertRegex(found[1]["detail"]["reason"], "missing tag VantaOwner")
 
     def test_tag_key_match_is_exact(self):
         items = [{"type": "s3_bucket", "id": "b", "arn": "", "name": "b", "region": REGION, "tags": {"vantaowner": "ana@acme-notes.example"}}]
@@ -116,7 +116,7 @@ class UserDataFlagTests(unittest.TestCase):
         self.assertEqual(found[0]["detail"]["data_stores"], 4)
         self.assertNotIn("severity_override", found[0]["detail"])  # the check's own severity (high)
         self.assertEqual([o["detail"]["severity_override"] for o in found[1:]], ["low", "low"])
-        self.assertRegex(found[1]["detail"]["reason"], "sin clasificar")
+        self.assertRegex(found[1]["detail"]["reason"], "unclassified")
         self.assertEqual(found[2]["detail"]["value"], "maybe")
 
     def test_stores_without_the_tag_are_low_even_when_one_store_is_true(self):
@@ -165,7 +165,7 @@ class NonprodOnProdTests(unittest.TestCase):
         found = evaluate("nonprod_on_prod", responses("offenders"), params_of("INV-003"))
         self.assertEqual([(o["resource_id"], o["region"]) for o in found], [(BUCKET_LOGS, REGION)])
         self.assertEqual(found[0]["detail"], {"environment": "Production", "vanta_non_prod": "TRUE",
-                                              "reason": "VantaNonProd=true en un recurso con Environment de producción"})
+                                              "reason": "VantaNonProd=true on a resource with a production Environment"})
 
     def test_both_values_are_compared_ignoring_case_and_prod_aliases(self):
         for environment, flag, expected in (("prod", "true", True), ("PROD", "True", True), ("Production", "TRUE", True), ("production", "true", True),
@@ -288,13 +288,13 @@ class InventoryCatalogTests(unittest.TestCase):
 
     def test_tagging_commands_use_placeholders_and_the_resourcegroupstaggingapi(self):
         text = "\n".join(catalog_check("INV-001")["remediation"]["commands"])
-        self.assertIn("__COMPLETAR_OWNER_EMAIL__", text)
+        self.assertIn("__FILL_IN_OWNER_EMAIL__", text)
         self.assertIn('RESOURCE_ARN="{resource_arn}"', text)
         self.assertIn("tag-resources", text)
         self.assertIn("VantaOwner", text)
         text = "\n".join(catalog_check("INV-002")["remediation"]["commands"])
         self.assertIn("VantaContainsUserData", text)
-        self.assertIn("__COMPLETAR_", text)
+        self.assertIn("__FILL_IN_", text)
         self.assertIn("untag-resources", "\n".join(catalog_check("INV-003")["remediation"]["commands"]))
         self.assertIn("VantaNonProd", "\n".join(catalog_check("INV-003")["remediation"]["commands"]))
 
@@ -332,7 +332,7 @@ class InventoryCatalogTests(unittest.TestCase):
     def test_no_command_uses_the_old_arn_placeholder(self):
         for check in self.checks:
             rem = check["remediation"]
-            self.assertNotIn("__COMPLETAR_ARN", "\n".join([*rem["commands"], rem["verify_after"], rem["notes"]]), check["id"])
+            self.assertNotIn("__FILL_IN_ARN", "\n".join([*rem["commands"], rem["verify_after"], rem["notes"]]), check["id"])
             self.assertIn("{resource_arn}", "\n".join([*rem["commands"], rem["verify_after"]]), check["id"])
 
     def test_pass_when_texts_name_the_tagging_api_limit(self):
@@ -400,7 +400,7 @@ class InventoryCollectTests(unittest.TestCase):
 
     def test_run_succeeds_and_nothing_is_unverified(self):
         self.assertEqual(self.code, 0)
-        self.assertEqual([r for r in self.result["results"] if r["status"] == "NO_VERIFICADO"], [])
+        self.assertEqual([r for r in self.result["results"] if r["status"] == "NOT_VERIFIED"], [])
 
     def test_owner_outcomes(self):
         by_id = dict((i, s) for s, i in self.rows("INV-001"))

@@ -13,7 +13,7 @@ def _read_error(identity: str, region: str, code: str, call: str, **detail) -> d
     """Entry for a failed per-item call (item_errors): a vanished identity is out of scope, the rest could not be verified."""
     if code == "NotFoundException":
         return _not_applicable(identity, region)
-    reason = "el auditor no tiene permiso para leerla" if code == "ACCESS_DENIED" else "no se pudo leer"
+    reason = "the auditor does not have permission to read it" if code == "ACCESS_DENIED" else "could not be read"
     return _unverified(identity, region, error_code=code, call=call, reason=reason, **detail)
 
 
@@ -28,13 +28,13 @@ def _default_config_set(responses: dict, call: str, operation: str, judge: Calla
             continue
         name = (data or {}).get("ConfigurationSetName")
         if not name:
-            found.append(_offender(identity, region, reason="sin configuration set por defecto"))
+            found.append(_offender(identity, region, reason="no default configuration set"))
             continue
         answer = sets.get((region, name))
         if answer is None:
-            found.append(_unverified(identity, region, call=operation, config_set=name, reason="sin respuesta"))
+            found.append(_unverified(identity, region, call=operation, config_set=name, reason="no response"))
         elif answer.get("__error__") == "NotFoundException":
-            found.append(_offender(identity, region, config_set=name, reason="el configuration set por defecto no existe"))
+            found.append(_offender(identity, region, config_set=name, reason="the default configuration set does not exist"))
         elif "__error__" in answer:
             found.append(_read_error(identity, region, answer["__error__"], operation, config_set=name))
         elif problem := judge(answer):
@@ -46,14 +46,14 @@ def _tls_problem(answer: dict) -> dict | None:
     policy = (answer.get("DeliveryOptions") or {}).get("TlsPolicy") or "OPTIONAL"
     if policy.upper() == "REQUIRE":
         return None
-    return {"tls_policy": policy, "reason": "el configuration set por defecto no exige TLS (TlsPolicy distinto de REQUIRE)"}
+    return {"tls_policy": policy, "reason": "the default configuration set does not require TLS (TlsPolicy other than REQUIRE)"}
 
 
 def _events_problem(answer: dict) -> dict | None:
     destinations = answer.get("EventDestinations") or []
     if any(d.get("Enabled") for d in destinations):
         return None
-    return {"event_destinations": len(destinations), "reason": "el configuration set por defecto no tiene un event destination habilitado"}
+    return {"event_destinations": len(destinations), "reason": "the default configuration set has no enabled event destination"}
 
 
 @register("ses_default_config_tls")
@@ -78,9 +78,9 @@ def ses_account_sending(responses: dict, params: dict) -> list[dict]:
             continue
         reasons = []
         if not account.get("ProductionAccessEnabled"):
-            reasons.append("la cuenta SES está en sandbox (sin acceso a producción)")
+            reasons.append("the SES account is in the sandbox (no production access)")
         if not (account.get("SuppressionAttributes") or {}).get("SuppressedReasons"):
-            reasons.append("la lista de supresión de la cuenta no suprime rebotes ni quejas")
+            reasons.append("the account suppression list does not suppress bounces or complaints")
         if reasons:
             found.append(_offender(item["id"], item["region"], reasons=reasons))
     return found

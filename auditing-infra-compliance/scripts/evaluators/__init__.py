@@ -12,10 +12,10 @@ An entry {"resource_id": str, "region": str, "not_applicable": True} is NOT an o
 evaluated (e.g. a bucket that is not a log bucket), so the engine emits neither a FAIL nor a PASS row for it.
 It only has effect in resource-scope checks; use the helper `_not_applicable(resource_id, region)`.
 An entry {"resource_id", "region", "detail", "unverified": True} (helper `_unverified`) is a result the evaluator could
-not decide for that region: the engine emits a NO_VERIFICADO row for it (missing = the check's permissions when
+not decide for that region: the engine emits a NOT_VERIFIED row for it (missing = the check's permissions when
 detail["error_code"] is ACCESS_DENIED), never a FAIL or a PASS.
 responses["__inventory_errors__"] is the set of inventory types whose listing failed (the engine already returns
-NO_VERIFICADO for checks that declare those types in params.inventory_types).
+NOT_VERIFIED for checks that declare those types in params.inventory_types).
 A call declared with "ok_errors" whose error was one of those codes shows up as {"__error__": "<code>"}.
 Evaluators that depend on the clock read an optional params["now"] (ISO 8601) so tests can pin it.
 
@@ -95,7 +95,7 @@ def _unverified(resource_id: str, region: str, **detail) -> dict:
 
 def _unreadable(resource_id: str, region: str, code: str, call: str) -> dict:
     """Entry for a per-item call that failed (item_errors) with a code the evaluator does not interpret: unverified."""
-    reason = "permisos insuficientes para consultar el recurso" if code == "ACCESS_DENIED" else "no se pudo consultar el recurso"
+    reason = "insufficient permissions to query the resource" if code == "ACCESS_DENIED" else "could not query the resource"
     return _unverified(resource_id, region, error_code=code, call=call, reason=reason)
 
 

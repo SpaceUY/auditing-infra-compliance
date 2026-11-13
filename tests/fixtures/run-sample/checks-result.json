@@ -12,7 +12,7 @@
   "results": [
     {
       "check_id": "DAT-001",
-      "status": "NO_VERIFICADO",
+      "status": "NOT_VERIFIED",
       "resource_id": "account",
       "region": null,
       "detail": {
@@ -112,7 +112,7 @@
       "resource_id": "account",
       "region": null,
       "detail": {
-        "reason": "sin recursos en el alcance"
+        "reason": "no resources in scope"
       },
       "missing": [],
       "vacuous": true
@@ -159,6 +159,6 @@
     }
   ],
   "warnings": [
-    "inventario incompleto: rds_instance ACCESS_DENIED en us-east-1"
+    "incomplete inventory: rds_instance ACCESS_DENIED in us-east-1"
   ]
 }

@@ -2,16 +2,16 @@
 
 ← [[Acme Notes]]
 
-Base de datos principal de Acme Notes.
+Main database of Acme Notes.
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Motor | PostgreSQL 15 |
-| Identificador | db-ACMENOTES0123456789ABCDEFG |
-| KMS | CMK propia |
-| Multi-AZ | Sí |
-| Verificado | 2026-05-02 |
+| Engine | PostgreSQL 15 |
+| Identifier | db-ACMENOTES0123456789ABCDEFG |
+| KMS | Own CMK |
+| Multi-AZ | Yes |
+| Verified | 2026-05-02 |
 
-## Conectado a
+## Connected to
 
 - [[VPC]]

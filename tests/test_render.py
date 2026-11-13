@@ -33,7 +33,7 @@ class ScriptCounter(HTMLParser):
 
 def i18n_block(template):
     match = re.search(r"/\*i18n:start\*/(.*?)/\*i18n:end\*/", template, re.S)
-    assert match, "la plantilla debe delimitar sus strings con /*i18n:start*/ ... /*i18n:end*/"
+    assert match, "the template must delimit its strings with /*i18n:start*/ ... /*i18n:end*/"
     return match.group(1)
 
 
@@ -56,8 +56,8 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("textarea", TEMPLATE)
 
     def test_footer_disclaimer_present(self):
-        self.assertIn("Pre-auditoría técnica automatizada. No es una opinión de auditoría ni cubre controles "
-                      "organizacionales (políticas, RRHH, equipos, proveedores, ISMS).", TEMPLATE)
+        self.assertIn("Automated technical pre-audit. It is not an audit opinion and does not cover organizational controls "
+                      "(policies, HR, teams, vendors, ISMS).", TEMPLATE)
 
     def test_no_percentage_in_summary_strings(self):
         # Targets the template's UI strings only: remediation text in the data may legitimately contain "%" (date +%s).
@@ -66,13 +66,13 @@ class TemplateTests(unittest.TestCase):
     def test_numbers_steps_and_marks_placeholders_without_html(self):
         self.assertIn("'ol'", TEMPLATE)
         self.assertIn("el('mark'", TEMPLATE)
-        self.assertIn("COMPLETAR", TEMPLATE)
+        self.assertIn("FILL_IN", TEMPLATE)
 
     def test_verify_only_remediation_and_catalog_severity_are_rendered(self):
         block = i18n_block(TEMPLATE)
-        self.assertIn("verifyWith: 'Verificar con'", block)
-        self.assertIn("catalogSeverity: 'severidad del chequeo'", block)
-        self.assertIn("notVerified: 'no verificada'", block)
+        self.assertIn("verifyWith: 'Verify with'", block)
+        self.assertIn("catalogSeverity: 'check severity'", block)
+        self.assertIn("notVerified: 'not verified'", block)
         script = TEMPLATE.split("/*i18n:end*/", 1)[1]
         # a remediation with note_status shows the note and only the verify command, never steps or commands
         branch = script.split("if (rem.note_status) {", 1)[1].split("return box;", 1)[0]
@@ -95,7 +95,7 @@ class TemplateTests(unittest.TestCase):
 
     def test_bulk_copy_skips_unresolved_placeholders(self):
         logic = re.search(r"function bulkRaw\(.*?\n\}", TEMPLATE, re.S).group(0)
-        self.assertIn("'__COMPLETAR_'", logic)
+        self.assertIn("'__FILL_IN_'", logic)
         self.assertIn("rem.risk === 'low'", logic)
         self.assertIn("rem.kind === 'cli'", logic)
         gate = re.search(r"function bulkCandidates\(.*?\n\}", TEMPLATE, re.S).group(0)
@@ -115,14 +115,14 @@ class TemplateTests(unittest.TestCase):
 
 def fix_finding(number, kind, commands, *, risk="low", status="FAIL", severity="high"):
     rid = f"acme-notes-bucket-{number}"
-    return {"id": f"F-{number:04d}", "check_id": "DAT-007", "title": f"Chequeo {number}", "domain": "data", "status": status,
+    return {"id": f"F-{number:04d}", "check_id": "DAT-007", "title": f"Check {number}", "domain": "data", "status": status,
             "severity": severity, "resource": {"type": "s3_bucket", "id": rid, "region": "us-east-1", "name": rid},
             "mappings": {}, "evidence": {}, "missing": [], "depends_on_me": [], "breaks_tests": [],
-            "remediation": {"kind": kind, "risk": risk, "downtime": False, "steps": ["Aplicar."], "commands": commands,
+            "remediation": {"kind": kind, "risk": risk, "downtime": False, "steps": ["Apply."], "commands": commands,
                             "verify_after": "", "notes": ""}}
 
 
-@unittest.skipUnless(shutil.which("node"), "node no está instalado")
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
 class PageCase(unittest.TestCase):
     """Runs the template script over a rendered report (DOM stub in dom_smoke.js)."""
 
@@ -142,24 +142,24 @@ class PageCase(unittest.TestCase):
     def document():
         return {"meta": {}, "dependencies": [], "warnings": [], "notes": [], "findings": [
             fix_finding(1, "cli", ["echo ok-1a", "echo ok-1b"]),
-            fix_finding(2, "cli", ["echo revisar-2"]),
-            fix_finding(3, "cli", ["echo conflicto-3"]),
+            fix_finding(2, "cli", ["echo review-2"]),
+            fix_finding(3, "cli", ["echo conflict-3"]),
             fix_finding(4, "cli_with_decision", ["echo decision-4a", "echo decision-4b"]),
             fix_finding(5, "planned_change", ["echo planned-5a", "echo planned-5b"]),
-            fix_finding(6, "cli", ["echo __COMPLETAR_X__"]),
+            fix_finding(6, "cli", ["echo __FILL_IN_X__"]),
             fix_finding(7, "cli", ["echo ok-7"]),
-            fix_finding(8, "cli", ["echo medio-8"], risk="medium"),
+            fix_finding(8, "cli", ["echo medium-8"], risk="medium"),
         ]}
 
     @classmethod
     def verification(cls, document):
-        states = {"F-0001": "OK", "F-0002": "REVISAR", "F-0003": "CONFLICTO", "F-0007": "OK"}
+        states = {"F-0001": "OK", "F-0002": "REVIEW", "F-0003": "CONFLICT", "F-0007": "OK"}
         return {"per_finding": {fid: {"status": s, "issues": []} for fid, s in states.items()}, "conflicts": [], "gaps": [],
-                "apply_order": [], "completar_pendientes": 1, "cli_checked": False, "summary": {"OK": 2, "REVISAR": 1, "CONFLICTO": 1},
+                "apply_order": [], "fill_in_pending": 1, "cli_checked": False, "summary": {"OK": 2, "REVIEW": 1, "CONFLICT": 1},
                 "warnings": [], "findings_digest": assemble_findings.findings_digest(document)}
 
 
-@unittest.skipUnless(shutil.which("node"), "node no está instalado")
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
 class ScriptSmokeTests(PageCase):
     """Checks what the page offers to copy."""
 
@@ -169,7 +169,7 @@ class ScriptSmokeTests(PageCase):
         bundle = next(b["text"] for b in page["bulk"] if b["text"])
         for wanted in ("echo ok-1a", "echo ok-1b", "echo ok-7"):
             self.assertIn(wanted, bundle)
-        for excluded in ("revisar-2", "conflicto-3", "decision-4", "planned-5", "COMPLETAR", "medio-8"):
+        for excluded in ("review-2", "conflict-3", "decision-4", "planned-5", "FILL_IN", "medium-8"):
             self.assertNotIn(excluded, bundle)
         self.assertEqual(sum(1 for b in page["bulk"] if b["text"]), 1)
 
@@ -187,9 +187,9 @@ class ScriptSmokeTests(PageCase):
         verification["findings_digest"] = "0" * 64
         page = self.run_page(document, verification)
         self.assertFalse(page["stale"]["hidden"])
-        self.assertIn("verificación desactualizada: volver a correr verify_remediation", page["stale"]["text"])
+        self.assertIn("stale verification: re-run verify_remediation", page["stale"]["text"])
         self.assertTrue(page["bulk"] and all(b["disabled"] for b in page["bulk"]))  # nothing verified applies: bulk copy is off
-        self.assertIn("la verificación quedó desactualizada", page["bulkText"])
+        self.assertIn("the verification is stale", page["bulkText"])
         fresh = self.run_page(document, self.verification(document))
         self.assertTrue(fresh["stale"]["hidden"])
 
@@ -199,21 +199,21 @@ class ScriptSmokeTests(PageCase):
         multi = {f["id"] for f in SAMPLE["findings"] if f["remediation"] and f["remediation"]["kind"] != "console_only"
                  and not f["remediation"].get("note_status") and len(f["remediation"]["commands"]) > 1}
         self.assertEqual({c["id"] for c in page["cards"] if c["copyAll"]}, {i for i in multi if kinds[i] == "cli"})
-        self.assertTrue(any(kinds[i] != "cli" for i in multi), "el fixture debe tener un arreglo multi-bloque que no sea cli")
+        self.assertTrue(any(kinds[i] != "cli" for i in multi), "the fixture must have a multi-block fix that is not cli")
         self.assertEqual(len(page["cards"]), len(SAMPLE["findings"]))
 
 
-@unittest.skipUnless(shutil.which("node"), "node no está instalado")
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
 class ReviewTwoPageTests(PageCase):
     """Verdict banner, credential-less honesty, bulk copy that needs a valid verification."""
 
-    VERDICT_TEXT = "No verificable para SOC 2 / ISO 27001: sin credenciales AWS: nada se verificó contra AWS, solo se informa lo que dice el vault."
+    VERDICT_TEXT = "Not verifiable for SOC 2 / ISO 27001: no AWS credentials: nothing was verified against AWS, only what the vault says is reported."
 
     def no_aws_document(self):
         document = self.document()
         document["meta"] = {"aws": None, "vault": {"kind": "typed", "path": "v"}}
-        document["summary"] = {"verdict": "NO_VERIFICABLE", "verdict_text": self.VERDICT_TEXT, "aws_verified": False,
-                               "unverified": {"no_verificado": 0, "documented_only": 3, "documented_gap": 2, "scope_without_claims": 1, "total": 6},
+        document["summary"] = {"verdict": "NOT_VERIFIABLE", "verdict_text": self.VERDICT_TEXT, "aws_verified": False,
+                               "unverified": {"not_verified": 0, "documented_only": 3, "documented_gap": 2, "scope_without_claims": 1, "total": 6},
                                "by_status": {}, "by_severity_fail": {}, "drata_tests_failing": [], "vanta_tests_failing": [], "not_verified": 0}
         document["unverified_scope"] = [{"type": "lambda_function", "id": "acme-notes-mailer", "region": "us-east-1", "reason": "x"}]
         return document
@@ -221,52 +221,52 @@ class ReviewTwoPageTests(PageCase):
     def test_verdict_is_shown_first_with_its_text_and_class(self):
         page = self.run_page(self.no_aws_document())
         self.assertFalse(page["verdict"]["hidden"])
-        self.assertIn("verdict-NO_VERIFICABLE", page["verdict"]["cls"])
+        self.assertIn("verdict-NOT_VERIFIABLE", page["verdict"]["cls"])
         self.assertIn(self.VERDICT_TEXT, page["verdict"]["text"])
-        self.assertIn("No verificable", page["verdict"]["text"])
+        self.assertIn("Not verifiable", page["verdict"]["text"])
         self.assertLess(TEMPLATE.index('id="verdict"'), TEMPLATE.index('id="meta"'))
-        for verdict, label in (("OPTIMO", "Óptimo"), ("NO_OPTIMO", "No óptimo")):
+        for verdict, label in (("OPTIMAL", "Optimal"), ("NOT_OPTIMAL", "Not optimal")):
             document = self.document()
             document["meta"] = {"aws": {"account_id": "111122223333"}}
-            document["summary"] = {"verdict": verdict, "verdict_text": f"{label} para SOC 2 / ISO 27001."}
+            document["summary"] = {"verdict": verdict, "verdict_text": f"{label} for SOC 2 / ISO 27001."}
             page = self.run_page(document)
             self.assertIn(f"verdict-{verdict}", page["verdict"]["cls"])
             self.assertIn(label, page["verdict"]["text"])
-            self.assertNotIn("Nada se verificó contra AWS", page["verdict"]["text"])
+            self.assertNotIn("Nothing was verified against AWS", page["verdict"]["text"])
 
     def test_without_credentials_the_page_says_so_and_does_not_show_clean_zeros(self):
         page = self.run_page(self.no_aws_document())
-        self.assertIn("Nada se verificó contra AWS", page["verdict"]["text"])
+        self.assertIn("Nothing was verified against AWS", page["verdict"]["text"])
         summary = page["summary"]
-        self.assertIn("Sin credenciales AWS: ningún conteo de abajo es un resultado verificado", summary)
-        self.assertEqual(summary.count("sin verificar (sin credenciales AWS)"), 2)  # Drata and Vanta
-        self.assertNotIn("ninguno", summary)
-        for wanted in ("Solo documentado en el vault: 3", "Brecha documentada en el vault: 2",
-                       "Componentes del alcance sin afirmaciones ni resultados: 1", "lambda_function acme-notes-mailer · us-east-1 — sin verificar"):
+        self.assertIn("No AWS credentials: no count below is a verified result", summary)
+        self.assertEqual(summary.count("not verified (no AWS credentials)"), 2)  # Drata and Vanta
+        self.assertNotIn("none", summary)
+        for wanted in ("Only documented in the vault: 3", "Gap documented in the vault: 2",
+                       "Scope components with no claims or results: 1", "lambda_function acme-notes-mailer · us-east-1 — not verified"):
             self.assertIn(wanted, summary)
 
     def test_with_credentials_the_failing_test_lists_keep_their_counts(self):
         document = self.document()
         document["meta"] = {"aws": {"account_id": "111122223333"}}
         summary = self.run_page(document)["summary"]
-        self.assertIn("Tests de Drata que fallan (0)", summary)
-        self.assertNotIn("sin credenciales", summary)
+        self.assertIn("Failing Drata tests (0)", summary)
+        self.assertNotIn("no AWS credentials", summary)
 
     def test_the_basis_is_shown_next_to_the_verdict(self):
-        expected = {"aws": "Base del veredicto: AWS (credenciales de solo lectura)",
-                    "vault": "Base del veredicto: el vault (lo documentado, no verificado contra AWS)",
-                    "aws+vault": "Base del veredicto: AWS y el vault"}
+        expected = {"aws": "Verdict basis: AWS (read-only credentials)",
+                    "vault": "Verdict basis: the vault (what is documented, not verified against AWS)",
+                    "aws+vault": "Verdict basis: AWS and the vault"}
         for basis, wanted in expected.items():
             document = self.document()
             document["meta"] = {"aws": {"account_id": "111122223333"} if basis != "vault" else None}
-            document["summary"] = {"verdict": "OPTIMO", "verdict_basis": basis, "verdict_text": "Óptimo."}
+            document["summary"] = {"verdict": "OPTIMAL", "verdict_basis": basis, "verdict_text": "Optimal."}
             page = self.run_page(document)
             self.assertIn(wanted, page["verdict"]["text"], basis)
             for other in set(expected.values()) - {wanted}:
                 self.assertNotIn(other, page["verdict"]["text"], basis)
         document = self.document()
-        document["summary"] = {"verdict": "OPTIMO", "verdict_text": "Óptimo."}  # an older findings.json without a basis
-        self.assertNotIn("Base del veredicto", self.run_page(document)["verdict"]["text"])
+        document["summary"] = {"verdict": "OPTIMAL", "verdict_text": "Optimal."}  # an older findings.json without a basis
+        self.assertNotIn("Verdict basis", self.run_page(document)["verdict"]["text"])
 
     def test_the_chosen_compliance_tool_is_preselected_in_the_filter(self):
         for tool, wanted in (("drata", "drata"), ("vanta", "vanta"), ("both", ""), (None, ""), ("other", "")):
@@ -293,7 +293,7 @@ class ReviewTwoPageTests(PageCase):
     def test_bulk_copy_is_disabled_with_a_visible_reason_without_verification(self):
         page = self.run_page(self.document())
         self.assertTrue(page["bulk"] and all(b["disabled"] for b in page["bulk"]))
-        self.assertIn("falta la verificación de los arreglos", page["bulkText"])
+        self.assertIn("the fix verification is missing", page["bulkText"])
 
     def test_bulk_copy_only_offers_what_the_verification_stamped_ok(self):
         document = self.document()
@@ -303,35 +303,35 @@ class ReviewTwoPageTests(PageCase):
         bundle = next(b["text"] for b in page["bulk"] if b["text"])
         self.assertIn("echo ok-1a", bundle)
         self.assertNotIn("ok-7", bundle)
-        self.assertNotIn("falta la verificación", page["bulkText"])
+        self.assertNotIn("verification is missing", page["bulkText"])
 
     def test_bulk_copy_with_nothing_to_copy_says_so_instead_of_empty_buttons(self):
         document = {"meta": {}, "dependencies": [], "warnings": [], "notes": [], "findings": [fix_finding(1, "planned_change", ["echo x"])]}
         page = self.run_page(document, {"per_finding": {}, "findings_digest": assemble_findings.findings_digest(document), "summary": {}})
         self.assertEqual(page["bulk"], [])
-        self.assertIn("No hay arreglos de bajo riesgo para copiar", page["bulkText"])
+        self.assertIn("There are no low-risk fixes to copy", page["bulkText"])
 
     def test_verification_section_does_not_claim_a_cli_check_that_never_ran(self):
         document = self.document()
         verification = self.verification(document)
         verification.update(cli_checked=False, cli_requested=True, cli_operations_checked=0)
-        self.assertIn("no había comandos aws que comprobar", self.run_page(document, verification)["verification"])
+        self.assertIn("there were no aws commands to check", self.run_page(document, verification)["verification"])
         verification.update(cli_checked=True, cli_operations_checked=3)
-        self.assertIn("comprobada con la ayuda local", self.run_page(document, verification)["verification"])
+        self.assertIn("checked against the local AWS CLI help", self.run_page(document, verification)["verification"])
         verification.update(cli_checked=False, cli_requested=False, cli_operations_checked=0)
-        self.assertIn("no comprobada", self.run_page(document, verification)["verification"])
+        self.assertIn("not checked", self.run_page(document, verification)["verification"])
 
     def test_pass_status_note_is_not_an_alert(self):
         document = self.document()
         passed = fix_finding(9, "cli", [], status="PASS")
-        passed["remediation"].update(steps=[], note_status="verificado en AWS: cumple, no requiere arreglo", verify_after="echo ok")
+        passed["remediation"].update(steps=[], note_status="verified in AWS: compliant, no fix needed", verify_after="echo ok")
         document["findings"].append(passed)
-        self.assertNotIn("verificado en AWS: cumple, no requiere arreglo", self.run_page(document)["planned"])
+        self.assertNotIn("verified in AWS: compliant, no fix needed", self.run_page(document)["planned"])
 
     def test_template_has_a_noscript_fallback_and_new_labels(self):
         self.assertIn("<noscript>", TEMPLATE)
         block = i18n_block(TEMPLATE)
-        for key in ("riesgo_alto: 'Riesgo alto'", "evidencia_faltante: 'Evidencia faltante'", "fromVault:"):
+        for key in ("high_risk: 'High risk'", "missing_evidence: 'Missing evidence'", "fromVault:"):
             self.assertIn(key, block)
         self.assertNotIn("%", block)
 
@@ -375,12 +375,12 @@ class RenderTests(unittest.TestCase):
         self.assertGreaterEqual(longest(long_token[0]["remediation"]["notes"]), 300)
         self.assertGreaterEqual(max(longest(s) for s in long_token[0]["remediation"]["steps"]), 300)
         placeholder = [f for f in findings if f["status"] == "FAIL" and f["remediation"] and f["remediation"]["kind"] == "cli"
-                       and f["remediation"]["risk"] == "low" and any("__COMPLETAR_" in c for c in f["remediation"]["commands"])]
+                       and f["remediation"]["risk"] == "low" and any("__FILL_IN_" in c for c in f["remediation"]["commands"])]
         self.assertTrue(placeholder)
 
     def test_hostile_names_escaped(self):
         hostile = [f for f in SAMPLE["findings"] if f["resource"]["name"] == HOSTILE_NAME]
-        self.assertTrue(hostile, "el fixture debe incluir un recurso con nombre hostil")
+        self.assertTrue(hostile, "the fixture must include a resource with a hostile name")
         rendered = render_report.render(SAMPLE, TEMPLATE)
         parser = ScriptCounter()
         parser.feed(rendered)
@@ -391,7 +391,7 @@ class RenderTests(unittest.TestCase):
     def test_fixture_covers_every_status_severity_and_kind(self):
         findings = SAMPLE["findings"]
         self.assertEqual({f["status"] for f in findings},
-                         {"FAIL", "PASS", "DRIFT", "DOCUMENTED_ONLY", "DOCUMENTED_GAP", "UNDOCUMENTED", "NO_VERIFICADO", "N/A"})
+                         {"FAIL", "PASS", "DRIFT", "DOCUMENTED_ONLY", "DOCUMENTED_GAP", "UNDOCUMENTED", "NOT_VERIFIED", "N/A"})
         self.assertEqual({f["severity"] for f in findings}, {"critical", "high", "medium", "low"})
         kinds = {f["remediation"]["kind"] for f in findings if f["remediation"]}
         self.assertEqual(kinds, {"cli", "cli_with_decision", "planned_change", "console_only"})
@@ -399,7 +399,7 @@ class RenderTests(unittest.TestCase):
         self.assertIn('x"onmouseover=', tags)
         self.assertTrue(any("`" in c for f in findings if f["remediation"] for c in f["remediation"]["commands"]))
         self.assertTrue(any(f["vacuous"] and f["status"] == "N/A" for f in findings))
-        self.assertTrue(any(f["missing"] for f in findings if f["status"] == "NO_VERIFICADO"))
+        self.assertTrue(any(f["missing"] for f in findings if f["status"] == "NOT_VERIFIED"))
         self.assertTrue(any(not m["sourced"] for f in findings for m in f["mappings"]["tsc"] + f["mappings"]["iso27001_2022"]))
 
     def test_vault_path_is_reduced_to_the_folder_name(self):
@@ -414,8 +414,8 @@ class RenderTests(unittest.TestCase):
     def test_planned_change_banner_does_not_claim_the_commands_only_read(self):
         block = i18n_block(TEMPLATE)
         planned = re.search(r"planned: '([^']*)'", block).group(1)
-        self.assertNotIn("solo leen", planned)
-        for phrase in ("cambian la infraestructura", "orden", "ventana", "automáticamente"):
+        self.assertNotIn("only read", planned)
+        for phrase in ("change the infrastructure", "order", "window", "automatically"):
             self.assertIn(phrase, planned)
 
     def test_copy_all_is_only_offered_for_cli_fixes(self):
@@ -437,27 +437,27 @@ class RenderTests(unittest.TestCase):
             render_report.render({"meta": {}}, TEMPLATE)
 
 
-@unittest.skipUnless(shutil.which("node"), "node no está instalado")
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
 class FinalCleanupBPageTests(PageCase):
     """Empty report wording (D2 minor 5) and organizational controls that findings touch (D2 minor 7)."""
 
     def test_an_empty_report_says_so_instead_of_blaming_the_filters(self):
         document = {"meta": {}, "dependencies": [], "warnings": [], "notes": [], "findings": []}
         text = self.run_page(document)["cardsText"]
-        self.assertIn("Sin hallazgos en esta corrida", text)
-        self.assertNotIn("filtros", text)
+        self.assertIn("No findings in this run", text)
+        self.assertNotIn("filters", text)
 
     def test_organizational_controls_touched_by_findings_are_not_listed_as_out_of_scope(self):
         document = self.document()
         document["coverage"] = {"iso": [
-            {"id": "A.5.14", "name": "Transferencia de información", "status": "NO_VERIFICADO", "category": "organizational"},
-            {"id": "A.5.1", "name": "Políticas", "status": "NOT_TOUCHED", "category": "organizational"},
-            {"id": "A.8.1", "name": "Dispositivos", "status": "PASS", "category": "technical"}], "tsc": []}
+            {"id": "A.5.14", "name": "Information transfer", "status": "NOT_VERIFIED", "category": "organizational"},
+            {"id": "A.5.1", "name": "Policies", "status": "NOT_TOUCHED", "category": "organizational"},
+            {"id": "A.8.1", "name": "Devices", "status": "PASS", "category": "technical"}], "tsc": []}
         text = self.run_page(document)["coverage"]
-        self.assertIn("Organizacionales mencionados por hallazgos", text)
-        self.assertIn("Organizacionales: fuera del alcance de este reporte (1)", text)
-        self.assertLess(text.index("A.5.14"), text.index("Organizacionales: fuera del alcance"))
-        self.assertGreater(text.index("Políticas"), text.index("Organizacionales: fuera del alcance"))
+        self.assertIn("Organizational controls mentioned by findings", text)
+        self.assertIn("Organizational: outside the scope of this report (1)", text)
+        self.assertLess(text.index("A.5.14"), text.index("Organizational: outside the scope"))
+        self.assertGreater(text.index("Policies"), text.index("Organizational: outside the scope"))
 
 
 class FinalCleanupBRenderTests(unittest.TestCase):

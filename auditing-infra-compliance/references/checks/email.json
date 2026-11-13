@@ -124,7 +124,7 @@
           }
         ],
         "evaluator": "python:ses_default_config_tls",
-        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad tiene un configuration set por defecto (get-email-identity, ConfigurationSetName) y ese set tiene DeliveryOptions.TlsPolicy=REQUIRE: SES no entrega a servidores que no negocian TLS (la protección en tránsito que busca CC6.7). Sin TlsPolicy rige el valor por defecto de AWS, OPTIONAL, y falla. Una identidad sin configuration set por defecto falla, porque SES solo aplica TLS obligatorio a través de un set. El chequeo evalúa el set por defecto de la identidad: un set elegido en cada envío (por ejemplo con el header X-SES-CONFIGURATION-SET) no se evalúa. Si el set por defecto no se puede leer con los permisos del auditor, esa identidad queda NO_VERIFICADO.",
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad tiene un configuration set por defecto (get-email-identity, ConfigurationSetName) y ese set tiene DeliveryOptions.TlsPolicy=REQUIRE: SES no entrega a servidores que no negocian TLS (la protección en tránsito que busca CC6.7). Sin TlsPolicy rige el valor por defecto de AWS, OPTIONAL, y falla. Una identidad sin configuration set por defecto falla, porque SES solo aplica TLS obligatorio a través de un set. El chequeo evalúa el set por defecto de la identidad: un set elegido en cada envío (por ejemplo con el header X-SES-CONFIGURATION-SET) no se evalúa. Si el set por defecto no se puede leer con los permisos del auditor, esa identidad queda NOT_VERIFIED.",
         "needs": [
           "ses:GetEmailIdentity",
           "ses:GetConfigurationSet"
@@ -161,11 +161,11 @@
           "Verificar que el set tiene TLS obligatorio y que la identidad lo usa por defecto."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__COMPLETAR_CONFIGURATION_SET__\"\naws sesv2 put-configuration-set-delivery-options --configuration-set-name \"$CONFIG_SET\" --tls-policy REQUIRE --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__COMPLETAR_CONFIGURATION_SET__\"\naws sesv2 create-configuration-set --configuration-set-name \"$CONFIG_SET\" --delivery-options TlsPolicy=REQUIRE --region \"$REGION\" && aws sesv2 put-email-identity-configuration-set-attributes --email-identity \"{resource_id}\" --configuration-set-name \"$CONFIG_SET\" --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__FILL_IN_CONFIGURATION_SET__\"\naws sesv2 put-configuration-set-delivery-options --configuration-set-name \"$CONFIG_SET\" --tls-policy REQUIRE --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__FILL_IN_CONFIGURATION_SET__\"\naws sesv2 create-configuration-set --configuration-set-name \"$CONFIG_SET\" --delivery-options TlsPolicy=REQUIRE --region \"$REGION\" && aws sesv2 put-email-identity-configuration-set-attributes --email-identity \"{resource_id}\" --configuration-set-name \"$CONFIG_SET\" --region \"$REGION\""
         ],
         "verify_after": "aws sesv2 get-email-identity --email-identity \"{resource_id}\" --region \"{region}\" --query 'ConfigurationSetName'",
-        "notes": "Riesgo: sin downtime, pero con TlsPolicy=REQUIRE SES no entrega a los destinatarios cuyo servidor no soporta TLS (el mensaje rebota): revisar las métricas de rebotes después del cambio. Usar el primer bloque si la identidad ya tiene un configuration set, y el segundo si no tiene (crea el set y lo deja como por defecto en un solo paso: el put solo corre si el create tuvo éxito). Reemplazar __COMPLETAR_CONFIGURATION_SET__ por el nombre del set. Los envíos que indican otro set en cada mensaje no usan el set por defecto: configurar también esos sets."
+        "notes": "Riesgo: sin downtime, pero con TlsPolicy=REQUIRE SES no entrega a los destinatarios cuyo servidor no soporta TLS (el mensaje rebota): revisar las métricas de rebotes después del cambio. Usar el primer bloque si la identidad ya tiene un configuration set, y el segundo si no tiene (crea el set y lo deja como por defecto en un solo paso: el put solo corre si el create tuvo éxito). Reemplazar __FILL_IN_CONFIGURATION_SET__ por el nombre del set. Los envíos que indican otro set en cada mensaje no usan el set por defecto: configurar también esos sets."
       },
       "sources": [
         "https://docs.aws.amazon.com/ses/latest/dg/using-configuration-sets.html",
@@ -219,7 +219,7 @@
           }
         ],
         "evaluator": "python:ses_default_config_events",
-        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad tiene un configuration set por defecto con al menos un event destination habilitado (Enabled=true), por ejemplo SNS, CloudWatch o Firehose. Sin destino de eventos nadie se entera de los rebotes ni de las quejas. Una identidad sin configuration set por defecto falla. El chequeo no exige tipos de evento concretos; para operar el correo conviene al menos BOUNCE y COMPLAINT. Un set elegido en cada envío no se evalúa. Si no se puede leer con los permisos del auditor, la identidad queda NO_VERIFICADO.",
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad tiene un configuration set por defecto con al menos un event destination habilitado (Enabled=true), por ejemplo SNS, CloudWatch o Firehose. Sin destino de eventos nadie se entera de los rebotes ni de las quejas. Una identidad sin configuration set por defecto falla. El chequeo no exige tipos de evento concretos; para operar el correo conviene al menos BOUNCE y COMPLAINT. Un set elegido en cada envío no se evalúa. Si no se puede leer con los permisos del auditor, la identidad queda NOT_VERIFIED.",
         "needs": [
           "ses:GetEmailIdentity",
           "ses:GetConfigurationSetEventDestinations"
@@ -257,10 +257,10 @@
           "Verificar el destino y suscribir una casilla del equipo al topic."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__COMPLETAR_CONFIGURATION_SET__\"\nTOPIC_ARN=\"__COMPLETAR_SNS_TOPIC_ARN__\"\naws sesv2 create-configuration-set-event-destination --configuration-set-name \"$CONFIG_SET\" --event-destination-name eventos-sns --event-destination '{\"Enabled\":true,\"MatchingEventTypes\":[\"BOUNCE\",\"COMPLAINT\"],\"SnsDestination\":{\"TopicArn\":\"'\"$TOPIC_ARN\"'\"}}' --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__FILL_IN_CONFIGURATION_SET__\"\nTOPIC_ARN=\"__FILL_IN_SNS_TOPIC_ARN__\"\naws sesv2 create-configuration-set-event-destination --configuration-set-name \"$CONFIG_SET\" --event-destination-name eventos-sns --event-destination '{\"Enabled\":true,\"MatchingEventTypes\":[\"BOUNCE\",\"COMPLAINT\"],\"SnsDestination\":{\"TopicArn\":\"'\"$TOPIC_ARN\"'\"}}' --region \"$REGION\""
         ],
-        "verify_after": "aws sesv2 get-configuration-set-event-destinations --configuration-set-name \"__COMPLETAR_CONFIGURATION_SET__\" --region \"{region}\" --query 'EventDestinations[].[Name,Enabled,MatchingEventTypes]'",
-        "notes": "Sin downtime. Reemplazar __COMPLETAR_CONFIGURATION_SET__ por el configuration set por defecto de la identidad (aws sesv2 get-email-identity muestra el nombre; si no tiene, ver EML-002) y __COMPLETAR_SNS_TOPIC_ARN__ por un topic de la misma región. El topic necesita una policy que deje publicar a ses.amazonaws.com; si no, los eventos no llegan. Un set con un event destination del mismo nombre falla al crearse: elegir otro nombre. Agregar suscripciones confirmadas al topic para que alguien reciba los avisos (ver MON-007 para alarmas)."
+        "verify_after": "aws sesv2 get-configuration-set-event-destinations --configuration-set-name \"__FILL_IN_CONFIGURATION_SET__\" --region \"{region}\" --query 'EventDestinations[].[Name,Enabled,MatchingEventTypes]'",
+        "notes": "Sin downtime. Reemplazar __FILL_IN_CONFIGURATION_SET__ por el configuration set por defecto de la identidad (aws sesv2 get-email-identity muestra el nombre; si no tiene, ver EML-002) y __FILL_IN_SNS_TOPIC_ARN__ por un topic de la misma región. El topic necesita una policy que deje publicar a ses.amazonaws.com; si no, los eventos no llegan. Un set con un event destination del mismo nombre falla al crearse: elegir otro nombre. Agregar suscripciones confirmadas al topic para que alguien reciba los avisos (ver MON-007 para alarmas)."
       },
       "sources": [
         "https://docs.aws.amazon.com/ses/latest/dg/monitor-using-event-publishing.html",
@@ -286,7 +286,7 @@
           "must_match": "v=spf1",
           "domains_from": "ses_identity"
         },
-        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad de dominio de SES (las direcciones de email no se evalúan) tiene un registro TXT en el propio dominio que contiene v=spf1. El motor consulta el DNS público con dig o nslookup. No verifica que el registro incluya amazonses.com ni el MAIL FROM personalizado: solo que el dominio publica una política SPF. Si no hay identidades de dominio, el resultado es N/A (vacío); si el DNS no se puede consultar, NO_VERIFICADO.",
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad de dominio de SES (las direcciones de email no se evalúan) tiene un registro TXT en el propio dominio que contiene v=spf1. El motor consulta el DNS público con dig o nslookup. No verifica que el registro incluya amazonses.com ni el MAIL FROM personalizado: solo que el dominio publica una política SPF. Si no hay identidades de dominio, el resultado es N/A (vacío); si el DNS no se puede consultar, NOT_VERIFIED.",
         "needs": []
       },
       "vault_signals": [
@@ -348,7 +348,7 @@
           "must_match": "(?i)(^|;)\\s*p=(quarantine|reject)\\b",
           "domains_from": "ses_identity"
         },
-        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad de dominio de SES (las direcciones de email no se evalúan) tiene un registro TXT en _dmarc.DOMINIO con una política p=quarantine o p=reject. Sin registro DMARC, o con p=none (solo monitoreo), falla con severidad alta: el dominio se puede suplantar. El motor consulta el DNS público con dig o nslookup. El patrón se ancla a la etiqueta p= (sin distinguir mayúsculas): sp=reject o un p=none con sp=reject no cuentan. Si no hay identidades de dominio, el resultado es N/A (vacío); si el DNS no se puede consultar, NO_VERIFICADO.",
+        "pass_when_text": "Ni Drata ni Vanta tienen un test de SES: es un chequeo propio del skill (la evidencia de correo que piden los auditores es de nivel DNS y de configuración). Cada identidad de dominio de SES (las direcciones de email no se evalúan) tiene un registro TXT en _dmarc.DOMINIO con una política p=quarantine o p=reject. Sin registro DMARC, o con p=none (solo monitoreo), falla con severidad alta: el dominio se puede suplantar. El motor consulta el DNS público con dig o nslookup. El patrón se ancla a la etiqueta p= (sin distinguir mayúsculas): sp=reject o un p=none con sp=reject no cuentan. Si no hay identidades de dominio, el resultado es N/A (vacío); si el DNS no se puede consultar, NOT_VERIFIED.",
         "needs": []
       },
       "vault_signals": [
@@ -378,14 +378,14 @@
         "downtime": false,
         "steps": [
           "Crear una casilla del equipo que reciba los reportes agregados de DMARC (rua).",
-          "Publicar en el DNS de {resource_id} (consola de Route 53 o el panel del registrador) un registro TXT en _dmarc.{resource_id} con el valor v=DMARC1; p=none; rua=mailto:__COMPLETAR_EMAIL_DMARC__ para empezar a observar. Si el dominio ya tiene un registro _dmarc, editarlo en lugar de crear otro (solo puede haber uno): si ya dice p=none, conservarlo y seguir con los reportes.",
+          "Publicar en el DNS de {resource_id} (consola de Route 53 o el panel del registrador) un registro TXT en _dmarc.{resource_id} con el valor v=DMARC1; p=none; rua=mailto:__FILL_IN_DMARC_EMAIL__ para empezar a observar. Si el dominio ya tiene un registro _dmarc, editarlo en lugar de crear otro (solo puede haber uno): si ya dice p=none, conservarlo y seguir con los reportes.",
           "Revisar los reportes durante unas semanas y corregir las fuentes legítimas que no pasan SPF o DKIM.",
           "Subir la política a p=quarantine y, cuando no haya falsos positivos, a p=reject. El chequeo solo pasa con quarantine o reject.",
           "Esperar a que el DNS propague y verificar con dig."
         ],
         "commands": [],
         "verify_after": "dig +short TXT \"_dmarc.{resource_id}\"",
-        "notes": "Sin downtime, pero p=quarantine y p=reject hacen que los receptores manden a spam o rechacen el correo que no pasa DMARC: empezar con p=none y subir gradualmente, o se pierde correo legítimo (facturas, avisos). DMARC pasa si SPF o DKIM pasan y están alineados con el dominio del From. SES alinea DKIM con el dominio de la identidad cuando se usa Easy DKIM (ver EML-001). Reemplazar __COMPLETAR_EMAIL_DMARC__ por una casilla del equipo. Los subdominios heredan la política del dominio organizacional salvo que se defina sp= o que tengan su propio registro _dmarc (RFC 7489): si el subdominio de envío no tiene un _dmarc propio, verificar el registro del dominio padre antes de actuar."
+        "notes": "Sin downtime, pero p=quarantine y p=reject hacen que los receptores manden a spam o rechacen el correo que no pasa DMARC: empezar con p=none y subir gradualmente, o se pierde correo legítimo (facturas, avisos). DMARC pasa si SPF o DKIM pasan y están alineados con el dominio del From. SES alinea DKIM con el dominio de la identidad cuando se usa Easy DKIM (ver EML-001). Reemplazar __FILL_IN_DMARC_EMAIL__ por una casilla del equipo. Los subdominios heredan la política del dominio organizacional salvo que se defina sp= o que tengan su propio registro _dmarc (RFC 7489): si el subdominio de envío no tiene un _dmarc propio, verificar el registro del dominio padre antes de actuar."
       },
       "sources": [
         "https://docs.aws.amazon.com/ses/latest/dg/send-email-authentication-dmarc.html",

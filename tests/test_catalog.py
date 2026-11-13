@@ -41,7 +41,7 @@ class LoadingTests(CatalogTestCase):
         self.assertEqual(catalog.SEVERITIES, ("critical", "high", "medium", "low"))
         self.assertEqual(catalog.EVALUATOR_KINDS, ("jmespath", "python", "claude", "dns"))
         self.assertEqual(catalog.DCF_SOURCE, "drata-dcf-2026-11-12")
-        self.assertIn("NO_VERIFICADO", catalog.STATUSES)
+        self.assertIn("NOT_VERIFIED", catalog.STATUSES)
         self.assertEqual(
             catalog.REMEDIATION_KINDS,
             ("cli", "cli_with_decision", "planned_change", "console_only"),
@@ -190,7 +190,7 @@ class ValidateTests(CatalogTestCase):
         errors = self.run_validate(checks)
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("IAM-001", errors[0])
-        self.assertIn("debe ser int", errors[0])
+        self.assertIn("must be an int", errors[0])
 
     def test_rule_6_rejects_jmespath_with_two_calls(self):
         checks = self.checks()
@@ -214,27 +214,27 @@ class ValidateTests(CatalogTestCase):
     def test_rule_8_rejects_planned_change_with_one_step(self):
         checks = self.checks()
         checks[1]["remediation"].update(
-            {"kind": "planned_change", "steps": ["solo uno"], "notes": "Puede haber downtime"}
+            {"kind": "planned_change", "steps": ["only one"], "notes": "There may be downtime"}
         )
         self.assert_errors_for(checks, "LOG-001")
 
     def test_rule_8_rejects_planned_change_without_notes(self):
         checks = self.checks()
         checks[1]["remediation"].update(
-            {"kind": "planned_change", "steps": ["uno", "dos"], "notes": ""}
+            {"kind": "planned_change", "steps": ["one", "two"], "notes": ""}
         )
         self.assert_errors_for(checks, "LOG-001")
 
     def test_rule_8_accepts_complete_planned_change(self):
         checks = self.checks()
         checks[1]["remediation"].update(
-            {"kind": "planned_change", "steps": ["uno", "dos"], "notes": "Advertencia"}
+            {"kind": "planned_change", "steps": ["one", "two"], "notes": "Warning"}
         )
         self.assertEqual(self.run_validate(checks), [])
 
     def test_rule_9_rejects_heredoc_placeholder(self):
         checks = self.checks()
-        checks[1]["remediation"]["commands"] = ["aws s3 mb s3://<<COMPLETAR: bucket>>"]
+        checks[1]["remediation"]["commands"] = ["aws s3 mb s3://<<FILL_IN: bucket>>"]
         self.assert_errors_for(checks, "LOG-001")
 
     def test_rule_10_requires_inferred_when_no_resolvable_drata(self):
@@ -336,12 +336,12 @@ class ListCliTests(unittest.TestCase):
         self.assertNotIn("ENC-002", ids)  # EBS volumes only
 
     def test_grep_filter_is_case_insensitive_and_combines_with_type(self):
-        _, lines = self.run_cli("--list", "--grep", "cifrado")
-        self.assertTrue(lines and all("cifrado" in line.lower() for line in lines))
-        _, both = self.run_cli("--list", "--type", "rds_instance", "--grep", "CIFRADO")
+        _, lines = self.run_cli("--list", "--grep", "enc-")
+        self.assertTrue(lines and all("enc-" in line.lower() for line in lines))
+        _, both = self.run_cli("--list", "--type", "rds_instance", "--grep", "ENC-")
         self.assertTrue({l.split(" | ")[0] for l in both} <= {l.split(" | ")[0] for l in lines})
         self.assertIn("ENC-003", {l.split(" | ")[0] for l in both})
-        self.assertEqual(self.run_cli("--list", "--grep", "zzz-no-existe"), (0, []))
+        self.assertEqual(self.run_cli("--list", "--grep", "zzz-does-not-exist"), (0, []))
 
     def test_filters_without_list_are_rejected_and_plain_run_still_validates(self):
         import contextlib
@@ -356,7 +356,7 @@ class ListCliTests(unittest.TestCase):
 
 
 class PerBucketToleranceTests(unittest.TestCase):
-    """One bucket the auditor cannot read must not turn the whole check into NO_VERIFICADO (final review A, I2)."""
+    """One bucket the auditor cannot read must not turn the whole check into NOT_VERIFIED (final review A, I2)."""
 
     def test_per_bucket_calls_hand_failures_to_the_evaluator(self):
         checks = {c["id"]: c for c in catalog.load_checks(REFS / "checks")}

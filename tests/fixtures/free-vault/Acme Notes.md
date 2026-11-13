@@ -1,11 +1,11 @@
 # Acme Notes
 
-Plataforma de notas colaborativas. Este es el hub de la documentación de infraestructura.
+Collaborative notes platform. This is the hub of the infrastructure documentation.
 
-## Conectado a
+## Connected to
 
 - [[RDS - acme-db]]
 - [[S3 - uploads]]
 - [[VPC]]
 - [[ALB - acme-public]]
-- [[Runbook de guardia]]
+- [[On-call runbook]]

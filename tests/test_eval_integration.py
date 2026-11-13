@@ -148,7 +148,7 @@ class VantaRoleTests(unittest.TestCase):
         (offender,) = real(self.run_with(fx("iam-list-attached-role-policies-none")))
         self.assertEqual((offender["resource_id"], offender["region"]), (VANTA, REGION))
         self.assertEqual(offender["detail"]["missing_policies"], ["SecurityAudit", "VantaAdditionalPermissions"])
-        self.assertEqual(offender["detail"]["additional_permissions"], "ausente")
+        self.assertEqual(offender["detail"]["additional_permissions"], "absent")
 
     def test_an_inline_additional_permissions_policy_is_not_detected_by_vanta(self):
         (offender,) = real(self.run_with(fx("iam-list-attached-role-policies-security-audit"), inline="inline-vanta"))
@@ -466,7 +466,7 @@ class IntegrationCollectTests(unittest.TestCase):
         rules = [r for r in self.with_roles() if r[1] != "get-key-policy"] + [("kms", "get-key-policy", None, KEY, denied)]
         _, result, _ = self.run_collect([APP, DRATA, VANTA], rules)
         (row,) = [r for r in result["results"] if r["check_id"] == "INT-004"]
-        self.assertEqual((row["status"], row["resource_id"], row["detail"]["error_code"]), ("NO_VERIFICADO", KEY, "ACCESS_DENIED"))
+        self.assertEqual((row["status"], row["resource_id"], row["detail"]["error_code"]), ("NOT_VERIFIED", KEY, "ACCESS_DENIED"))
         self.assertEqual(row["missing"], catalog_check("INT-004")["verify"]["needs"])
 
 

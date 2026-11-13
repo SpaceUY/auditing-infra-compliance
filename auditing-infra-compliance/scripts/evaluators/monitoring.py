@@ -79,15 +79,15 @@ def _topic_state(topic: str, region: str, account: str | None, subscriptions: di
     read by the audit (its call runs in the alarm's region), so it cannot be judged."""
     _, _, _, topic_region, topic_account, _ = topic.split(":")
     if (topic_region, topic_account) != (region, account or topic_account):
-        return "unverified", {"topic": topic, "reason": "el topic SNS está en otra cuenta o región: no se puede verificar su suscripción"}
+        return "unverified", {"topic": topic, "reason": "the SNS topic is in another account or region: its subscription cannot be verified"}
     if (region, topic) not in subscriptions:
-        return "unverified", {"topic": topic, "reason": "no se leyeron las suscripciones del topic SNS"}
+        return "unverified", {"topic": topic, "reason": "the subscriptions of the SNS topic were not read"}
     data = subscriptions[(region, topic)] or {}
     error = data.get("__error__")
     if error == "NotFound":
         return "unconfirmed", {}
     if error:
-        return "unverified", {"topic": topic, "error_code": error, "reason": "no se pudieron leer las suscripciones del topic SNS"}
+        return "unverified", {"topic": topic, "error_code": error, "reason": "the subscriptions of the SNS topic could not be read"}
     confirmed = any(str(s.get("SubscriptionArn") or "").lower() not in _UNCONFIRMED | {""}
                     for s in data.get("Subscriptions") or [])
     return ("confirmed" if confirmed else "unconfirmed"), {}
@@ -101,12 +101,12 @@ def _judge(item: dict, metric: str, spec: dict, value: str, alarms: list, subscr
                 if ns == spec["namespace"] and name == metric and _covers(item, spec["dimension"], value, dims, members)]
     if not matching:
         return _offender(item["id"], region, missing_part="alarm", **base,
-                         reason=f"no hay una alarma de CloudWatch sobre {spec['namespace']} {metric} con {spec['dimension']}={value}")
+                         reason=f"there is no CloudWatch alarm on {spec['namespace']} {metric} with {spec['dimension']}={value}")
     names = sorted({a.get("AlarmName") for a in matching})
     wired = [(a, topic) for a in matching if a.get("ActionsEnabled", True) for topic in a.get("AlarmActions") or [] if _is_sns_topic(topic)]
     if not wired:
         return _offender(item["id"], region, missing_part="action", alarms=names, **base,
-                         reason="la alarma existe pero no notifica a un topic SNS (sin acción SNS, o con las acciones deshabilitadas)")
+                         reason="the alarm exists but does not notify an SNS topic (no SNS action, or the actions are disabled)")
     topics = list(dict.fromkeys(topic for _, topic in wired))
     states = [(topic, *_topic_state(topic, region, _account_of(a.get("AlarmArn")), subscriptions)) for a, topic in wired]
     if any(state == "confirmed" for _, state, _ in states):
@@ -115,7 +115,7 @@ def _judge(item: dict, metric: str, spec: dict, value: str, alarms: list, subscr
     if undecided:
         return _unverified(item["id"], region, alarms=names, **base, **undecided[0])
     return _offender(item["id"], region, missing_part="confirmed_subscription", alarms=names, topics=topics, **base,
-                     reason="el topic SNS de la alarma no tiene ninguna suscripción confirmada (todas están en PendingConfirmation, o no hay ninguna)")
+                     reason="the alarm's SNS topic has no confirmed subscription (all are PendingConfirmation, or there are none)")
 
 
 def _engines(responses: dict) -> dict[tuple[str, str], str]:

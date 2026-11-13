@@ -2,4 +2,4 @@
 
 ← [[Acme Notes]]
 
-Balanceador público de la aplicación web, en la [[VPC]].
+Public load balancer of the web application, in the [[VPC]].

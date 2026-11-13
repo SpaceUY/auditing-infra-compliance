@@ -13,7 +13,7 @@ def _item_failure(resource_id: str, region: str, code: str, call: str, tolerated
     """Entry for a failed per-item call (item_errors): tolerated codes mean the item is gone, the rest is unverified."""
     if code in tolerated:
         return _not_applicable(resource_id, region)
-    reason = "permisos insuficientes para consultar el recurso" if code == "ACCESS_DENIED" else "no se pudo consultar el recurso"
+    reason = "insufficient permissions to query the resource" if code == "ACCESS_DENIED" else "could not query the resource"
     return _unverified(resource_id, region, error_code=code, call=call, reason=reason)
 
 
@@ -33,11 +33,11 @@ def rds_backups(responses: dict, params: dict) -> list[dict]:
         days = db.get("BackupRetentionPeriod")
         days = days if isinstance(days, int) else 0
         if days == 0:
-            offenders.append(_offender(db["DBInstanceIdentifier"], region, backup_retention_period=0, reason="los backups automáticos están desactivados"))
+            offenders.append(_offender(db["DBInstanceIdentifier"], region, backup_retention_period=0, reason="automated backups are disabled"))
         elif days < minimum:
-            unit = "día" if days == 1 else "días"
+            unit = "day" if days == 1 else "days"
             offenders.append(_offender(db["DBInstanceIdentifier"], region, backup_retention_period=days, severity_override="low",
-                                       reason=f"la retención es de {days} {unit}, menos que los {minimum} recomendados"))
+                                       reason=f"retention is {days} {unit}, less than the recommended {minimum}"))
     return offenders
 
 
@@ -59,7 +59,7 @@ def rds_multi_az(responses: dict, params: dict) -> list[dict]:
         if db.get("DBClusterIdentifier") or not in_prod_scope:
             offenders.append(_not_applicable(name, region))
         elif not db.get("MultiAZ"):
-            offenders.append(_offender(name, region, environment=environment, engine=db.get("Engine"), reason="la instancia no es Multi-AZ"))
+            offenders.append(_offender(db["DBInstanceIdentifier"], region, environment=environment, engine=db.get("Engine"), reason="the instance is not Multi-AZ"))
     return offenders
 
 
@@ -79,14 +79,14 @@ def ddb_pitr(responses: dict, params: dict) -> list[dict]:
             continue
         status = (((data or {}).get("ContinuousBackupsDescription") or {}).get("PointInTimeRecoveryDescription") or {}).get("PointInTimeRecoveryStatus")
         if str(status).lower() != "enabled":
-            offenders.append(_offender(table, region, pitr_status=status, reason="la recuperación a un punto en el tiempo (PITR) no está habilitada"))
+            offenders.append(_offender(table, region, pitr_status=status, reason="point-in-time recovery (PITR) is not enabled"))
     return offenders
 
 
 def _versioning_reason(status: object) -> str:
     if status is None:
-        return "el versionado nunca se habilitó"
-    return "el versionado está suspendido" if str(status).lower() == "suspended" else f"el versionado no está habilitado ({status})"
+        return "versioning was never enabled"
+    return "versioning is suspended" if str(status).lower() == "suspended" else f"versioning is not enabled ({status})"
 
 
 @register("s3_versioning")
@@ -115,14 +115,14 @@ def s3_bpa(responses: dict, params: dict) -> list[dict]:
     for bucket, region, data in _for_each_pairs(responses, "bpa"):
         error = (data or {}).get("__error__")
         if error == NO_BPA:
-            offenders.append(_offender(bucket, region, missing_flags=list(BPA_FLAGS), reason="el bucket no tiene configuración de Block Public Access"))
+            offenders.append(_offender(bucket, region, missing_flags=list(BPA_FLAGS), reason="the bucket has no Block Public Access configuration"))
         elif error:
             offenders.append(_item_failure(bucket, region, error, "get-public-access-block", BUCKET_GONE))
         else:
             config = (data or {}).get("PublicAccessBlockConfiguration") or {}
             missing = [flag for flag in BPA_FLAGS if config.get(flag) is not True]
             if missing:
-                offenders.append(_offender(bucket, region, missing_flags=missing, reason="el Block Public Access del bucket no tiene los 4 ajustes activos"))
+                offenders.append(_offender(bucket, region, missing_flags=missing, reason="the bucket's Block Public Access does not have all 4 settings on"))
     return offenders
 
 
@@ -151,7 +151,7 @@ def _failed_resources(jobs: list[dict]) -> list[dict]:
     """Resources whose jobs in the window have no COMPLETED one but at least one unsuccessful (retries that completed clear it)."""
     states: dict[str, set[str]] = {}
     for job in jobs:
-        states.setdefault(job.get("ResourceArn", "desconocido"), set()).add(str(job.get("State", "")).upper())
+        states.setdefault(job.get("ResourceArn", "unknown"), set()).add(str(job.get("State", "")).upper())
     return [{"arn": arn, "states": sorted(found & UNSUCCESSFUL_STATES)} for arn, found in sorted(states.items())
             if "COMPLETED" not in found and found & UNSUCCESSFUL_STATES]
 
@@ -168,10 +168,10 @@ def backup_jobs_recent(responses: dict, params: dict) -> list[dict]:
     for region, vault in _vaults(responses):
         name, jobs = vault["BackupVaultName"], recent.get((region, vault["BackupVaultName"]), [])
         if not jobs:
-            offenders.append(_offender(name, region, reason=f"la bóveda tiene puntos de recuperación y ningún job en las últimas {hours} horas")
+            offenders.append(_offender(name, region, reason=f"the vault has recovery points and no job in the last {hours} hours")
                              if vault.get("NumberOfRecoveryPoints") else _not_applicable(name, region))
         elif failed := _failed_resources(jobs):
-            offenders.append(_offender(name, region, resources=failed, reason=f"hay recursos sin ningún job completado en las últimas {hours} horas"))
+            offenders.append(_offender(name, region, resources=failed, reason=f"there are resources with no completed job in the last {hours} hours"))
     return offenders
 
 
@@ -192,13 +192,13 @@ def backup_vault_notifications(responses: dict, params: dict) -> list[dict]:
         if recovery_points.get((region, vault)) == 0:
             offenders.append(_not_applicable(vault, region))
         elif error == NOT_FOUND:
-            offenders.append(_offender(vault, region, reason="la bóveda no tiene notificaciones configuradas"))
+            offenders.append(_offender(vault, region, reason="the vault has no notifications configured"))
         elif error:
             offenders.append(_item_failure(vault, region, error, "get-backup-vault-notifications"))
         else:
             events = list((data or {}).get("BackupVaultEvents") or [])
             if not (data or {}).get("SNSTopicArn") or FAILURE_EVENT not in [str(e).upper() for e in events]:
-                offenders.append(_offender(vault, region, events=events, reason=f"la bóveda no notifica {FAILURE_EVENT} a un tópico de SNS"))
+                offenders.append(_offender(vault, region, events=events, reason=f"the vault does not notify {FAILURE_EVENT} to an SNS topic"))
     return offenders
 
 
@@ -244,5 +244,5 @@ def backup_plan_rules(responses: dict, params: dict) -> list[dict]:
     if unreadable:
         return unreadable
     region = _first(responses, "plans")[0]
-    reason = f"ningún plan de AWS Backup tiene una regla diaria con retención de al menos {minimum} días"
+    reason = f"no AWS Backup plan has a daily rule with retention of at least {minimum} days"
     return [_offender(BACKUP_ACCOUNT, region, plans=list(summaries.values()), reason=reason)]
