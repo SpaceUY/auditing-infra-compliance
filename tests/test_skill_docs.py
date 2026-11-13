@@ -101,7 +101,7 @@ class SkillDocsTests(unittest.TestCase):
     def test_frontmatter_is_valid(self):
         fields = frontmatter(self.text)
         self.assertIsNotNone(fields, "SKILL.md must start with a --- frontmatter block")
-        self.assertEqual(set(fields), {"name", "description"})
+        self.assertEqual(set(fields), {"name", "description", "disable-model-invocation", "argument-hint"})
         self.assertEqual(fields["name"], "auditing-infra-compliance")
         self.assertEqual(fields["name"], SKILL_DIR.name)
         self.assertRegex(fields["name"], r"^[a-z0-9-]+$")
@@ -112,6 +112,19 @@ class SkillDocsTests(unittest.TestCase):
         self.assertLessEqual(len(description), 1024)
         for trigger in ("SOC 2", "ISO 27001", "Drata", "Vanta", "feature"):
             self.assertIn(trigger, description)
+
+    def test_the_skill_is_only_invoked_by_the_user(self):
+        # user requirement: never auto-invoked; it runs only through /auditing-infra-compliance <request>
+        fields = frontmatter(self.text)
+        self.assertEqual(fields["disable-model-invocation"], "true")
+        self.assertIn("/auditing-infra-compliance <request>", self.text)
+
+    def test_requests_are_accepted_in_english_and_spanish(self):
+        hint = frontmatter(self.text)["argument-hint"]
+        self.assertIn("English or Spanish", hint)
+        self.assertIn("revisá", hint)  # a Spanish example request
+        self.assertIn("audit the whole account", hint)  # an English example request
+        self.assertIn("in English or Spanish", frontmatter(self.text)["description"])
 
     def test_skill_md_is_lean(self):
         self.assertLessEqual(len(self.text.splitlines()), 195)  # detail lives in references/

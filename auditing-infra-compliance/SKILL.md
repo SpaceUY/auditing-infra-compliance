@@ -1,5 +1,7 @@
 ---
 name: auditing-infra-compliance
+disable-model-invocation: true
+argument-hint: "<request in English or Spanish: \"audit the whole account\", \"revisá el envío de email\", \"i-0abc123…\">"
 description: Use when asked, in English or Spanish, to audit or pre-audit AWS infrastructure for SOC 2 or ISO 27001, to check whether a platform will pass Drata or Vanta automated tests (e.g. "will we pass Drata/Vanta?", "¿pasa Drata/Vanta?", "auditá la infra", "pre-auditoría SOC 2"), to review one feature (e.g. "check the email sending", "revisá el envío de email") or one resource (instance, bucket or database ID or ARN) against compliance, or to compare what an Obsidian vault documents about AWS with what is really deployed.
 ---
 
@@ -7,7 +9,7 @@ description: Use when asked, in English or Spanish, to audit or pre-audit AWS in
 
 Technical pre-audit: **it verifies whatever it is given**: read-only AWS credentials, the vault (what exists and what it is for) or both. It delivers **one self-contained HTML** with a verdict in any of the three cases, **stating what it is based on** (`summary.verdict_basis`: `aws`, `vault` or `aws+vault`), findings, mappings (SOC 2 / ISO 27001:2022, Drata and Vanta tests) and CloudShell commands that **a person** copies and pastes. It is not an audit opinion.
 
-**Language.** Talk to the user in the user's language; the report and all files are English.
+**Invocation and language.** This skill is never loaded automatically: the user runs `/auditing-infra-compliance <request>`. The request may be in English or Spanish (if it is empty, ask what to audit). Talk to the user in the user's language; the report and all files are English.
 
 **Division of work.** The scripts decide PASS/FAIL, build the remediation commands, the mappings and the HTML. Claude reads the vault, resolves the scope, judges only what is marked `PENDING_CLAUDE` and reviews the fixes. If you catch yourself writing HTML, an `aws` command or a Drata/Vanta test name by hand, you are outside the skill: go back to the pipeline.
 

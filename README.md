@@ -165,14 +165,19 @@ of `proposed`, `todo` or `draft` means "does not exist": it is reported as `DOCU
 documented and what is unverified instead of zeros that would read as "clean", and lists the scope components "not
 verified".
 
-If `scope.json` selects nothing (unknown mode or domain, resources with no checks) or carries an invalid
-`scope.regions`, `collect.py` ends with exit `2` and a message, without writing files. If the regions cannot be listed
+If `scope.json` is malformed (not an object, unknown mode or domain, empty or malformed `resources`) or carries an invalid
+`scope.regions`, `collect.py` ends with exit `2` and a message, without writing files. A well-formed scope whose resources
+have no catalog check (for example an SNS topic or a subnet) runs normally: it warns "no catalog check applies to: …" and
+those components are listed as not verified. If the regions cannot be listed
 (`ec2:DescribeRegions`) in `auto` mode, account checks with regional calls stay `NOT_VERIFIED`, never
 `PASS` for looking only at `us-east-1`.
 
 ## Modes of use
 
-The skill activates on its own when the request fits (in English or Spanish); the scope is deduced from what is asked. Missing
+The skill is **never invoked automatically**: you run it with `/auditing-infra-compliance <request>`, and the request can
+be written in **English or Spanish** (for example `/auditing-infra-compliance audit the whole account` or
+`/auditing-infra-compliance revisá el envío de email`). Claude answers in your language; the report is English. The scope
+is deduced from what is asked. Missing
 inputs are asked for in **a single message**: scope, platform name, vault path ("there is no vault" is a valid answer),
 extra evidence folder (optional), AWS profile (optional if there is a vault), regions
 (optional) and tool (`--tool drata|vanta|both`, optional).
@@ -230,7 +235,8 @@ mkdir -p ~/.claude/skills
 ln -s "$PWD/auditing-infra-compliance" ~/.claude/skills/auditing-infra-compliance
 ```
 
-The skill is available in the next Claude Code session. The scripts need no installation.
+The skill is available in the next Claude Code session as `/auditing-infra-compliance` (it is user-invoked only:
+`disable-model-invocation: true`, so Claude never loads it on its own). The scripts need no installation.
 
 ## Recommended AWS permissions
 
