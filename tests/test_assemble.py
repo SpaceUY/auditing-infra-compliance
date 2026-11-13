@@ -885,7 +885,7 @@ class FinalCleanupBTests(AssembleCase):
 
     def test_any_claim_status_with_a_failing_actual_state_is_not_optimal(self):
         self.only(("DET-001", "account"))
-        for kind in ("DRIFT", "UNDOCUMENTED", "DOCUMENTED_ONLY", "DOCUMENTED_GAP"):
+        for kind in ("DRIFT", "UNDOCUMENTED"):  # DOCUMENTED_* ignore actual_status (see test_review3_pipeline)
             claim = {"kind": kind, "check_id": "ENC-003", "resource": self.RESOURCE, "actual_status": "FAIL", "severity": "low"}
             self.assertEqual(self.verdict([claim])[0], "NOT_OPTIMAL", kind)
 
