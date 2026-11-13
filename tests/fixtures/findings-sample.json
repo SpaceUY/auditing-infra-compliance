@@ -5,6 +5,7 @@
     "target": null,
     "generated_at": "2026-11-12T10:30:00-03:00",
     "lang": "es",
+    "tool": null,
     "catalog_checks": 98,
     "vault": {
       "path": "acme-notes",
@@ -20,9 +21,11 @@
   },
   "summary": {
     "verdict": "NO_OPTIMO",
-    "verdict_text": "No óptimo para SOC 2 / ISO 27001: 12 hallazgo(s) abierto(s), 8 de severidad crítica o alta.",
+    "verdict_basis": "aws+vault",
+    "verdict_text": "No óptimo según AWS y el vault: 12 hallazgo(s) abierto(s), 8 de severidad crítica o alta.",
     "verdict_reasons": [
-      "12 hallazgo(s) que incumplen"
+      "11 hallazgo(s) que fallan",
+      "1 brecha(s) documentada(s) de severidad crítica o alta (lo dice el vault, no se verificó)"
     ],
     "aws_verified": true,
     "unverified": {

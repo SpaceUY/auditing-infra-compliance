@@ -158,6 +158,15 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(catalog.validate(copy.deepcopy(CHECKS), TSC, ISO, DRATA, RULES), [])
 
 
+class Iam004NotesTests(unittest.TestCase):
+    def test_notes_describe_the_all_regions_behaviour_not_only_us_east_1(self):
+        check = one("IAM-004")
+        self.assertTrue(check["all_regions"])
+        notes = check["remediation"]["notes"]
+        self.assertNotIn("solo us-east-1", notes)
+        self.assertIn("todas las regiones", notes)
+
+
 class CliTests(unittest.TestCase):
     def test_validate_catalog_cli_passes_the_contract_arguments(self):
         contract = validate_catalog.contract_arguments(SPECS)

@@ -21,13 +21,14 @@ El diseño está en `docs/specs/2026-11-12-infra-compliance-audit-design.md` y e
   reporte declara como tal; las regiones bloqueadas por una SCP se informan como no verificadas.
 - Compara lo documentado con lo desplegado y lo informa como `DRIFT`, `UNDOCUMENTED`, `DOCUMENTED_ONLY` o
   `DOCUMENTED_GAP`.
-- Calcula un **veredicto** (`summary.verdict` y su frase `summary.verdict_text`, lo primero que muestra el HTML):
-  `NO_OPTIMO` (algún `FAIL`, un `DRIFT` cuyo estado real falla o una brecha documentada crítica o alta),
-  `NO_VERIFICABLE` (sin credenciales, corrida parcial, regiones bloqueadas, inventario incompleto o algo sin
-  verificar) u `OPTIMO` (solo con credenciales, corrida completa, nada sin verificar y al menos un `PASS` o `FAIL`
-  evaluado). Los `FAIL` se cuentan desde el estado `FAIL`, un `DRIFT`/`UNDOCUMENTED` con `actual_status: FAIL` o una
-  brecha crítica/alta. Nunca hay `OPTIMO` sin
-  credenciales. No hay porcentaje ni nota.
+- Calcula un **veredicto** con la fuente que le den (credenciales AWS de solo lectura, el vault o ambos) y dice en qué
+  se basa: `summary.verdict`, `summary.verdict_basis` (`aws`, `vault` o `aws+vault`) y la frase `summary.verdict_text`,
+  lo primero que muestra el HTML. Con credenciales: `NO_OPTIMO` (algún `FAIL`, un `DRIFT`/`UNDOCUMENTED` cuyo estado
+  real falla o una brecha documentada crítica o alta), `NO_VERIFICABLE` (corrida parcial, regiones bloqueadas,
+  inventario incompleto o algo sin verificar) u `OPTIMO` (corrida completa, nada sin verificar y al menos un `PASS` o
+  `FAIL` evaluado). Solo con el vault: `NO_OPTIMO` (brecha crítica/alta, secreto o claim que falla), `OPTIMO` (al menos
+  un control documentado, ninguna brecha y nada del alcance sin documentar; sigue siendo "no verificado contra AWS")
+  o `NO_VERIFICABLE` (con lo que el vault no documenta). No hay porcentaje ni nota.
 - Sin ninguna fuente (ni vault ni credenciales) no hay reporte: `assemble_findings.py` termina con exit `2`
   ("sin fuentes"). Un `scope.json` que no selecciona nada (modo o dominio desconocido, recursos sin chequeos) o con
   `scope.regions` inválido hace terminar `collect.py` con exit `2` y un mensaje, sin escribir archivos. Si no se pueden
@@ -113,8 +114,9 @@ El skill se activa solo cuando el pedido encaja; el alcance se deduce de lo que 
 - **Modo `resource`** (un recurso por ID o ARN): "¿El bucket `acme-notes-uploads` pasa los tests de Drata?" o
   "Revisá `sg-0a1b2c3d4e5f60718` contra compliance."
 
-Hace falta al menos una fuente: un vault, credenciales de AWS, o ambos. Sin credenciales el skill trabaja solo
-con el vault y todo lo que depende de AWS queda `DOCUMENTED_*` o `NO_VERIFICADO`.
+Hace falta al menos una fuente: un vault, credenciales de AWS, o ambos. Con una sola de las dos fuentes el skill evalúa lo que le dan y
+dice en qué se basa el veredicto. Sin credenciales trabaja solo con el vault: los hallazgos quedan `DOCUMENTED_*` (nada se
+marca `PASS` ni `FAIL`) y el veredicto dice que no se verificó contra AWS.
 
 ## Pruebas
 

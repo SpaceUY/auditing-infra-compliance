@@ -269,11 +269,38 @@ class BehaviourChangesAreDocumentedTests(unittest.TestCase):
         for needle in ("verdict_text", "NO_OPTIMO", "NO_VERIFICABLE", "OPTIMO"):
             self.assertIn(needle, self.skill, needle)
             self.assertIn(needle, self.refs["report-format.md"], needle)
-        self.assertIn("nunca `OPTIMO` sin credenciales", self.refs["report-format.md"])
-        self.assertIn("Nunca hay `OPTIMO` sin\n  credenciales", read(ROOT / "README.md"))
+        self.assertNotIn("nunca `OPTIMO` sin credenciales", self.refs["report-format.md"])
+        self.assertNotIn("Nunca hay `OPTIMO` sin", read(ROOT / "README.md"))
         for verdict in ("NO_OPTIMO", "NO_VERIFICABLE", "OPTIMO"):
             self.assertIn(verdict, self.scripts["assemble_findings.py"])
         self.assertIn("verdict_text", self.scripts["assemble_findings.py"])
+
+    def test_the_verdict_basis_is_documented_everywhere(self):
+        for text in (self.skill, self.refs["report-format.md"], read(ROOT / "README.md"), self.scripts["assemble_findings.py"]):
+            for needle in ("verdict_basis", "vault", "aws+vault"):
+                self.assertIn(needle, text, needle)
+        self.assertIn("no verificado contra AWS", self.refs["report-format.md"])
+        self.assertIn("no verificado contra AWS", self.scripts["assemble_findings.py"])
+        for phrase in ("sin insistir en credenciales", "Solo con credenciales: seguir", "Pedir una fuente solo si no hay ninguna"):
+            self.assertIn(phrase, self.skill, phrase)
+        self.assertNotIn("Nunca `OPTIMO` sin credenciales", self.skill)
+
+    def test_spec_amends_a2_and_lists_the_post_approval_changes_and_the_plan_points_to_them(self):
+        spec = read(ROOT / "docs" / "specs" / "2026-11-12-infra-compliance-audit-design.md")
+        plan = read(ROOT / "docs" / "plans" / "2026-11-12-infra-compliance-audit.md")
+        self.assertIn("## 16. Cambios posteriores a la aprobación", spec)
+        self.assertIn("un veredicto por fuente", spec)
+        self.assertNotIn("o un \"apto / no apto\" global", spec)
+        for needle in ("verdict_basis", "REVIEWED_OPERATIONS", "IAM-009", "DAT-001", "ENC-001", "DAT-008", "aws_runner.py", "--tool"):
+            self.assertIn(needle, spec, needle)
+        self.assertIn("sección 16 de `docs/specs/2026-11-12-infra-compliance-audit-design.md`", plan.split("\n\n")[1])
+
+    def test_tool_and_lang_flags_are_documented(self):
+        self.assertIn("--tool drata|vanta|both", self.skill)
+        self.assertNotIn("--lang", self.skill)
+        report_format = self.refs["report-format.md"]
+        self.assertIn("`--lang` solo admite `es`", report_format)
+        self.assertIn("preselecciona", report_format)
 
     def test_no_sources_exit_and_the_scope_file_location_are_documented(self):
         message = "sin fuentes: hace falta un vault o credenciales AWS de solo lectura"

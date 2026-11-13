@@ -23,10 +23,16 @@ Rules worth knowing:
   emails kept. meta.vault.path is the vault folder name, never the absolute path.
 - Coverage never turns into a percentage: each ISO/TSC id is FAIL, NO_VERIFICADO, PASS or NOT_TOUCHED (a control touched only by
   DOCUMENTED_ONLY / DOCUMENTED_GAP findings is NO_VERIFICADO: the vault says so, nothing checked it).
-- summary.verdict is exactly one of NO_OPTIMO (any FAIL, any finding whose actual_status is FAIL: DRIFT, UNDOCUMENTED or another, a
-  critical/high DOCUMENTED_GAP), NO_VERIFICABLE (no AWS credentials, no evaluated PASS or FAIL at all, a DRIFT from breaks_tests without a failing actual_status, a partial run, blocked regions,
-  an incomplete inventory, or anything not verified: NO_VERIFICADO, DOCUMENTED_ONLY, DOCUMENTED_GAP, scoped components without claims)
-  and OPTIMO (credentials used, complete run, at least one evaluated PASS/FAIL, nothing of the above). Never OPTIMO without credentials. summary.verdict_text is the one-line Spanish version; there are no scores.
+- summary.verdict is exactly one of NO_OPTIMO, NO_VERIFICABLE and OPTIMO, and summary.verdict_basis says what it rests on: "aws"
+  (credentials, no vault), "vault" (no credentials) or "aws+vault". verdict_text is the one-line Spanish version and always names the
+  basis; there are no scores. With credentials ("aws", "aws+vault"): NO_OPTIMO for any FAIL, any finding whose actual_status is FAIL
+  (DRIFT, UNDOCUMENTED or another) or a critical/high DOCUMENTED_GAP; NO_VERIFICABLE for a partial run, blocked regions, an incomplete
+  inventory, a DRIFT from breaks_tests without a failing actual_status, no evaluated PASS/FAIL at all, or anything not verified
+  (NO_VERIFICADO, DOCUMENTED_ONLY, DOCUMENTED_GAP, scoped components without claims); OPTIMO otherwise. Vault only ("vault"): NO_OPTIMO for a
+  critical/high DOCUMENTED_GAP, a secret or sensitive-file FAIL or a claim with actual_status FAIL; OPTIMO when at least one control is
+  documented (DOCUMENTED_ONLY), there is no DOCUMENTED_GAP at all, nothing else is unresolved (DRIFT, UNDOCUMENTED, NO_VERIFICADO) and no
+  scoped component lacks claims; otherwise NO_VERIFICABLE with the reasons. A vault-only verdict never says AWS verified anything, and the
+  DOCUMENTED_* statuses stay as they are (nothing is marked PASS or FAIL from the vault).
 - <run-dir>/scope.json (optional) lists the scoped components: those with no finding at all come out in `unverified_scope`.
 - Without a vault index, claims or AWS credentials there is nothing to report: assemble stops ("sin fuentes") and writes nothing.
 """
@@ -70,7 +76,9 @@ NOTE_STATUS = "no verificado: no aplicar sin confirmar"
 NOTE_STATUS_BY_STATUS = {"PASS": "verificado en AWS: cumple, no requiere arreglo (el comando solo sirve para volver a comprobarlo)",
                          "N/A": "no aplica en este alcance: no requiere arreglo"}
 NO_SOURCES = "sin fuentes: hace falta un vault o credenciales AWS de solo lectura"
-VERDICT_BASIS = "para SOC 2 / ISO 27001"
+TOOLS = ("drata", "vanta", "both")
+BASIS_TEXT = {"aws": "según AWS", "aws+vault": "según AWS y el vault",
+              "vault": "según lo documentado en el vault (no verificado contra AWS)"}
 UNTYPED_WARNING = "vault no tipado: el mapa de componentes es inferido y menos confiable"
 VAULT_STATEMENTS = frozenset({"DOCUMENTED_ONLY", "DOCUMENTED_GAP"})  # transcribed from the vault, not evaluated
 FIX_STATUSES = frozenset({"FAIL", "DOCUMENTED_GAP"})
@@ -520,19 +528,51 @@ def _failure_reasons(failing):
     return reasons
 
 
-def _verdict(findings, aws_used, incomplete, counts):
-    """(verdict, one-line Spanish text, reasons). NO_OPTIMO > NO_VERIFICABLE > OPTIMO; OPTIMO never without credentials and never
-    without at least one evaluated PASS or FAIL."""
+def _basis(aws_used, vault_used):
+    """What the verdict rests on. Without credentials the vault is the only possible basis."""
+    if not aws_used:
+        return "vault"
+    return "aws+vault" if vault_used else "aws"
+
+
+def _names(entries, limit=5):
+    shown = [f"{e.get('type') or 'componente'} {e['id']}" for e in entries[:limit]]
+    return ", ".join(shown) + (f" y {len(entries) - limit} más" if len(entries) > limit else "")
+
+
+def _vault_reasons(findings, unverified_scope):
+    """Why a vault-only run cannot be called optimal (empty list = it can)."""
+    reasons = []
+    gaps = sum(1 for f in findings if f["status"] == "DOCUMENTED_GAP")
+    if gaps:
+        reasons.append(f"{gaps} brecha(s) documentada(s) en el vault: lo documentado admite que falta algo")
+    if not any(f["status"] == "DOCUMENTED_ONLY" for f in findings):
+        reasons.append("el vault no documenta ningún control en el alcance")
+    if unverified_scope:
+        reasons.append(f"el vault no documenta {len(unverified_scope)} componente(s) del alcance: {_names(unverified_scope)}")
+    open_items = sum(1 for f in findings if f["status"] in ("DRIFT", "UNDOCUMENTED", "NO_VERIFICADO"))
+    if open_items:
+        reasons.append(f"{open_items} hallazgo(s) sin resolver (DRIFT, UNDOCUMENTED o NO_VERIFICADO)")
+    return reasons
+
+
+def _verdict(findings, basis, incomplete, counts, unverified_scope=()):
+    """(verdict, one-line Spanish text, reasons). NO_OPTIMO > NO_VERIFICABLE > OPTIMO. The text always names the basis."""
+    where = BASIS_TEXT[basis]
     failing = [f for f in findings if _opens_a_failure(f)]
     severe = sum(1 for f in failing if f["severity"] in ("critical", "high"))
-    no_aws = "" if aws_used else " Sin credenciales AWS: nada se verificó contra AWS."
     if failing:
-        text = f"No óptimo {VERDICT_BASIS}: {len(failing)} hallazgo(s) abierto(s), {severe} de severidad crítica o alta.{no_aws}"
+        text = f"No óptimo {where}: {len(failing)} hallazgo(s) abierto(s), {severe} de severidad crítica o alta."
         return "NO_OPTIMO", text, _failure_reasons(failing)
+    if basis == "vault":
+        reasons = _vault_reasons(findings, list(unverified_scope))
+        if reasons:
+            return "NO_VERIFICABLE", f"No verificable {where}: " + "; ".join(reasons) + ".", reasons
+        documented = sum(1 for f in findings if f["status"] == "DOCUMENTED_ONLY")
+        return "OPTIMO", (f"Óptimo {where}: {documented} control(es) documentado(s) en el alcance, sin brechas ni componentes sin "
+                          "documentar. Lo documentado no es lo verificado: no es una opinión de auditoría."), []
     reasons = []
-    if not aws_used:
-        reasons.append("sin credenciales AWS: nada se verificó contra AWS, solo se informa lo que dice el vault")
-    elif not any(f["status"] in ("PASS", "FAIL") for f in findings):
+    if not any(f["status"] in ("PASS", "FAIL") for f in findings):
         reasons.append("ningún chequeo se evaluó (no hay resultados PASS ni FAIL)")
     reasons += incomplete
     unconfirmed = sum(1 for f in findings if f["status"] == "DRIFT" and f.get("breaks_tests") and f.get("actual_status") != "FAIL")
@@ -541,15 +581,15 @@ def _verdict(findings, aws_used, incomplete, counts):
     if counts["total"]:
         reasons.append(f"{counts['total']} elemento(s) sin verificar en AWS")
     if reasons:
-        return "NO_VERIFICABLE", f"No verificable {VERDICT_BASIS}: " + "; ".join(reasons) + ".", reasons
+        return "NO_VERIFICABLE", f"No verificable {where}: " + "; ".join(reasons) + ".", reasons
     differences = sum(1 for f in findings if f["status"] in ("DRIFT", "UNDOCUMENTED"))
     extra = (f" Hay {differences} diferencia(s) entre el vault y AWS (DRIFT / UNDOCUMENTED) sin falla comprobada: revisarlas."
              if differences else "")
-    return "OPTIMO", (f"Óptimo {VERDICT_BASIS} en el alcance evaluado: corrida completa con credenciales AWS de solo lectura, "
+    return "OPTIMO", (f"Óptimo {where} en el alcance evaluado: corrida completa con credenciales AWS de solo lectura, "
                       "sin fallas ni elementos sin verificar." + extra + " No es una opinión de auditoría."), []
 
 
-def _summary(findings, aws_used=False, incomplete=(), unverified_scope=()):
+def _summary(findings, aws_used=False, incomplete=(), unverified_scope=(), vault_used=False):
     failing = [f for f in findings if f["status"] == "FAIL"]
     drata = {t["test"] for f in failing for t in _tests(f["mappings"]) if t["tool"] == "drata"}
     vanta = {t["test"] for f in failing for t in _tests(f["mappings"]) if t["tool"] == "vanta"}
@@ -557,8 +597,9 @@ def _summary(findings, aws_used=False, incomplete=(), unverified_scope=()):
     counts = {"no_verificado": by_status["NO_VERIFICADO"], "documented_only": by_status["DOCUMENTED_ONLY"],
               "documented_gap": by_status["DOCUMENTED_GAP"], "scope_without_claims": len(unverified_scope)}
     counts["total"] = sum(counts.values())
-    verdict, text, reasons = _verdict(findings, aws_used, list(incomplete), counts)
-    return {"verdict": verdict, "verdict_text": text, "verdict_reasons": reasons, "aws_verified": bool(aws_used),
+    basis = _basis(aws_used, vault_used)
+    verdict, text, reasons = _verdict(findings, basis, list(incomplete), counts, unverified_scope)
+    return {"verdict": verdict, "verdict_basis": basis, "verdict_text": text, "verdict_reasons": reasons, "aws_verified": bool(aws_used),
             "unverified": counts,
             "by_status": {s: by_status[s] for s in STATUS_ORDER},
             "by_severity_fail": {s: by_severity[s] for s in catalog.SEVERITIES},
@@ -641,6 +682,11 @@ def _notes(aws, vault_index, meta=None):
     return notes
 
 
+def _vault_used(vault_index, claims):
+    """True when the vault contributed: an index, or any claim other than an EVAL (EVAL claims judge AWS data)."""
+    return vault_index is not None or any(c.get("kind") != "EVAL" for c in claims)
+
+
 def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, skill_dir: Path) -> dict:
     run_dir, skill_dir = Path(run_dir), Path(skill_dir)
     checks = catalog.load_checks(skill_dir / "references" / "checks")
@@ -674,11 +720,11 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
         "meta": {"platform": redact.mask_obj(meta.get("platform"), keep_emails=env.keep), "mode": meta.get("mode"),
                  "target": redact.mask_obj(meta.get("target"), keep_emails=env.keep),
                  "generated_at": meta.get("generated_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
-                 "lang": meta.get("lang", "es"), "catalog_checks": len(checks),
+                 "lang": meta.get("lang", "es"), "tool": meta.get("tool"), "catalog_checks": len(checks),
                  "vault": {"path": Path(vault_index.get("root") or "").name or None, "kind": vault_index.get("kind")} if vault_index else None,
                  "aws": redact.mask_obj({k: aws.get(k) for k in ("account_id", "identity_arn", "regions")},
                                         keep_emails=env.keep) if aws else None},
-        "summary": _summary(findings, bool(aws), _run_state(result, aws), unverified),
+        "summary": _summary(findings, bool(aws), _run_state(result, aws), unverified, _vault_used(vault_index, claims)),
         "findings": findings,
         "unverified_scope": unverified,
         "dependencies": dependencies,
@@ -739,7 +785,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--platform", required=True)
     parser.add_argument("--mode", required=True)
     parser.add_argument("--target")
-    parser.add_argument("--lang", default="es")
+    parser.add_argument("--tool", choices=TOOLS, help="herramienta de compliance que el HTML preselecciona en el filtro (se siguen viendo ambas)")
+    parser.add_argument("--lang", default="es", choices=("es",), help="reservado: el reporte es solo en castellano")
     return parser
 
 
@@ -750,7 +797,7 @@ def main(argv=None) -> int:
     if not run_dir.is_dir():
         print(f"el directorio de la corrida no existe: {run_dir}", file=sys.stderr)
         return 2
-    meta = {"platform": args.platform, "mode": args.mode, "target": args.target, "lang": args.lang}
+    meta = {"platform": args.platform, "mode": args.mode, "target": args.target, "lang": args.lang, "tool": args.tool}
     try:
         index = _load_index(args.vault_index) if args.vault_index else None
         claims = _load_claims(args.vault_claims) if args.vault_claims else []

@@ -292,7 +292,7 @@
         ],
         "commands": [],
         "verify_after": "aws cloudtrail lookup-events --lookup-attributes AttributeKey=Username,AttributeValue=root --max-results 5",
-        "notes": "Drata 124 falla con 2 o más intentos de login del root (aunque fallen) en 7 días móviles. El chequeo mira solo us-east-1, donde AWS registra el sign-in global; un login por un endpoint regional queda en esa región."
+        "notes": "Drata 124 falla con 2 o más intentos de login del root (aunque fallen) en 7 días móviles. El chequeo mira todas las regiones habilitadas: AWS registra el sign-in global en us-east-1 y un login por un endpoint regional queda en esa región, así que se suman los de todas."
       },
       "sources": [
         "https://help.drata.com/en/articles/4777051",

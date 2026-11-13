@@ -655,22 +655,23 @@ class ReviewTwoVerdictTests(AssembleCase):
         self.assertTrue(summary["verdict_text"].startswith("Óptimo"))
         self.assertEqual(summary["unverified"]["total"], 0)
 
-    def test_no_credentials_is_never_optimal_and_says_nothing_was_verified(self):
+    def test_no_credentials_never_claims_aws_verification(self):
         self.no_aws()
         only_vault = [{"kind": "DOCUMENTED_ONLY", "check_id": "ENC-003", "resource": {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}}]
-        verdict, summary = self.verdict(only_vault)  # a vault statement is the only source
-        self.assertEqual(verdict, "NO_VERIFICABLE")
-        self.assertIn("nada se verificó contra AWS", summary["verdict_text"])
+        verdict, summary = self.verdict(only_vault)  # a vault statement is the only source: the vault is the basis
+        self.assertEqual((verdict, summary["verdict_basis"]), ("OPTIMO", "vault"))
+        self.assertIn("no verificado contra AWS", summary["verdict_text"])
+        self.assertNotIn("según AWS", summary["verdict_text"])
         self.assertFalse(summary["aws_verified"])
 
-    def test_no_credentials_with_a_vault_secret_is_still_not_optimal(self):
+    def test_no_credentials_with_a_vault_secret_is_not_optimal_and_says_nothing_was_verified(self):
         self.no_aws()
         vault = self.tmp / "vault"
         vault.mkdir()
         helpers.make_secret_note(vault)
         verdict, summary = self.verdict([], vault_index.build_index(vault))
         self.assertEqual(verdict, "NO_OPTIMO")
-        self.assertIn("nada se verificó contra AWS", summary["verdict_text"])
+        self.assertIn("no verificado contra AWS", summary["verdict_text"])
 
     def test_partial_run_blocked_regions_and_incomplete_inventory_are_not_verifiable(self):
         self.only(("DET-001", "account"))
@@ -1066,3 +1067,177 @@ class CliTests(AssembleCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerdictBasisTests(AssembleCase):
+    """The verdict is given with whatever source the user gave (AWS, vault or both) and says which one it rests on."""
+
+    RESOURCE = {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}
+
+    def no_aws(self):
+        self.edit_results(lambda data: data.update(aws=None, results=[], warnings=["sin credenciales AWS válidas"]))
+
+    def only(self, *keep):
+        def prune(data):
+            data["results"] = [r for r in data["results"] if (r["check_id"], r["resource_id"]) in keep]
+            data["warnings"] = []
+        self.edit_results(prune)
+
+    def index(self):
+        vault = self.tmp / "vault"
+        vault.mkdir(exist_ok=True)
+        (vault / "Nota.md").write_text("# Nota\nTexto.\n", encoding="utf-8")
+        return vault_index.build_index(vault)
+
+    def summary(self, claims=None, index=None):
+        return self.assemble(claims, index)["summary"]
+
+    def documented(self, kind="DOCUMENTED_ONLY", **extra):
+        return {"kind": kind, "check_id": "ENC-003", "resource": self.RESOURCE, **extra}
+
+    def write_scope(self, *resources):
+        (self.run_dir / "scope.json").write_text(json.dumps({
+            "platform": "Acme Notes", "mode": "feature", "target": "db", "regions": ["us-east-1"],
+            "resources": [{"type": t, "id": i, "region": "us-east-1"} for t, i in resources]}), encoding="utf-8")
+
+    # ---- the basis itself
+
+    def test_basis_is_aws_with_credentials_and_no_vault_claims(self):
+        self.only(("DET-001", "account"))
+        summary = self.summary([{"kind": "EVAL", "check_id": "IAM-013", "status": "PASS", "detail": {"reason": "x"}}])
+        self.assertEqual((summary["verdict_basis"], summary["aws_verified"]), ("aws", True))
+
+    def test_basis_is_aws_and_vault_when_both_were_used(self):
+        self.only(("DET-001", "account"))
+        self.assertEqual(self.summary([], self.index())["verdict_basis"], "aws+vault")
+        self.assertEqual(self.summary([self.documented()])["verdict_basis"], "aws+vault")
+
+    def test_basis_is_vault_without_credentials(self):
+        self.no_aws()
+        self.assertEqual(self.summary([self.documented()])["verdict_basis"], "vault")
+        self.assertEqual(self.summary([], self.index())["verdict_basis"], "vault")
+
+    # ---- basis aws: the previous rules
+
+    def test_aws_basis_outcomes_and_text(self):
+        self.only(("DET-001", "account"))
+        optimal = self.summary([])
+        self.assertEqual((optimal["verdict"], optimal["verdict_basis"]), ("OPTIMO", "aws"))
+        self.assertTrue(optimal["verdict_text"].startswith("Óptimo según AWS"))
+        self.assertNotIn("vault", optimal["verdict_text"])
+        self.edit_results(lambda data: data.update(partial=True, pending_checks=["NET-001"]))
+        partial = self.summary([])
+        self.assertEqual(partial["verdict"], "NO_VERIFICABLE")
+        self.assertTrue(partial["verdict_text"].startswith("No verificable según AWS"))
+        failing = self.assemble()  # sample rows include FAILs
+        self.assertEqual(failing["summary"]["verdict"], "NO_OPTIMO")
+        self.assertTrue(failing["summary"]["verdict_text"].startswith("No óptimo según AWS"))
+
+    def test_aws_basis_keeps_documented_only_as_unverified(self):
+        self.only(("DET-001", "account"))
+        summary = self.summary([self.documented()])  # basis aws+vault
+        self.assertEqual((summary["verdict"], summary["verdict_basis"]), ("NO_VERIFICABLE", "aws+vault"))
+
+    # ---- basis aws+vault
+
+    def test_aws_and_vault_basis_outcomes_and_text(self):
+        self.only(("DET-001", "account"))
+        optimal = self.summary([], self.index())
+        self.assertEqual((optimal["verdict"], optimal["verdict_basis"]), ("OPTIMO", "aws+vault"))
+        self.assertTrue(optimal["verdict_text"].startswith("Óptimo según AWS y el vault"))
+        gap = self.summary([self.documented("DOCUMENTED_GAP", severity="high")], self.index())
+        self.assertEqual(gap["verdict"], "NO_OPTIMO")
+        self.assertTrue(gap["verdict_text"].startswith("No óptimo según AWS y el vault"))
+        low = self.summary([self.documented("DOCUMENTED_GAP", severity="low")], self.index())
+        self.assertEqual(low["verdict"], "NO_VERIFICABLE")
+        self.assertTrue(low["verdict_text"].startswith("No verificable según AWS y el vault"))
+
+    # ---- basis vault
+
+    def test_vault_basis_documented_control_without_gaps_is_optimal_and_says_it_is_not_aws(self):
+        self.no_aws()
+        summary = self.summary([self.documented()])
+        self.assertEqual((summary["verdict"], summary["verdict_basis"]), ("OPTIMO", "vault"))
+        self.assertTrue(summary["verdict_text"].startswith("Óptimo según lo documentado en el vault (no verificado contra AWS)"))
+        self.assertNotIn("\n", summary["verdict_text"])
+        self.assertEqual(summary["verdict_reasons"], [])
+
+    def test_vault_basis_never_marks_a_check_pass_or_fail(self):
+        self.no_aws()
+        out = self.assemble([self.documented()])
+        self.assertEqual({f["status"] for f in out["findings"]}, {"DOCUMENTED_ONLY"})
+
+    def test_vault_basis_severe_gap_is_not_optimal(self):
+        self.no_aws()
+        for severity in ("critical", "high"):
+            summary = self.summary([self.documented(), self.documented("DOCUMENTED_GAP", severity=severity)])
+            self.assertEqual(summary["verdict"], "NO_OPTIMO", severity)
+            self.assertTrue(summary["verdict_text"].startswith("No óptimo según lo documentado en el vault (no verificado contra AWS)"))
+
+    def test_vault_basis_secret_or_sensitive_file_is_not_optimal(self):
+        self.no_aws()
+        index = {"kind": "free", "root": str(self.tmp / "vault"), "secrets_detected": [{"path": "a.md", "pattern": "aws_secret"}],
+                 "sensitive_files": []}
+        self.assertEqual(self.summary([self.documented()], index)["verdict"], "NO_OPTIMO")
+        index = {"kind": "free", "root": str(self.tmp / "vault"), "secrets_detected": [], "sensitive_files": [{"path": ".env.prod"}]}
+        self.assertEqual(self.summary([self.documented()], index)["verdict"], "NO_OPTIMO")
+
+    def test_vault_basis_claim_with_a_failing_actual_status_is_not_optimal(self):
+        self.no_aws()
+        summary = self.summary([self.documented(), self.documented("DRIFT", actual_status="FAIL", severity="low")])
+        self.assertEqual(summary["verdict"], "NO_OPTIMO")
+
+    def test_vault_basis_any_gap_blocks_optimal_even_if_low(self):
+        self.no_aws()
+        summary = self.summary([self.documented(), self.documented("DOCUMENTED_GAP", severity="low")])
+        self.assertEqual(summary["verdict"], "NO_VERIFICABLE")
+        self.assertTrue(any("brecha" in r for r in summary["verdict_reasons"]))
+
+    def test_vault_basis_with_nothing_documented_is_not_verifiable(self):
+        self.no_aws()
+        summary = self.summary([], self.index())
+        self.assertEqual((summary["verdict"], summary["verdict_basis"]), ("NO_VERIFICABLE", "vault"))
+        self.assertTrue(summary["verdict_text"].startswith("No verificable según lo documentado en el vault (no verificado contra AWS)"))
+        self.assertTrue(any("ningún control" in r for r in summary["verdict_reasons"]))
+
+    def test_vault_basis_scope_component_without_claims_is_named_and_not_verifiable(self):
+        self.no_aws()
+        self.write_scope(("rds_instance", "acme-notes-db"), ("s3_bucket", "acme-notes-uploads"))
+        summary = self.summary([self.documented()])
+        self.assertEqual(summary["verdict"], "NO_VERIFICABLE")
+        joined = " ".join(summary["verdict_reasons"])
+        self.assertIn("acme-notes-uploads", joined)
+        self.assertNotIn("acme-notes-db", joined)
+
+    def test_vault_basis_scope_fully_documented_is_optimal(self):
+        self.no_aws()
+        self.write_scope(("rds_instance", "acme-notes-db"))
+        self.assertEqual(self.summary([self.documented()])["verdict"], "OPTIMO")
+
+    def test_vault_basis_drift_or_undocumented_without_failure_keeps_it_not_verifiable(self):
+        self.no_aws()
+        summary = self.summary([self.documented(), self.documented("UNDOCUMENTED")])
+        self.assertEqual(summary["verdict"], "NO_VERIFICABLE")
+
+    def test_no_sources_still_stops(self):
+        self.no_aws()
+        with self.assertRaises(ValueError):
+            assemble_findings.assemble(self.run_dir, None, [], dict(META), SKILL_DIR)
+
+
+class MetaToolTests(AssembleCase):
+    def test_tool_is_stored_in_meta(self):
+        for tool in ("drata", "vanta", "both"):
+            meta = {**META, "tool": tool}
+            out = assemble_findings.assemble(self.run_dir, None, self.claims, meta, SKILL_DIR)
+            self.assertEqual(out["meta"]["tool"], tool)
+        self.assertIsNone(self.assemble()["meta"]["tool"])
+
+    def test_cli_accepts_tool_and_rejects_unknown_values_and_other_languages(self):
+        parser = assemble_findings.build_parser()
+        base = ["--run-dir", "x", "--platform", "p", "--mode", "full"]
+        self.assertEqual(parser.parse_args(base + ["--tool", "vanta"]).tool, "vanta")
+        for bad in (["--tool", "other"], ["--lang", "en"]):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                parser.parse_args(base + bad)
+        self.assertEqual(parser.parse_args(base + ["--lang", "es"]).lang, "es")

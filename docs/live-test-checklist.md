@@ -45,6 +45,8 @@ capturas. Las notas de la prueba van en un lugar privado fuera del repo.
 - [ ] `summary.verdict_text` (primera línea del HTML) coincide con lo esperado para la cuenta: `NO_OPTIMO` si hay un
       `FAIL` conocido, `NO_VERIFICABLE` si falta cualquier verificación (permisos, regiones, corrida parcial) y
       `OPTIMO` solo si la cuenta está limpia y se verificó todo. Nunca porcentaje ni nota.
+- [ ] `summary.verdict_basis` es `aws+vault` con credenciales y vault, y el HTML lo muestra junto al veredicto. Una corrida
+      solo con vault (sin credenciales) tiene base `vault` y su texto dice "no verificado contra AWS".
 - [ ] Con `ec2:DescribeRegions` denegado y `regions: "auto"`, ningún chequeo de cuenta con llamada regional (por
       ejemplo DET-004, DET-006, DET-007) sale `PASS`; todos quedan `NO_VERIFICADO` ("no se pudieron listar las regiones").
 - [ ] Un `scope.json` con modo o dominio inexistente, o sin recursos en modo `resource`, termina con exit `2` y un

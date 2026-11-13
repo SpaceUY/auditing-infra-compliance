@@ -1,5 +1,7 @@
 # Skill `auditing-infra-compliance`: plan de implementación
 
+> **Cambios posteriores a la aprobación:** este plan se ejecutó con desvíos (veredicto por fuente, regla solo-informa, allowlist `REVIEWED_OPERATIONS`, remediaciones, evaluadores, `aws_runner.py`, entre otros). La lista con sus motivos está en la sección 16 de `docs/specs/2026-11-12-infra-compliance-audit-design.md`; donde difieran, manda el spec.
+
 > **Para agentes que lo ejecuten:** SUB-SKILL OBLIGATORIO. Usar `superpowers:subagent-driven-development`
 > (recomendado) o `superpowers:executing-plans` para implementar este plan tarea por tarea. Los pasos usan
 > casillas (`- [ ]`) para el seguimiento.

@@ -252,6 +252,29 @@ class ReviewTwoPageTests(PageCase):
         self.assertIn("Tests de Drata que fallan (0)", summary)
         self.assertNotIn("sin credenciales", summary)
 
+    def test_the_basis_is_shown_next_to_the_verdict(self):
+        expected = {"aws": "Base del veredicto: AWS (credenciales de solo lectura)",
+                    "vault": "Base del veredicto: el vault (lo documentado, no verificado contra AWS)",
+                    "aws+vault": "Base del veredicto: AWS y el vault"}
+        for basis, wanted in expected.items():
+            document = self.document()
+            document["meta"] = {"aws": {"account_id": "111122223333"} if basis != "vault" else None}
+            document["summary"] = {"verdict": "OPTIMO", "verdict_basis": basis, "verdict_text": "Óptimo."}
+            page = self.run_page(document)
+            self.assertIn(wanted, page["verdict"]["text"], basis)
+            for other in set(expected.values()) - {wanted}:
+                self.assertNotIn(other, page["verdict"]["text"], basis)
+        document = self.document()
+        document["summary"] = {"verdict": "OPTIMO", "verdict_text": "Óptimo."}  # an older findings.json without a basis
+        self.assertNotIn("Base del veredicto", self.run_page(document)["verdict"]["text"])
+
+    def test_the_chosen_compliance_tool_is_preselected_in_the_filter(self):
+        for tool, wanted in (("drata", "drata"), ("vanta", "vanta"), ("both", ""), (None, ""), ("other", "")):
+            document = self.document()
+            document["meta"] = {"tool": tool}
+            self.assertEqual(self.run_page(document)["toolFilter"], wanted, tool)
+        self.assertIn("['drata', 'Drata'], ['vanta', 'Vanta']", TEMPLATE)  # both stay available
+
     def test_a_findings_file_without_a_verdict_hides_the_banner(self):
         self.assertTrue(self.run_page(self.document())["verdict"]["hidden"])
 
@@ -328,8 +351,8 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(json.loads(match.group(1))["findings"][0]["title"], "a\u2028b\u2029c")
 
     def test_fixture_verdict_matches_what_the_assembler_computes(self):
-        recomputed = assemble_findings._summary(SAMPLE["findings"], True, [], [])
-        for key in ("verdict", "verdict_text", "unverified"):
+        recomputed = assemble_findings._summary(SAMPLE["findings"], True, [], [], True)
+        for key in ("verdict", "verdict_basis", "verdict_text", "unverified"):
             self.assertEqual(SAMPLE["summary"][key], recomputed[key], key)
 
     def test_fixture_has_long_tokens_and_placeholder_cli_fix(self):

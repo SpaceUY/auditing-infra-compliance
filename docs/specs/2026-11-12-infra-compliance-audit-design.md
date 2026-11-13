@@ -60,8 +60,10 @@ opinión de auditoría.
 **Anti-objetivos (fallaría aunque funcione)**
 - **A1.** El skill **ejecuta algo que modifica AWS**. Solo corre comandos de lectura; los arreglos los
   ejecuta un humano en CloudShell.
-- **A2.** Un **porcentaje de "cumplimiento"** o un "apto / no apto" global. Sería una opinión de auditoría
-  inventada. El reporte da conteos por estado y severidad, nunca una nota.
+- **A2.** Un **porcentaje de "cumplimiento"**, una nota o un "apto / no apto" sin decir en qué se basa. Sería
+  una opinión de auditoría inventada. El reporte da conteos por estado y severidad y **un veredicto por fuente**
+  (`OPTIMO`, `NO_OPTIMO` o `NO_VERIFICABLE`, siempre con su base: AWS, vault o ambos), nunca una nota ni un
+  porcentaje. Un veredicto basado solo en el vault nunca dice que AWS verificó algo.
 - **A3.** **Criterios o controles inventados o mal numerados.** El skill de GitHub tiene CC6.4, CC6.5, CC6.6,
   CC9.1 y CC9.2 mal etiquetados, y C1.3 y PI1.x inventados. Todo ID mapeado debe existir en el catálogo
   oficial embebido, y un validador lo verifica.
@@ -76,9 +78,9 @@ opinión de auditoría.
 - **Ingenieros** (DevOps o backend) que preparan o mantienen plataformas ante Drata o Vanta.
   Corren Claude Code en modo interactivo.
 - **Varias plataformas**, cada una con su vault y su cuenta AWS.
-- **Idioma:** el usuario escribe en castellano. Los reportes salen en el idioma del pedido, castellano por
-  defecto **[decisión del diseñador]**. Los IDs, los comandos y los nombres de tests de Drata y Vanta quedan
-  en su idioma original.
+- **Idioma:** el usuario escribe en castellano. El reporte sale **solo en castellano** (cambio posterior a la
+  aprobación, ver "Cambios posteriores a la aprobación"); `--lang` queda reservado y solo admite `es`. Los IDs,
+  los comandos y los nombres de tests de Drata y Vanta quedan en su idioma original.
 
 ## 4. Entradas e invocación
 
@@ -94,9 +96,11 @@ Al arrancar, el skill resuelve estas entradas. Pregunta solo lo que falte, **en 
 | Carpeta de evidencia extra | Ruta opcional con HTMLs o PDFs de auditoría, que se leen como contexto. Suele estar junto al vault, fuera de él | No |
 | Credenciales AWS | **Solo** vía `AWS_PROFILE` / `--profile` o el entorno ya configurado. Se verifica con `aws sts get-caller-identity` | No |
 | Regiones | Las que diga el usuario. Si no: regiones habilitadas con recursos, más `us-east-1` para servicios globales | No |
-| Herramienta de compliance | Drata, Vanta o ambas. Solo cambia qué nombre de test se destaca; por defecto se muestran ambos | No |
+| Herramienta de compliance | Drata, Vanta o ambas (`--tool drata\|vanta\|both`). Se guarda en `meta.tool` y el HTML preselecciona esa herramienta en el filtro Drata/Vanta; ambas siguen disponibles y por defecto no se preselecciona ninguna | No |
 
-Hace falta al menos una de las dos fuentes, vault o credenciales.
+Hace falta al menos una de las dos fuentes, vault o credenciales. El skill **verifica lo que le den**: con vault
+sigue sin insistir en credenciales, con credenciales sigue sin vault, y en los tres casos da un veredicto que dice
+su base.
 
 ## 5. Flujo de trabajo del skill
 
@@ -444,8 +448,9 @@ Framework vía API/MCP, 2026-11-12):
 - **Estructura:**
   1. **Encabezado:** plataforma, alcance, fuentes usadas (vault tipado o libre, credenciales, regiones),
      fecha, cuenta e identidad.
-  2. **Resumen:** conteos por estado y severidad, tests de Drata y Vanta afectados, lista de "no
-     verificado". **Sin porcentaje.**
+  2. **Resumen:** **veredicto** (`OPTIMO`, `NO_OPTIMO` o `NO_VERIFICABLE`) con su base (AWS, vault o AWS y
+     vault) junto a él, conteos por estado y severidad, tests de Drata y Vanta afectados, lista de "no
+     verificado". **Sin porcentaje ni nota.**
   3. **Filtros:** severidad, estado, dominio, Drata/Vanta, SOC 2/ISO. Buscador de texto.
   4. **Tarjetas de hallazgo**, ordenadas por severidad. Cada una incluye:
      - título;
@@ -744,3 +749,53 @@ URLs clave:
 - Security Hub CIS: https://docs.aws.amazon.com/securityhub/latest/userguide/cis-aws-foundations-benchmark.html
 - Prowler: https://hub.prowler.com/compliance/soc2_aws · https://hub.prowler.com/compliance/iso27001_2022_aws
 - Sin conformance packs SOC 2/ISO: https://docs.aws.amazon.com/config/latest/developerguide/conformancepack-sample-templates.html
+
+---
+
+## 16. Cambios posteriores a la aprobación
+
+Decisiones tomadas durante la implementación y las revisiones, después de aprobado este diseño. Cada una dice
+por qué se cambió. Donde contradicen el texto de arriba, mandan estas.
+
+- **Veredicto por fuente (`summary.verdict`, `summary.verdict_basis`).** El reporte da `OPTIMO`, `NO_OPTIMO` o
+  `NO_VERIFICABLE` y dice su base: `aws`, `vault` o `aws+vault`. Antes (A2) no había veredicto global.
+  - Motivo: el usuario pidió que el skill verifique "lo que le den, no estrictamente credenciales". Sin un
+    veredicto por fuente, una corrida solo con vault no respondía la pregunta.
+  - Se mantiene: sin porcentajes ni notas; los estados `DOCUMENTED_*` no cambian (el vault nunca marca `PASS` ni
+    `FAIL`); un veredicto de base `vault` no dice que AWS verificó algo.
+- **Solo informa: regla primera y absoluta.** El skill nunca escribe en AWS ni aplica un arreglo, aunque el
+  usuario lo pida, lo autorice o ofrezca un perfil admin (ese perfil solo sirve para la recolección de solo
+  lectura). Motivo: las pruebas de presión mostraron que un agente cede ante "es solo una prueba" y ofrece IaC o PR.
+- **`REVIEWED_OPERATIONS` y la regla de nombres.** `aws_runner.py` solo admite `describe-*`, `list-*` y `get-*`
+  (más unas pocas excepciones fijas), rechaza operaciones de nombre sensible (credential, password, token, secret…) salvo
+  excepciones revisadas, y `collect.py` solo ejecuta los pares (servicio, operación) de `catalog.REVIEWED_OPERATIONS`.
+  Motivo: que una lectura nueva no pueda exponer secretos sin que alguien haya revisado qué devuelve.
+- **Remediaciones más cautelosas.**
+  - A `cli_with_decision` (hay un valor que decide una persona o el comando reemplaza una configuración o
+    política existente): IAM-009, LOG-009, ENC-005, TLS-002, TLS-003, NET-001, NET-002, NET-004, NET-006, DAT-006,
+    DAT-007, INV-003, INT-002 y EML-002.
+  - DAT-001 pasa a `planned_change`: pasar la retención de 0 a un valor mayor corta una instancia Single-AZ unos minutos.
+  - IAM-006 e IAM-007 se arreglan con un solo cambio en tres bloques (leer la política actual, generar los
+    valores fusionados sin aplicar nada, aplicar tras revisar), porque `update-account-password-policy` reemplaza
+    la política entera y lo que no se pasa vuelve al valor por defecto de AWS.
+  - Motivo común: un comando que parece de una línea y destruye configuración es el anti-objetivo A6.
+- **Evaluadores de `jq` a Python** en ENC-001, ENC-003, DAT-002, DAT-005, DAT-006, EML-002, EML-003 y EML-006.
+  Motivo: necesitan cruzar llamadas, tolerar errores por ítem o comparar fechas, cosa que una expresión
+  declarativa no cubre con seguridad; en Python quedan probados por unidad.
+- **DAT-008 con ventana móvil de 24 h** (jobs de AWS Backup de las últimas 24 horas) en lugar del "día
+  anterior" calendario. Motivo: el resultado no depende de la hora en que se corre.
+- **Corridas parciales, progreso y caché de llamadas.** `collect.py` muestra el progreso por stderr, escribe
+  `checks-result.json` de forma incremental (`partial`, `pending_checks`), reusa llamadas idénticas y tolera la
+  falla de una región o un ítem sin tirar todo el chequeo; una corrida parcial se declara así en el reporte y
+  nunca es `OPTIMO`. Motivo: en cuentas grandes una corrida larga o cortada no puede perderse ni leerse como limpia.
+- **Pisos de verificación más estrictos.** Un arreglo de riesgo alto o con downtime nunca sale `OK` (el piso es
+  `REVISAR`), y la verificación queda atada al hash de los hallazgos (una verificación vieja se ignora y se
+  avisa). Motivo: que el sello `OK` no se lea como permiso para aplicar algo riesgoso.
+- **Copia masiva solo con verificación vigente.** El botón de copiar arreglos de bajo riesgo se desactiva sin
+  `verification.json` vigente y excluye `REVISAR`, `CONFLICTO` y comandos con `__COMPLETAR_*__`. Motivo: pegar
+  placeholders literales o arreglos sin revisar en CloudShell es inseguro.
+- **`awscli.py` pasa a `aws_runner.py`.** Motivo: chocaba con el paquete `awscli` de pip, presente en máquinas de
+  desarrollo, y un import equivocado rompía `collect.py`.
+- **Idioma y herramienta.** El reporte es solo en castellano (`--lang` reservado, solo `es`) y la herramienta
+  elegida (`--tool`) se guarda en `meta.tool` y se preselecciona en el filtro. Motivo: había una entrada que no
+  hacía nada y un flag que prometía un idioma que no existe.

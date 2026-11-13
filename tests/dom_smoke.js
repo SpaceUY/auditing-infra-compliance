@@ -69,6 +69,7 @@ async function click(button) {
   const verdict = registry.verdict;
   console.log(JSON.stringify({ bulk, cards, stale: { hidden: stale.hidden, text: stale.textContent },
                                verdict: { hidden: verdict.hidden, cls: verdict.className, text: verdict.textContent },
+                               toolFilter: registry['f-tool'] ? registry['f-tool'].value : null,
                                summary: registry['summary-body'].textContent, cardsText: registry.cards.textContent,
                                coverage: registry['coverage-body'].textContent, bulkText: registry['bulk-body'].textContent,
                                verification: registry.verification.hidden ? '' : registry['verification-body'].textContent,
