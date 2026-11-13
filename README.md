@@ -616,13 +616,13 @@ enabled in all VPCs", "CloudTrail is enabled in all regions". The full list is i
 | Fixes are not executed | They are written to `findings.json` and the HTML; `verify_remediation.py` only runs `bash -n` and the CLI's local help |
 
 **Sensitive files.** The skill never opens `.env*`, `~/.aws/credentials`, `*.pem` or `*.key`, not with `cat`, `grep` or
-Read, nor "just the variable names". `vault_index.py` detects them **by name only** (`sensitive_files`): `.env*` and `*.env`, `*.pem`, `*.key`, key stores (`*.pfx`, `*.p12`, `*.jks`, `*.keystore`), `*.tfvars`, `terraform.tfstate*`, SSH private keys (`id_rsa`, `id_ed25519`, `id_ecdsa`) and names containing `credentials` or `secret` (`secret` only for files that are not `.md` notes, so a note such as `AWS Secrets Manager.md` is still read); and the
+Read, nor "just the variable names". `vault_index.py` detects them **by name only** (`sensitive_files`): `.env*` and `*.env`, `*.pem`, `*.key`, key stores (`*.pfx`, `*.p12`, `*.jks`, `*.keystore`), `*.tfvars`, `terraform.tfstate*`, SSH private keys (`id_rsa`, `id_ed25519`, `id_ecdsa`) and names containing `credentials` or `secret`, these two only for text and config files (no extension, `.txt`, `.json`, `.yaml`, `.ini`, `.conf`, `.toml`, `.xml`, `.sh`…), never images, PDFs or office documents; `secret` never applies to `.md` notes, so a note such as `AWS Secrets Manager.md` is still read; and the
 assembler reports them as `FAIL` `critical` with `console_only` remediation (rotate and remove the file). Such a file
 in the extra evidence folder does not enter the index: it is named in the chat as a warning.
 
 **Masking.** Everything written to disk, stdout or the HTML goes through `redact.py`: access key IDs as
 `AKIA…WXYZ` (the last 4 characters), secrets and passwords as `[REDACTED]` (in any format: assignments,
-table cells, `--master-user-password`, `Bearer <token>`, passwords in URLs, PEM blocks, labels such as `DB_PASS`, `passphrase`, `private_key`, `psk`, unlabelled token shapes (GitHub `ghp_…`/`github_pat_…`, Slack `xox…-` tokens and webhook URLs, Stripe `sk_live_`/`rk_live_`, Google `AIza…`, JWTs, STS session tokens), `curl -u user:pass`, `mysql -pPASS`, `sshpass -p`, `Authorization: Basic …`), and emails as
+table cells, `--master-user-password`, `Bearer <token>`, passwords in URLs, PEM blocks, labels such as `DB_PASS`, `passphrase`, `private_key`, `psk`, unlabelled token shapes (GitHub `ghp_…`/`github_pat_…`, Slack `xox…-` tokens and webhook URLs, Stripe `sk_live_`/`rk_live_`, Google `AIza…`, JWTs, STS session tokens), `curl -u user:pass`, `mysql -pPASS`, `sshpass -p`, `Authorization: Basic …`, glued labels (`PGPASSWORD=`, `DBPASS=`, `MYSQL_PWD=`), URL passwords with an empty user (`redis://:pw@host`), `--password`/`--secret-string`/`--client-secret`/`--api-key`/`--token`/`--passphrase <value>`, PGP private key blocks), and emails as
 `u***@domain` (except those of the `VantaOwner` tag). References ("in Secrets Manager", `${VAR}`, a secret's ARN) are not
 secrets and stay as they are. Spanish labels in a vault (Contraseña, Clave, "en Secrets Manager") are recognised too.
 
@@ -661,7 +661,8 @@ know which tests are enabled, `UNUSED` or `DISABLED` in the Drata or Vanta accou
   - In column tables, the Clave, Secret, Token and API key columns are ambiguous: only a key-shaped value is
     masked.
   - Values with spaces after one-word labels (`private_key`, `psk`, `clave`) are masked only up to the first space, and a
-    bare `pass` or `clave` label needs `:` or `=`.
+    bare `pass` or `clave` label needs `:` or `=`; a bare `pass` also needs a password-looking value (8 or more characters
+    without spaces, with a digit or symbol), so "must pass: lint, test" is not flagged.
   - A sensitive file is detected by its name and is not opened: it is never known whether it contains a real secret.
   - A label with words in parentheses before the separator (`Password (prod): value`) is not detected.
   - The claim fields Claude writes (`check_id`, resource type and region) are not masked: they come from the catalog and the
