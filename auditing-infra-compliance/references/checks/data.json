@@ -64,13 +64,13 @@
         "risk": "medium",
         "downtime": true,
         "steps": [
-          "Choose the retention (7 days is the recommended minimum) for database {resource_id}.",
+          "Choose the retention in days (7 is the recommended minimum) for database {resource_id} and set it as RETENTION_DAYS in the commands.",
           "Apply it with the first block (standalone instance) or with the second (member of an Aurora cluster or Multi-AZ DB cluster, where retention belongs to the cluster).",
           "Verify with describe-db-instances that BackupRetentionPeriod is the chosen value."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# instance that does not belong to a cluster\naws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --backup-retention-period 7 --apply-immediately --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# cluster member: retention is changed on the cluster\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text)\n[ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ] && aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --backup-retention-period 7 --apply-immediately --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\nRETENTION_DAYS=\"__FILL_IN_RETENTION_DAYS__\"\n# instance that does not belong to a cluster\naws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --backup-retention-period \"$RETENTION_DAYS\" --apply-immediately --region \"$REGION\"",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\nRETENTION_DAYS=\"__FILL_IN_RETENTION_DAYS__\"\n# cluster member: retention is changed on the cluster\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text)\n[ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ] && aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --backup-retention-period \"$RETENTION_DAYS\" --apply-immediately --region \"$REGION\""
         ],
         "verify_after": "aws rds describe-db-instances --db-instance-identifier \"{resource_id}\" --region \"{region}\" --query 'DBInstances[0].BackupRetentionPeriod'",
         "notes": "Going from 0 to a higher value interrupts the database for a few minutes on a Single-AZ instance (RDS takes a snapshot and suspends I/O); raising it from a value above 0 to 7 does not. Apply it in an agreed window. Backups cost storage on top of the database size. --apply-immediately also applies any other pending change on the instance. A read replica without backups also fails this test. 7 days is a catalog design criterion, not a Drata threshold (Drata only requires greater than 0): that is why 1 to 6 is reported with severity_override low."

@@ -66,7 +66,7 @@ CLAIM_KINDS = ("DRIFT", "UNDOCUMENTED", "DOCUMENTED_ONLY", "DOCUMENTED_GAP")
 EVAL_STATUSES = ("PASS", "FAIL", "NOT_VERIFIED", "N/A")
 COVERAGE_RANK = {"PASS": 0, "NOT_VERIFIED": 1, "FAIL": 2}
 COVERAGE_STATUS = {"DOCUMENTED_ONLY": "NOT_VERIFIED", "DOCUMENTED_GAP": "NOT_VERIFIED"}
-SAFE_VALUE = re.compile(r"[A-Za-z0-9_.:/@=+,#-]{1,512}")  # R51: nothing the shell would interpret
+SAFE_VALUE = re.compile(r"[A-Za-z0-9_/][A-Za-z0-9_.:/@=+,#-]{0,511}")  # R51: nothing the shell would interpret; no leading # (comment) or -
 SAFE_REGION = re.compile(r"[a-z]{2}(-[a-z]+)+-[0-9]", re.ASCII)
 SAFE_ACCOUNT = re.compile(r"[0-9]{12}", re.ASCII)
 UNSAFE_WARNING = "{id}: identifier with unsafe characters, fill in by hand"
@@ -356,8 +356,8 @@ def _claim_severity(check, claim, kind):
         return min(ranked, key=catalog.SEVERITIES.index)
     if explicit:
         return explicit
-    if kind == "UNDOCUMENTED" or not check:
-        return "low"
+    if not check or (kind == "UNDOCUMENTED" and claim.get("actual_status") != "FAIL"):
+        return "low"  # an UNDOCUMENTED claim that AWS shows failing keeps the check's own severity
     return check["severity"]
 
 
@@ -515,13 +515,25 @@ def _scope_names(resource, inventory):
 def _unverified_scope(scope, findings, inventory=()):
     """Scoped components (scope.json) without any finding other than N/A: nothing says anything about them."""
     resources = [r for r in (scope or {}).get("resources") or [] if isinstance(r, dict) and isinstance(r.get("id"), str)]
-    covered = set()
+    typed, untyped = set(), set()  # a name only covers a component of the same type; a finding without a type, only its exact id
     for f in findings:
-        if f["status"] != "N/A":
-            covered |= {v for v in (f["resource"]["id"], f["resource"]["name"]) if v}
+        if f["status"] == "N/A":
+            continue
+        res = f["resource"]
+        if res.get("type"):
+            typed |= {(res["type"], v) for v in (res["id"], res["name"]) if v}
+        elif res.get("id"):
+            untyped.add(res["id"])
+
+    def is_covered(r):
+        if r["id"] in untyped:
+            return True
+        names = _scope_names(r, inventory)
+        return any((r.get("type"), n) in typed if r.get("type") else any(n == v for _, v in typed) for n in names)
+
     return [{"type": _unmasked(r.get("type")), "id": _unmasked(r["id"]), "region": _unmasked(r.get("region")),
              "reason": "no AWS result or vault claim for this component"}
-            for r in resources if not _scope_names(r, inventory) & covered]
+            for r in resources if not is_covered(r)]
 
 
 def _run_state(result, aws):
@@ -608,8 +620,13 @@ def _verdict(findings, basis, incomplete, counts, unverified_scope=()):
     if reasons:
         return "NOT_VERIFIABLE", f"Not verifiable {where}: " + "; ".join(reasons) + ".", reasons
     differences = sum(1 for f in findings if f["status"] in ("DRIFT", "UNDOCUMENTED"))
-    extra = (f" There are {differences} difference(s) between the vault and AWS (DRIFT / UNDOCUMENTED) with no confirmed failure: review them."
-             if differences else "")
+    plural = "is" if differences == 1 else "are"
+    if basis == "aws+vault":
+        extra = (f" There {plural} {differences} difference(s) between the vault and AWS (DRIFT / UNDOCUMENTED) with no confirmed failure: review them."
+                 if differences else "")
+    else:
+        extra = (f" There {plural} {differences} observation(s) outside the catalog (DRIFT / UNDOCUMENTED) with no confirmed failure: review them."
+                 if differences else "")
     return "OPTIMAL", (f"Optimal {where} in the evaluated scope: complete run with read-only AWS credentials, "
                       "with no failures or unverified items." + extra + " This is not an audit opinion."), []
 
@@ -702,8 +719,8 @@ def _notes(aws, vault_index, meta=None):
 
 
 def _vault_used(vault_index, claims):
-    """True when the vault contributed: an index, or any claim other than an EVAL (EVAL claims judge AWS data)."""
-    return vault_index is not None or any(c.get("kind") != "EVAL" for c in claims)
+    """True when the vault contributed: a vault index was used. Without one, claims are Claude's own observations of AWS."""
+    return vault_index is not None
 
 
 def refuse_inside_vault(path, vault_root, what):

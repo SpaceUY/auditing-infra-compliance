@@ -625,7 +625,7 @@ def verify(findings: dict, inventory: list, rules: list, *, claims: list | None 
 def _read_json(path, expected, label):
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, expected):
-        raise ValueError(f"{label}: forma inesperada")
+        raise ValueError(f"{label}: unexpected shape")
     return data
 
 
