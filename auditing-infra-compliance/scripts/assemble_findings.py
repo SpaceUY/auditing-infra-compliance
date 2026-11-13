@@ -8,6 +8,9 @@ Rules worth knowing:
   DOCUMENTED_ONLY, DOCUMENTED_GAP) and one critical FAIL per secret the vault indexer detected.
 - PENDING_CLAUDE rows are replaced by the EVAL claims with the same check_id (claim resource must match unless the row
   is the account-level one); without a claim they become NOT_VERIFIED plus a warning.
+- actual_status "FAIL" is honoured only on a DRIFT or UNDOCUMENTED claim (including a DRIFT created by breaks_tests); on another kind it
+  is ignored and the finding gets a warning. Such a DRIFT/UNDOCUMENTED counts as a failure in summary.by_severity_fail, the failing
+  Drata/Vanta test lists and the coverage (the finding keeps its DRIFT/UNDOCUMENTED status).
 - Remediation by status: FAIL, DOCUMENTED_GAP and a DRIFT or UNDOCUMENTED claim with actual_status "FAIL" keep the full fix; the other
   statuses (DOCUMENTED_ONLY, PASS, N/A, NOT_VERIFIED, any other DRIFT or UNDOCUMENTED) carry no steps/commands/notes and no kind, risk or
   downtime (null), only verify_after and a remediation.note_status. A DOCUMENTED_ONLY finding is severity low with evidence.catalog_severity (the check's severity).
@@ -26,14 +29,17 @@ Rules worth knowing:
 - summary.verdict is exactly one of NOT_OPTIMAL, NOT_VERIFIABLE and OPTIMAL, and summary.verdict_basis says what it rests on: "aws"
   (credentials, no vault), "vault" (no credentials) or "aws+vault". verdict_text is the one-line English version and always names the
   basis; there are no scores. With credentials ("aws", "aws+vault"): NOT_OPTIMAL for any FAIL, any finding whose actual_status is FAIL
-  (DRIFT, UNDOCUMENTED or another) or a critical/high DOCUMENTED_GAP; NOT_VERIFIABLE for a partial run, blocked regions, an incomplete
+  (DRIFT or UNDOCUMENTED) or a critical/high DOCUMENTED_GAP; NOT_VERIFIABLE for a partial run, blocked regions, an incomplete
   inventory, a DRIFT from breaks_tests without a failing actual_status, no evaluated PASS/FAIL at all, or anything not verified
   (NOT_VERIFIED, DOCUMENTED_ONLY, DOCUMENTED_GAP, scoped components without claims); OPTIMAL otherwise. Vault only ("vault"): NOT_OPTIMAL for a
   critical/high DOCUMENTED_GAP, a secret or sensitive-file FAIL or a claim with actual_status FAIL; OPTIMAL when at least one control is
   documented (DOCUMENTED_ONLY), there is no DOCUMENTED_GAP at all, nothing else is unresolved (DRIFT, UNDOCUMENTED, NOT_VERIFIED) and no
   scoped component lacks claims; otherwise NOT_VERIFIABLE with the reasons. A vault-only verdict never says AWS verified anything, and the
   DOCUMENTED_* statuses stay as they are (nothing is marked PASS or FAIL from the vault).
-- <run-dir>/scope.json (optional) lists the scoped components: those with no finding at all come out in `unverified_scope`.
+- <run-dir>/scope.json (optional) lists the scoped components: those with no finding at all come out in `unverified_scope`. A component
+  given by ARN, name or id is resolved against inventory.json (id, arn, name, as collect does) before looking for its findings.
+- The whole findings document (summary text, reasons, unverified_scope, findings) is masked at the end, emails kept as they are.
+- A run directory inside the vault root (vault-index.json `root`) is refused: error + exit 2.
 - Without a vault index, claims or AWS credentials there is nothing to report: assemble stops ("no sources") and writes nothing.
 """
 
@@ -363,6 +369,10 @@ def _claim_finding(env, claim, warnings):
     if claim.get("breaks_tests"):
         kind = "DRIFT"
     resource, arn = _claim_resource(env, check, claim)
+    actual_fails = claim.get("actual_status") == "FAIL"
+    if actual_fails and kind not in FIX_IF_ACTUAL_FAILS:
+        warnings.append(f"{kind} claim{f' for {cid}' if cid else ''}: actual_status FAIL ignored (only DRIFT and UNDOCUMENTED claims use it)")
+        actual_fails = False
     evidence = {"actual": claim["actual"]} if claim.get("actual") else {}
     if kind == "DOCUMENTED_ONLY":
         evidence = {**evidence, "catalog_severity": check["severity"] if check else None, "note": "not verified"}
@@ -370,7 +380,7 @@ def _claim_finding(env, claim, warnings):
                     arn=arn, evidence=evidence, title=CLAIM_TITLES[kind], check_id=cid,
                     vault_claim=claim.get("vault_claim"), vault_note=claim.get("vault_note"),
                     evaluated_by="vault" if kind in VAULT_STATEMENTS else "claude",
-                    breaks_tests=claim.get("breaks_tests") or [], actual_fails=claim.get("actual_status") == "FAIL")
+                    breaks_tests=claim.get("breaks_tests") or [], actual_fails=actual_fails)
 
 
 def _claim_findings(env, claims, warnings):
@@ -429,10 +439,15 @@ def _dependencies(findings):
     return [e for e in grouped.values() if e["tests"]]
 
 
+def is_failure(finding):
+    """A FAIL, or a DRIFT/UNDOCUMENTED whose real state fails (actual_status FAIL): counts in the failure counters and coverage."""
+    return finding["status"] == "FAIL" or (finding["status"] in FIX_IF_ACTUAL_FAILS and finding.get("actual_status") == "FAIL")
+
+
 def _worst_status(findings):
     worst = {"iso27001_2022": {}, "tsc": {}}
     for f in findings:
-        status = COVERAGE_STATUS.get(f["status"], f["status"])
+        status = "FAIL" if is_failure(f) else COVERAGE_STATUS.get(f["status"], f["status"])
         if status not in COVERAGE_RANK:
             continue
         for key, seen in worst.items():
@@ -487,16 +502,26 @@ def _read_scope(run_dir):
     return scope
 
 
-def _unverified_scope(scope, findings):
+def _scope_names(resource, inventory):
+    """Every name a finding about this scope entry may carry: the reference itself, an ARN's last segment and, when the reference
+    (id, ARN or name) resolves to an inventory item of the same type as collect does, that item's id, name and ARN."""
+    names = _ref_names(resource["id"])
+    for item in inventory:
+        if isinstance(item, dict) and item.get("type") == resource.get("type") and resource["id"] in (item.get("id"), item.get("arn"), item.get("name")):
+            names |= {v for v in (item.get("id"), item.get("name"), item.get("arn")) if isinstance(v, str) and v}
+    return names
+
+
+def _unverified_scope(scope, findings, inventory=()):
     """Scoped components (scope.json) without any finding other than N/A: nothing says anything about them."""
     resources = [r for r in (scope or {}).get("resources") or [] if isinstance(r, dict) and isinstance(r.get("id"), str)]
     covered = set()
     for f in findings:
         if f["status"] != "N/A":
             covered |= {v for v in (f["resource"]["id"], f["resource"]["name"]) if v}
-    return [{"type": r.get("type"), "id": r["id"], "region": r.get("region"),
+    return [{"type": _unmasked(r.get("type")), "id": _unmasked(r["id"]), "region": _unmasked(r.get("region")),
              "reason": "no AWS result or vault claim for this component"}
-            for r in resources if not _ref_names(r["id"]) & covered]
+            for r in resources if not _scope_names(r, inventory) & covered]
 
 
 def _run_state(result, aws):
@@ -590,7 +615,7 @@ def _verdict(findings, basis, incomplete, counts, unverified_scope=()):
 
 
 def _summary(findings, aws_used=False, incomplete=(), unverified_scope=(), vault_used=False):
-    failing = [f for f in findings if f["status"] == "FAIL"]
+    failing = [f for f in findings if is_failure(f)]
     drata = {t["test"] for f in failing for t in _tests(f["mappings"]) if t["tool"] == "drata"}
     vanta = {t["test"] for f in failing for t in _tests(f["mappings"]) if t["tool"] == "vanta"}
     by_status, by_severity = Counter(f["status"] for f in findings), Counter(f["severity"] for f in failing)
@@ -609,20 +634,14 @@ def _summary(findings, aws_used=False, incomplete=(), unverified_scope=(), vault
 
 # ---------------------------------------------------------------- assemble and CLI
 
-def _fix_digest(finding):
-    rem = finding.get("remediation") if isinstance(finding.get("remediation"), dict) else {}
-    parts = [rem.get("kind"), rem.get("risk"), rem.get("downtime"), rem.get("steps"), rem.get("commands"), rem.get("verify_after"),
-             rem.get("notes")]
-    return hashlib.sha256(json.dumps(parts, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")).hexdigest()[:16]
-
-
 def findings_digest(document: dict) -> str:
-    """Digest of the finding ids, check_ids, resource ids, statuses and fixes (kind, risk, steps, commands, verify_after, notes)
-    of a findings.json: binds verification.json to it, because the positional ids (F-0001...) shift when assemble runs again with
-    different claims and a re-collected run can keep the ids while the statuses or the commands change."""
-    keys = [[f.get("id"), f.get("check_id"), (f.get("resource") or {}).get("id"), f.get("status"), _fix_digest(f)]
-            for f in document.get("findings", []) if isinstance(f, dict)]
-    return hashlib.sha256(json.dumps(keys, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+    """Digest of every finding of a findings.json, whole (sorted keys): binds verification.json to it. The verification reads the
+    fix, the evidence (attachments, ssm_unreachable), severity, depends_on_me, the resource and the status, and the positional ids
+    (F-0001...) shift when assemble runs again, so any change to a finding makes the verification stale. Nothing outside
+    `findings` (meta, summary, warnings, an embedded verification) is part of it."""
+    findings = [f for f in document.get("findings", []) if isinstance(f, dict)]
+    text = json.dumps(findings, separators=(",", ":"), ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _vault_warnings(vault_index):
@@ -687,8 +706,32 @@ def _vault_used(vault_index, claims):
     return vault_index is not None or any(c.get("kind") != "EVAL" for c in claims)
 
 
+def refuse_inside_vault(path, vault_root, what):
+    """Reports are never written inside the vault: ValueError (-> `error:` + exit 2) when `path` is the vault root or below it."""
+    if not isinstance(vault_root, str) or not vault_root.strip():
+        return
+    try:
+        Path(path).resolve().relative_to(Path(vault_root).resolve())
+    except (ValueError, OSError):
+        return
+    raise ValueError(f"{what} is inside the vault ({vault_root}): reports are never written inside the vault, use a folder outside it")
+
+
+def _mask_strings(obj):
+    """mask_secrets on every string value (emails stay as they are: identifiers keep them)."""
+    if isinstance(obj, str):
+        return _unmasked(obj)
+    if isinstance(obj, dict):
+        return {k: _mask_strings(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_mask_strings(v) for v in obj]
+    return obj
+
+
 def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, skill_dir: Path) -> dict:
     run_dir, skill_dir = Path(run_dir), Path(skill_dir)
+    if vault_index:
+        refuse_inside_vault(run_dir, vault_index.get("root"), "the run directory")
     checks = catalog.load_checks(skill_dir / "references" / "checks")
     result = _read_json(run_dir / "checks-result.json", {})
     aws = result.get("aws")
@@ -707,7 +750,7 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
     findings = _row_findings(env, rows, [c for c in claims if c.get("kind") == "EVAL"], warnings)
     findings += _claim_findings(env, claims, warnings) + _secret_findings(env, vault_index)
     findings.sort(key=_sort_key)
-    unverified = _unverified_scope(_read_scope(run_dir), findings)
+    unverified = _unverified_scope(_read_scope(run_dir), findings, inventory)
     dependencies = _dependencies(findings)
     tests_by_resource = {d["resource_id"]: d["tests"] for d in dependencies}
     for number, finding in enumerate(findings, start=1):
@@ -724,7 +767,7 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
                  "vault": {"path": Path(vault_index.get("root") or "").name or None, "kind": vault_index.get("kind")} if vault_index else None,
                  "aws": redact.mask_obj({k: aws.get(k) for k in ("account_id", "identity_arn", "regions")},
                                         keep_emails=env.keep) if aws else None},
-        "summary": _summary(findings, bool(aws), _run_state(result, aws), unverified, _vault_used(vault_index, claims)),
+        "summary": _mask_strings(_summary(findings, bool(aws), _run_state(result, aws), unverified, _vault_used(vault_index, claims))),
         "findings": findings,
         "unverified_scope": unverified,
         "dependencies": dependencies,
@@ -758,9 +801,11 @@ def _load_claims(path):
             claim.get("detail") is not None and not isinstance(claim["detail"], dict),
             not isinstance(claim.get("breaks_tests") or [], list)
             or not all(isinstance(b, dict) for b in claim.get("breaks_tests") or []),
+            any(claim.get(k) is not None and not isinstance(claim[k], str) for k in ("vault_claim", "vault_note", "actual")),
         ]
         if any(problems):
-            raise ValueError(f"{path}: claim with an invalid shape (kind, check_id, resource with text type, id and region, detail or breaks_tests)")
+            raise ValueError(f"{path}: claim with an invalid shape (kind, check_id, resource with text type, id and region, "
+                             "detail, breaks_tests, or a vault_claim, vault_note or actual that is not text)")
     return claims
 
 

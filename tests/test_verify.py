@@ -901,15 +901,16 @@ class StaleVerificationTests(unittest.TestCase):
         other["findings"][0]["resource"]["id"] = "sg-0f00000000000000f"
         return other
 
-    def test_digest_depends_on_ids_resources_statuses_and_fixes_but_not_titles(self):
+    def test_digest_covers_the_whole_finding_but_nothing_outside_the_findings_list(self):
         digest = assemble_findings.findings_digest(FINDINGS)
         self.assertEqual(self.verification["findings_digest"], digest)
         self.assertRegex(digest, r"^[0-9a-f]{64}$")
         changed = copy.deepcopy(FINDINGS)
-        changed["findings"][0]["title"] = "another title"
-        changed["findings"][0]["evidence"] = {"another": "evidence"}
+        changed["meta"] = {"another": "meta"}
+        changed["warnings"] = ["another"]
         self.assertEqual(assemble_findings.findings_digest(changed), digest)
-        for mutate in (lambda f: f["findings"][0].update(id="F-9999"), lambda f: f["findings"][0].update(check_id="ZZZ-001"),
+        for mutate in (lambda f: f["findings"][0].update(title="another title"),
+                       lambda f: f["findings"][0].update(evidence={"another": "evidence"}),lambda f: f["findings"][0].update(id="F-9999"), lambda f: f["findings"][0].update(check_id="ZZZ-001"),
                        lambda f: f["findings"][0]["resource"].update(id="other"), lambda f: f["findings"].pop(),
                        lambda f: f["findings"][0].update(status="PASS"),
                        lambda f: f["findings"][0]["remediation"].update(commands=["echo other"]),
