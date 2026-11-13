@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from evaluators import (_for_each_pairs, _inventory_by_arn, _not_applicable, _now, _offender, _parse_time, _unreadable,
                         _unverified, register)
+from evaluators.policy_glob import glob_match
 
 
 # ---------------------------------------------------------------- At rest: EBS and RDS
@@ -188,8 +189,7 @@ def _is_deny_without_tls(statement: object) -> bool:
 def _resource_matches(pattern: object, arn: str) -> bool:
     """IAM wildcard match (* and ?) of a Resource entry; the partition of the pattern is ignored."""
     normalized = re.sub(r"^arn:[^:*?]+:", "arn:aws:", str(pattern))
-    regex = re.escape(normalized).replace(r"\*", ".*").replace(r"\?", ".")
-    return re.fullmatch(regex, arn) is not None
+    return glob_match(normalized, arn)
 
 
 def _denies_insecure_transport(policy: dict, bucket: str) -> bool:

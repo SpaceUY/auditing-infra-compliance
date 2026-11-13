@@ -11,6 +11,7 @@ from collections.abc import Callable
 from urllib.parse import unquote
 
 from evaluators import _first, _for_each_pairs, _not_applicable, _offender, _unverified, register
+from evaluators.policy_glob import glob_match
 
 SECURITY_AUDIT = re.compile(r"^arn:aws[a-z-]*:iam::aws:policy/SecurityAudit$")
 PENDING_DELETION_STATES = frozenset({"pendingdeletion", "pendingreplicadeletion"})
@@ -35,12 +36,8 @@ def _as_list(value: object) -> list:
     return value if isinstance(value, list) else [] if value is None else [value]
 
 
-def _wildcard(pattern: str) -> re.Pattern:
-    return re.compile(re.escape(pattern).replace(r"\*", ".*").replace(r"\?", "."), re.IGNORECASE)
-
-
 def _action_matches(statement: dict, action: str) -> bool:
-    return any(_wildcard(p).fullmatch(action) for p in _as_list(statement.get("Action")) if isinstance(p, str))
+    return any(glob_match(p, action, ignore_case=True) for p in _as_list(statement.get("Action")) if isinstance(p, str))
 
 
 def _grants(statements: list[dict], action: str, applies: Callable[[dict], bool]) -> bool:

@@ -496,6 +496,8 @@ class DocumentedScopesAreValidTests(unittest.TestCase):
         examples = self.examples()
         self.assertGreaterEqual(len(examples), 2)
         for name, scope in examples:
+            if str(scope.get("profile")).startswith("<"):  # a documentation placeholder, like "<platform>"
+                scope = {**scope, "profile": None}
             self.assertIsNone(collect._scope_problem(scope, checks), (name, scope))
 
     def test_a_scope_for_every_inventory_type_is_valid(self):
