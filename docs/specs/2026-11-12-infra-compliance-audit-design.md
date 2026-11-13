@@ -313,7 +313,7 @@ Cada chequeo produce una **lista de ofensores**: vacía → `PASS`; con elemento
 - **`jmespath`**: expresión JMESPath sobre la salida JSON de la llamada. Es el mismo lenguaje de `--query`
   de AWS CLI; en Python se evalúa con el JMESPath que trae la CLI o por `--query`, sin depender de `jq`.
   Cubre la mayoría de los chequeos.
-- **`python:<nombre>`**: función con nombre en `scripts/evaluators.py` para lógica que cruza llamadas o
+- **`python:<nombre>`**: función con nombre en el paquete `scripts/evaluators/` (un módulo por dominio) para lógica que cruza llamadas o
   parsea CSV. Ejemplos:
   - credential report → claves de más de 90 días o credenciales sin uso por más de 45 días;
   - security groups abiertos solo en regiones con ENIs activas;
@@ -328,7 +328,7 @@ Cada chequeo produce una **lista de ofensores**: vacía → `PASS`; con elemento
 
 ### 7.2 Contenido inicial
 
-Unos 85–90 chequeos. Los umbrales de la tabla son **documentados** en Drata, Vanta o CIS (fuentes en la
+98 chequeos. Los umbrales de la tabla son **documentados** en Drata, Vanta o CIS (fuentes en la
 sección 15). La lista completa con mapeos va en el plan; estos son los dominios y los chequeos clave:
 
 | Dominio | Chequeos (umbral) | Drata | Vanta (CIS) |
@@ -402,7 +402,7 @@ Framework vía API/MCP, 2026-11-12):
 
 ### 7.3 Catálogos de referencia embebidos
 
-- `references/frameworks/iso27001-2022-annex-a.json`: los **93** controles (5: 37 · 6: 8 · 7: 14 · 8: 34),
+- `references/frameworks/iso27001-2022.json`: los **93** controles (5: 37 · 6: 8 · 7: 14 · 8: 34),
   ID y nombre parafraseado, y responsabilidad (cliente, compartida o heredada de AWS).
 - `references/frameworks/tsc-2017.json`: los 61 criterios (CC1–CC9, A1, C1, PI1, P1–P8), parafraseados.
 - **No** se copia texto de AICPA ni de ISO; solo IDs y nombres cortos parafraseados.
@@ -443,8 +443,9 @@ Framework vía API/MCP, 2026-11-12):
 
 - **Archivo único**, sin dependencias externas: CSS y JS inline. Se abre offline y se puede adjuntar como
   evidencia.
-- **Ruta:** `./compliance-reports/<plataforma>-<alcance>-<YYYY-MM-DD-HHMM>.html` en el directorio de
-  trabajo **[decisión del diseñador]**. Nunca dentro del vault. También se guarda el `findings.json` al lado.
+- **Ruta:** `./compliance-reports/<plataforma>-<alcance>-<YYYY-MM-DD-HHMM>/report.html` en el directorio de
+  trabajo **[decisión del diseñador]**: una carpeta por corrida con `report.html`, `findings.json`, `verification.json` y los
+  archivos intermedios. Nunca dentro del vault.
 - **Estructura:**
   1. **Encabezado:** plataforma, alcance, fuentes usadas (vault tipado o libre, credenciales, regiones),
      fecha, cuenta e identidad.
@@ -464,7 +465,7 @@ Framework vía API/MCP, 2026-11-12):
   5. **Bloque de remediación**, en cada tarjeta:
      - bloque de código bash para **CloudShell** con botón **Copy**;
      - variables arriba (`REGION=…`, `ACCOUNT_ID=…`);
-     - placeholders `<<COMPLETAR: descripción>>` resaltados;
+     - placeholders `__COMPLETAR_<NOMBRE>__` resaltados;
      - etiquetas de riesgo y downtime, y aviso si es `planned_change` (pasos numerados, cada uno con su
        Copy);
      - comando "verificar después".
@@ -528,7 +529,7 @@ dice "aplicar B antes que A", esa regla gana.
 
 | ID | Situación | Mensaje | Resultado |
 |---|---|---|---|
-| CR-001 | NET-003 (cerrar el puerto 80) sobre el SG de un ALB que tiene listener HTTP con redirect (TLS-002) | Cerrar 80 rompe la redirección HTTP→HTTPS; alternativa: solo 443, o excluir en Drata con justificación | `CONFLICTO` |
+| CR-001 | NET-003 o NET-004 sobre un SG adjunto a la interfaz de un balanceador (descripción de ENI que empieza con `ELB `: ALB, NLB o clásico) | Cerrar 80 rompe la redirección HTTP→HTTPS; alternativa: solo 443, o excluir en Drata con justificación | `CONFLICTO` |
 | CR-002 | LOG-003 (CloudTrail con CMK) | La key policy debe permitir `cloudtrail.amazonaws.com` antes de aplicar; si no, el trail deja de loguear | `REVISAR`, con orden: la clave antes que el trail |
 | CR-003 | NET-001 o NET-002 (revocar SSH/RDP) sobre una instancia con CMP-006 en `FAIL` (no gestionada por SSM) | Te quedás sin acceso; primero habilitar SSM | `CONFLICTO`, con orden: CMP-006 antes |
 | CR-004 | CMP-001 o CMP-002 (IMDSv2) | SDKs o agentes viejos que solo usan IMDSv1 dejan de obtener credenciales | `REVISAR` |
@@ -608,7 +609,7 @@ El script combina las dos fuentes; gana el estado más severo. Claude nunca baja
 - **Fase 1 (MVP):**
   - lectura de vault, tipado y libre;
   - inventario y chequeos en vivo con AWS CLI;
-  - catálogo de unos 85–90 chequeos en los dominios de 7.2;
+  - catálogo de 98 chequeos en los dominios de 7.2;
   - mapeo autoritativo de Drata embebido;
   - sección "no tocar sin revisar";
   - catálogos ISO y TSC;
@@ -641,7 +642,7 @@ infra-compliance-audit/
       vault-reading.md           contrato tipado + heurísticas libres + resolución de feature/recurso
       checks/<dominio>.json      catálogo (iam, logging, detection, encryption, network, compute,
                                  data, monitoring, inventory, integration, email…)
-      frameworks/iso27001-2022-annex-a.json
+      frameworks/iso27001-2022.json
       frameworks/tsc-2017.json
       mappings/drata-dcf.json    mapeo autoritativo test Drata → DCF → SOC 2 / ISO (2026-11-12),
                                  sin datos de ninguna cuenta
@@ -651,7 +652,7 @@ infra-compliance-audit/
                                  tests (fase 2: uso del MCP)
     scripts/
       collect.py                 ejecuta chequeos (allowlist + denylist, paralelo por región, raw a disco)
-      evaluators.py              evaluadores python:<nombre> para lógica cruzada
+      evaluators/                evaluadores python:<nombre>, un módulo por dominio
       render_report.py           findings.json → HTML (stdlib)
       validate_catalog.py        IDs únicos, mapeos existentes en catálogos, campos obligatorios,
                                  comandos verify en allowlist, remediation no vacía
