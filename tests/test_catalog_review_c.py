@@ -797,7 +797,8 @@ class Review3CatalogFixTests(unittest.TestCase):
 
     def test_cmp_004_scheme_and_target_port_are_placeholders(self):
         block = commands("CMP-004")[0]
-        self.assertIn('SCHEME="__FILL_IN_internet-facing_OR_internal__"', block)
+        self.assertIn('SCHEME="__FILL_IN_ALB_SCHEME__"', block)
+        self.assertIn("internet-facing or internal", block)
         self.assertIn('--scheme "$SCHEME"', block)
         self.assertIn('--port "$TARGET_PORT"', block)
         self.assertNotIn("--port 80", block)

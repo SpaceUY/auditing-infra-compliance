@@ -31,7 +31,13 @@
   two starting with eyJ), STS session tokens (FwoGZXIvYXdz..., IQoJb3JpZ2lu...)
 - command lines and headers: `curl -u user:pass` / `--user`, `mysql... -pPASS` (glued), `sshpass -p PASS`, `Authorization: Basic <b64>`;
   placeholders (`user:password`) and references (`$PASS`) are not credentials
-- PEM private-key blocks (BEGIN ... PRIVATE KEY through END, or to the end of the text when unterminated)
+- glued labels ending in password/pwd (PGPASSWORD, DBPASSWORD, MYSQL_PWD) and db/pg/mysql/root/admin/user/... + pass (DBPASS); a bare `pass`
+  label needs a password-looking value (8+ characters, no spaces, a digit or symbol, two character classes), so "must pass: lint, test"
+  is prose; a label inside an ARN (`...:function:refresh-token:alias`) and a hyphenated lowercase name after a token label are not secrets
+- URL passwords with an empty user (`redis://:pw@host`); CLI flags `--secret-string`, `--client-secret`, `--api-key`, `--token`
+  (`--access-token`, `--auth-token`, `--refresh-token`, `--id-token`), `--private-key`, `--passphrase`, `--password` followed by a value
+  (`file://...`, `$VAR`, `$(...)` are references)
+- PEM and PGP private-key blocks (BEGIN ... PRIVATE KEY [BLOCK] through END, or to the end of the text when unterminated)
 - emails -> first char + "***@domain", except those listed in keep_emails (e.g. VantaOwner owners)
 
 `mask_secrets` is `mask` without the email rule. `mask` is idempotent. `mask_obj` applies it to every string value and
@@ -96,9 +102,16 @@ _CRED_WORD = (rf"(?:(?:password|passwd|pwd|passphrase|contrase[ñn]a){_WORD_TAIL
 CRED_LABEL = re.compile(
     rf"(?i)({_CRED_WORD})([*`'\"\\ \t]*[:=|][ \t*]*)")
 _LABEL_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
-CLI_PASSWORD = re.compile(r"(?i)(?<![\w-])(--[A-Za-z0-9-]{0,40}(?:password|passwd|pwd)[A-Za-z0-9-]{0,10})([ \t]+)(?=[^\s-])")
+CLI_PASSWORD = re.compile(r"(?i)(?<![\w-])(--[A-Za-z0-9-]{0,40}(?:password|passwd|pwd|passphrase)[A-Za-z0-9-]{0,10})([ \t]+)(?=[^\s-])")
+# Other credential flags with a space-separated value: `--secret-string`, `--client-secret`, `--api-key`, `--token` (also --access-token,
+# --auth-token, --refresh-token, --id-token), `--private-key`. The flag name is complete (`--token-file` is not `--token`), so the regex is
+# anchored and linear. Passwords and secret strings are masked whatever they hold; the token-like flags need a value that is not an
+# ordinary lowercase word (`--token to authenticate` is prose).
+CLI_SECRET_FLAG = re.compile(
+    r"(?i)(?<![\w-])(--(?:secret-string|private-key|(?:client-secret|api-key|(?:access-|auth-|refresh-|id-)?token)))([ \t]+)(?=[^\s-])")
+_CLI_FLAG_FAMILY = {"secret-string": "password", "private-key": "private_key", "client-secret": "client_secret", "api-key": "api_key"}
 BEARER = re.compile(r"(?i)(?<![\w-])(bearer[ \t]+)([A-Za-z0-9._~+/=-]{8,})")
-URL_USERINFO = re.compile(r"(?i)(?<![\w+.-])([a-z][a-z0-9+.-]{1,15}://[^\s:/@?#\[\]]{1,64}:)([^\s/@]{1,200})(?=@)")
+URL_USERINFO = re.compile(r"(?i)(?<![\w+.-])([a-z][a-z0-9+.-]{1,15}://[^\s:/@?#\[\]]{0,64}:)([^\s/@]{1,200})(?=@)")
 _CLI_VALUE = r"""(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"']+))"""
 BASIC_AUTH = re.compile(r"""(?i)(?<![\w-])authorization["']?[ \t]*[:=][ \t]*["']?basic[ \t]+([A-Za-z0-9+/=]{8,})""")
 CURL_USER = re.compile(rf"""(?<![\w-])(?:-u|--user)(?:[ \t]+|=)["']?[^\s:"']{{1,64}}:{_CLI_VALUE}""")
@@ -144,7 +157,7 @@ REFERENCE_VALUE = re.compile(
       [-–—.…?*_#x]*
       | n/?a | nul+ | nil | tbd | todo
       | \[redacted\] | \[\.\.\.\] | (?:[\w./-]*\$\{{[^}}]*\}})+[\w./-]* | \$[A-Z_][A-Z0-9_]* | \$\([^)]*\) | %[A-Za-z_]+% | \{{\{{.*\}}\}} | \{{[^{{}}]*\}} | <[^<>]*>
-      | arn:aws[a-z-]*:.* | (?:ssm|secretsmanager|secrets-manager|aws-secretsmanager|vault|kms):.*
+      | fileb?://.* | arn:aws[a-z-]*:.* | (?:ssm|secretsmanager|secrets-manager|aws-secretsmanager|vault|kms):.*
       | /{_PATH_SEGMENT}(?:/{_PATH_SEGMENT})+/?
       | !(?:ref|getatt|sub|importvalue|join|select|findinmap|if|base64|split|vault|secret|env|env_var|include|reference)\b(?:[ \t].*)?
       | fn::\w+.*
@@ -160,6 +173,7 @@ LABEL_FORMS = ("password", "passwd", "pwd", "contraseña", "contrasena", "api_ke
 REFERENCE_PREFIXES = ("/", "$", "${", "{{", "<", "[[", "arn:", "ssm:", "!Ref", "var.", "data.aws_", "module.", "en Secrets Manager",
                       "in Secrets Manager", "stored in", "almacenada en", "se guarda en", "guardada en", "Parameter Store", "Vault",
                       "1Password", "true", "N/A", "-", "(en")
+GLUED_PASS_PREFIXES = frozenset({"db", "pg", "mysql", "root", "admin", "user", "master", "app", "sql", "mongo", "redis", "ftp", "smtp"})
 URL_PLACEHOLDERS = frozenset({"password", "pass", "pwd", "secret", "passwd", "user", "token"})
 
 
@@ -185,11 +199,23 @@ def _label_tokens(label):
     return [t.lower() for t in _LABEL_TOKEN.findall(label)]
 
 
+def _glued_password(tokens):
+    """True for a single token that is a known prefix glued to a password word: PGPASSWORD, DBPASSWORD, MYSQLPWD, DBPASS, rootpass. The
+    label is only split on `_` and case changes, so these come out as one token."""
+    if not tokens:
+        return False
+    token = tokens[0]
+    for word in ("password", "passwd", "pwd"):
+        if token.endswith(word) and len(token) > len(word):
+            return True
+    return token.endswith("pass") and token[:-4] in GLUED_PASS_PREFIXES
+
+
 def _family(tokens, loose=False):
     """password | token | api_key | client_secret | private_key | psk (| clave when loose) for a credential label, None for settings,
     locations and unrelated labels. A bare `pass` or `clave` is only a credential label in running text (loose): DB_PASS is one
     anywhere, but a table cell "pass" is a test result and a key named `clave` is a Spanish word."""
-    if any(t in PASSWORD_WORDS for t in tokens) or (tokens[-1:] == ["pass"] and (loose or len(tokens) > 1)):
+    if any(t in PASSWORD_WORDS for t in tokens) or (tokens[-1:] == ["pass"] and (loose or len(tokens) > 1)) or _glued_password(tokens[-1:]):
         return None if NOT_SECRET_WORDS.intersection(tokens) else "password"
     if tokens[-1:] == ["token"]:
         return "token"
@@ -274,13 +300,35 @@ def _value_span(line, pos, family, bar_ends):
     return pos, end
 
 
-def _secret_value(value, family):
+_NAME_WORDS = re.compile(r"[a-z]+(?:-[a-z]+)*")
+
+
+def _is_plain_name(value):
+    """An ordinary word, or lowercase words joined by hyphens (`refresh-token-rotation`, `live-alias`): a name, not a secret. An underscore
+    is not accepted: `ghp_abcdef` is a token prefix."""
+    return bool(_NAME_WORDS.fullmatch(value))
+
+
+def _credential_looking(value):
+    """The weak bare `pass` label needs a value that looks like a password: one word of 8+ characters with a digit or a symbol (other
+    than - _ .) and at least two of upper case, lower case, digit and symbol. `must pass: lint, test` and `Pass: Cumplimiento` are prose."""
+    if len(value) < 8 or any(c.isspace() for c in value):
+        return False
+    upper, lower = any(c.isupper() for c in value), any(c.islower() for c in value)
+    digit = any(c.isdigit() for c in value)
+    symbol = any(not c.isalnum() and c not in "-_." for c in value)
+    return (digit or symbol) and upper + lower + digit + symbol >= 2
+
+
+def _secret_value(value, family, weak=False):
     if _is_reference(value):
         return False
+    if weak:
+        return _credential_looking(value)
     if family == "password":
         return True
-    # tokens, api keys and client secrets: one word of 8+ characters that is not an ordinary word
-    return len(value) >= 8 and not any(c.isspace() for c in value) and not (value.isalpha() and value.islower())
+    # tokens, api keys and client secrets: one word of 8+ characters that is not a plain name
+    return len(value) >= 8 and not any(c.isspace() for c in value) and not _is_plain_name(value)
 
 
 def _cli_spans(line):
@@ -307,6 +355,47 @@ def _cli_spans(line):
     return found
 
 
+_WORD_BREAK = re.compile(r"[\s\"'`(\[,;|<>]")
+
+
+def _inside_arn(line, position):
+    """True when the word that holds position starts with `arn:` (a function or log group named `refresh-token` in an ARN is not a label).
+    Only the 300 characters before it are looked at."""
+    return _WORD_BREAK.split(line[max(0, position - 300):position])[-1].lower().startswith("arn:")
+
+
+def _cli_flag_spans(line, regex):
+    """Values of the credential flags matched by regex (CLI_PASSWORD or CLI_SECRET_FLAG): quoted values to their closing quote, the rest
+    one shell word. Password flags and secret strings are masked whatever they hold, token-like flags only for a value that is not a
+    plain lowercase word; references (`$TOKEN`, `file://...`) are left."""
+    found, position = [], 0
+    while match := regex.search(line, position):
+        position = match.end()
+        flag = match.group(1).lower()
+        if regex is CLI_PASSWORD:
+            family = "password" if _family(_label_tokens(flag)) == "password" else None
+        else:
+            family = _CLI_FLAG_FAMILY.get(flag[2:], "token")
+        if family is None:
+            continue
+        if line.startswith("$(", position):  # command substitution: the value is read from somewhere else
+            continue
+        opener = _OPENING_QUOTE.match(line, position)
+        if opener:
+            start = opener.end()
+            end = _closing(line, start, opener.group(0))
+            end = len(line) if end is None else end
+        else:
+            start, end = position, _SHELL_WORD.match(line, position).end()
+        value = line[start:end]
+        plain = family in ("token", "api_key", "client_secret") and value.islower() and value.isalpha()
+        json_value = value.startswith(('{"', '[{', '{ "'))  # a JSON secret string is not the `{placeholder}` reference form
+        if start < end and (json_value or not _is_reference(value)) and not plain:
+            found.append((start, end, family))
+        position = max(position, end)
+    return found
+
+
 def _scan_line(line, extra=()):
     """[(start, end, pattern)] of the credential values in one line, in order and not overlapping (extra: spans found by the caller)."""
     found = list(extra)
@@ -316,27 +405,16 @@ def _scan_line(line, extra=()):
         position = match.end()
         tokens = _label_tokens(_full_label(line, match))
         family = _family(tokens, "|" not in match.group(2))
+        if family and _inside_arn(line, match.start()):
+            continue
         span = _value_span(line, match.end(), family, table or "|" in match.group(2)) if family else None
         if span and span[0] < span[1]:
             position = span[1]  # the value is examined once, whatever it is: resuming inside it made long values quadratic
             value = line[span[0]:span[1]]
-            if _secret_value(value, family) and not (tokens == ["pass"] and value.isdigit()):  # "pass: 12" is a count
+            if _secret_value(value, family, weak=tokens == ["pass"]):  # a bare `pass` needs a password-looking value ("pass: 12" is a count)
                 found.append((span[0], span[1], _PATTERN_NAMES.get(family, family)))
-    position = 0
-    while match := CLI_PASSWORD.search(line, position):
-        position = match.end()
-        if _family(_label_tokens(match.group(1))) != "password":
-            continue
-        opener = _OPENING_QUOTE.match(line, position)
-        if opener:
-            start = opener.end()
-            end = _closing(line, start, opener.group(0))
-            end = len(line) if end is None else end
-        else:
-            start, end = position, _SHELL_WORD.match(line, position).end()
-        if start < end and not _is_reference(line[start:end]):
-            found.append((start, end, "password"))
-        position = max(position, end)
+    for regex in (CLI_PASSWORD, CLI_SECRET_FLAG):
+        found += _cli_flag_spans(line, regex)
     for match in BEARER.finditer(line):
         value = match.group(2)
         if (any(c.isdigit() for c in value) or "." in value) and not _is_reference(value):
@@ -484,7 +562,7 @@ def _mask_credentials(text):
         lines[number] = "".join(out) + line[last:]
     return "\n".join(lines)
 
-PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]{0,30}PRIVATE KEY-----.*?(?:-----END [A-Z ]{0,30}PRIVATE KEY-----|\Z)", re.S)
+PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]{0,30}PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END [A-Z ]{0,30}PRIVATE KEY(?: BLOCK)?-----|\Z)", re.S)
 EMAIL = re.compile(r"(?<![\w.+%\]-])([A-Za-z0-9._%+-]+)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})")
 SECRET_KEYS = frozenset({"secretaccesskey", "aws_secret_access_key", "secret_access_key", "sessiontoken",
                          "session_token", "aws_session_token", "password", "passwd", "pwd"})

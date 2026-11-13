@@ -292,7 +292,7 @@ def _check_call_shapes(check):
         return [f"{cid}: verify.calls must be a non-empty list of objects"]
     errors, earlier = [], set()
     for call in calls:
-        label = f"{cid}: llamada '{call.get('name')}'"
+        label = f"{cid}: call '{call.get('name')}'"
         errors += [f"{label} has an unknown field '{k}'" for k in sorted(set(call) - _CALL_KEYS)]
         errors += [f"{label}: missing '{k}'" for k in ("name", "service", "operation") if not (isinstance(call.get(k), str) and call[k])]
         if call.get("name") in earlier:

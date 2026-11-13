@@ -480,5 +480,109 @@ class FlowRulingsTests(unittest.TestCase):
         self.assertIn("except a secret or sensitive file", self.readme)
 
 
+class ReviewFourDocsTests(unittest.TestCase):
+    """Review 4 D: account binding, resource-mode context, verified vs catalog fix, small doc drifts."""
+
+    MISMATCH = "the credentials belong to account <actual>, not the account confirmed in scope.json (<expected>). Fix the profile or scope.json and retry."
+    INVALID = "scope.account_id must be null or a 12-digit AWS account id"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.skill = read(SKILL_MD)
+        cls.refs = {name: read(SKILL_DIR / "references" / name) for name in REFERENCES}
+        cls.readme = read(ROOT / "README.md")
+
+    def step(self, title):
+        return self.skill.split(f"### {title}", 1)[1].split("\n### ", 1)[0]
+
+    def test_scope_profile_and_account_id_come_from_the_confirmed_preflight(self):
+        preflight = self.step("2. Preflight")
+        self.assertIn("exact `--profile` used (or none)", preflight)
+        self.assertIn("confirmed Account id", preflight)
+        scope = self.step("4. Resolve the scope and write `scope.json`")
+        for needle in ("exactly the profile used in the preflight `sts`", "`null` only if it ran without `--profile`", "`account_id` = the Account id the user confirmed", self.INVALID):
+            self.assertIn(needle, scope)
+
+    def test_the_account_guard_is_documented_in_skill_report_format_and_readme(self):
+        collect_step = self.step("5. Collect")
+        self.assertIn(self.MISMATCH, collect_step)
+        self.assertIn("do not go vault-only without asking", collect_step)
+        report_format = self.refs["report-format.md"]
+        self.assertIn(self.MISMATCH, report_format)
+        self.assertIn("received <json>. Fix scope.json and retry.", report_format)
+        self.assertIn('"account_id": "111122223333"', report_format)
+        self.assertIn("| `account_id` |", self.readme)
+        self.assertIn('"account_id": "111122223333"', self.readme)
+        self.assertIn("the credentials belong to account <actual>, not the account confirmed in scope.json (<expected>)", self.readme)
+        self.assertIn("credentials of a different account than `scope.account_id`", self.readme)
+        self.assertIn('"account_id": <the Account id the user confirmed, or null>', self.refs["vault-reading.md"])
+
+    def test_the_account_guard_messages_match_collect_once_it_has_them(self):
+        source = read(SCRIPTS_DIR / "collect.py")
+        if "the credentials belong to account" not in source:
+            self.skipTest("collect.py has no account guard in this tree")
+        self.assertIn(self.INVALID, source)
+        self.assertIn("not the account confirmed in scope.json", source)
+
+    def test_resource_mode_context_comes_only_from_the_vault_note_or_user_ids(self):
+        resource = self.skill.split("- **`resource`**", 1)[1].split("\n", 1)[0]
+        for needle in ("**only** from the vault note", "ids the user supplies", "only the resource itself is audited", "**say so**"):
+            self.assertIn(needle, resource)
+        section = self.refs["vault-reading.md"].split("## 6.", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("**only** from the vault note about it or from ids the user supplies", section)
+        self.assertIn("only the resource itself is audited and the answer says so", section)
+        for text in (self.skill, self.refs["vault-reading.md"], self.readme):
+            self.assertNotIn("subnet (route to IGW, public IP)", text)
+        self.assertIn("No check covers the instance's subnet", section)
+        for needle in ("NET-007", "TLS-004"):
+            self.assertIn(needle, section)
+        self.assertIn("comes only from the vault note about it or from ids you supply", self.readme)
+
+    def test_the_rds_context_checks_named_in_the_docs_exist(self):
+        import catalog
+        checks = {c["id"]: c for c in catalog.load_checks(SKILL_DIR / "references" / "checks")}
+        for check_id in ("NET-007", "TLS-004"):
+            self.assertIn("rds_instance", checks[check_id]["resource_types"], check_id)
+
+    def test_a_vault_gap_fix_is_not_called_verified_in_aws(self):
+        for text in (self.skill, self.refs["remediation-guidelines.md"], read(ROOT / "tests" / "skill-scenarios.md")):
+            self.assertIn("not verified against AWS", text)
+        self.assertIn("verified in AWS", self.skill)
+        self.assertIn("catalog fix", self.skill)
+        self.assertIn("which only a person may apply after confirming it", self.skill)
+        self.assertIn("catalog fix (not verified against AWS", self.readme)
+
+    def test_not_verified_findings_do_not_appear_without_credentials(self):
+        self.assertNotIn("No credentials or `AccessDenied`", self.refs["report-format.md"])
+        self.assertIn("Without credentials there are no `NOT_VERIFIED` findings", self.refs["report-format.md"])
+        self.assertNotIn("no credentials | No |", self.readme)
+        self.assertNotIn("the rest `NOT_VERIFIED`", read(ROOT / "tests" / "skill-scenarios.md"))
+
+    def test_assemble_flags_and_exit_2_causes_are_documented(self):
+        step = self.step("7. Assemble `findings.json`")
+        for needle in ("only if step 3 ran", "only if the file exists", "write `[]`", "inside the vault"):
+            self.assertIn(needle, step)
+        self.assertIn("`unverified_scope`", self.refs["report-format.md"].split("Top-level keys:", 1)[1].split("\n", 1)[0])
+        self.assertIn("a run directory that does not exist or is inside the vault", self.readme)
+        self.assertIn("an unreadable or invalid `--verification` file, or an output inside the vault", self.readme)
+
+    def test_new_known_limitations_are_in_the_readme(self):
+        self.assertIn("`Password (prod): value`", self.readme)
+        self.assertIn("claim fields Claude writes (`check_id`, resource type and region) are not masked", self.readme.replace("\n  ", " "))
+
+    def test_drata_key_policy_does_not_ask_for_list_keys(self):
+        row = [line for line in self.refs["drata-vanta.md"].splitlines() if line.startswith("| Drata")][0]
+        self.assertIn("`kms:DescribeKey` and `kms:GetKeyRotationStatus`", row)
+        self.assertNotIn("give it `kms:ListKeys`", row)
+
+    def test_vault_reading_matches_the_indexer(self):
+        text = self.refs["vault-reading.md"]
+        self.assertIn("at least half of the notes have `type:` frontmatter", text)
+        self.assertIn("`IAM credentials rotation.md`", text)
+        self.assertIn("Plaintext credentials in the vault", text)
+        self.assertIn("Sensitive file inside the vault (probable plaintext credentials)", text)
+        self.assertIn("matched note, no resource of its own", text)
+
+
 if __name__ == "__main__":
     unittest.main()

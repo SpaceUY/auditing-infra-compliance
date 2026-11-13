@@ -614,7 +614,7 @@ class DataCatalogTests(unittest.TestCase):
         text = "\n".join(catalog_check("DAT-001")["remediation"]["commands"])
         self.assertIn("modify-db-instance", text)
         self.assertIn("modify-db-cluster", text)
-        self.assertIn("--backup-retention-period 7", text)
+        self.assertIn('--backup-retention-period "$RETENTION_DAYS"', text)
 
     def test_dat_009_does_not_replace_an_existing_topic_policy(self):
         text = "\n".join(catalog_check("DAT-009")["remediation"]["commands"])
