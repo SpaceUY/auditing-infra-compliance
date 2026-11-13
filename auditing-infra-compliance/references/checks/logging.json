@@ -798,17 +798,17 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Subir la retención del log group {resource_id} a 365 días (o más, si la política de retención del equipo lo pide)."
+          "Decidir la retención (365 días es el mínimo del chequeo; más si la política del equipo lo pide) y subir la del log group {resource_id}."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws logs put-retention-policy --log-group-name \"{resource_id}\" --retention-in-days 365 --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRETENTION_DAYS=\"365\"\naws logs put-retention-policy --log-group-name \"{resource_id}\" --retention-in-days \"$RETENTION_DAYS\" --region \"$REGION\""
         ],
         "verify_after": "aws logs describe-log-groups --log-group-name-prefix \"{resource_id}\" --region \"{region}\" --query 'logGroups[].[logGroupName,retentionInDays]'",
-        "notes": "Costo: CloudWatch Logs cobra el almacenamiento por GB-mes, así que subir la retención aumenta el gasto del log group; revisar cuánto almacena antes de aplicarlo en grupos de mucho volumen. Los logs que ya expiraron no se recuperan. Un log group sin retención pasa el chequeo pero guarda todo para siempre: conviene fijar la retención o archivar en S3. Drata 111 no indica qué recurso evalúa; Vanta permite cambiar el umbral de su test AWS Server Logs."
+        "notes": "Atención: put-retention-policy reemplaza la retención actual del log group (si era mayor que 365, la reduce: poner en RETENTION_DAYS el valor deseado). Costo: CloudWatch Logs cobra el almacenamiento por GB-mes, así que subir la retención aumenta el gasto del log group; revisar cuánto almacena antes de aplicarlo en grupos de mucho volumen. Los logs que ya expiraron no se recuperan. Un log group sin retención pasa el chequeo pero guarda todo para siempre: conviene fijar la retención o archivar en S3. Drata 111 no indica qué recurso evalúa; Vanta permite cambiar el umbral de su test AWS Server Logs."
       },
       "sources": [
         "https://help.drata.com/en/articles/4778770-test-111-logs-are-retained-for-365-days",
@@ -1048,7 +1048,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nWEB_ACL_NAME=\"{resource_id}\"\nLOG_GROUP=\"aws-waf-logs-{resource_id}\"\nWEB_ACL_ARN=$(aws wafv2 list-web-acls --scope REGIONAL --region \"$REGION\" --query \"WebACLs[?Name=='$WEB_ACL_NAME'].ARN | [0]\" --output text)\n# create-log-group puede fallar si el log group ya existe: es esperable\naws logs create-log-group --log-group-name \"$LOG_GROUP\" --region \"$REGION\"\naws logs put-retention-policy --log-group-name \"$LOG_GROUP\" --retention-in-days 365 --region \"$REGION\" && aws wafv2 put-logging-configuration --logging-configuration ResourceArn=\"$WEB_ACL_ARN\",LogDestinationConfigs=\"arn:aws:logs:$REGION:$ACCOUNT_ID:log-group:$LOG_GROUP\" --region \"$REGION\""
         ],
         "verify_after": "aws wafv2 get-logging-configuration --resource-arn \"__COMPLETAR_WEB_ACL_ARN__\" --region \"{region}\"",
-        "notes": "Los logs del WAF contienen headers, cookies y URI de cada request: pueden incluir datos personales o tokens. Enmascarar los campos sensibles y limitar quién lee el destino. Para CloudWatch Logs hace falta el permiso logs:PutResourcePolicy (AWS crea la policy de entrega). Costo: ingesta y almacenamiento. Solo se evalúan los web ACL regionales; los de CloudFront (scope global) no están en el inventario."
+        "notes": "Atención: put-retention-policy reemplaza la retención del log group si ya existía (create-log-group falla en ese caso y el resto sigue). Los logs del WAF contienen headers, cookies y URI de cada request: pueden incluir datos personales o tokens. Enmascarar los campos sensibles y limitar quién lee el destino. Para CloudWatch Logs hace falta el permiso logs:PutResourcePolicy (AWS crea la policy de entrega). Costo: ingesta y almacenamiento. Solo se evalúan los web ACL regionales; los de CloudFront (scope global) no están en el inventario."
       },
       "sources": [
         "https://docs.aws.amazon.com/securityhub/latest/userguide/waf-controls.html",

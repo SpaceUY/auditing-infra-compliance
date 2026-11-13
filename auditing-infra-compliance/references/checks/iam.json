@@ -442,17 +442,21 @@
         ]
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Aplicar la política de contraseñas completa (largo 14, reuso 24, complejidad) con un único comando."
+          "Leer la política de contraseñas actual (primer bloque, solo lectura): el cambio la reemplaza entera y no se aplica sin haberla visto.",
+          "Generar los valores fusionados (segundo bloque, no aplica nada): el largo y el reuso suben solo si los actuales son menores que 14 y 24, se activan los cuatro requisitos de complejidad y se conservan la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña.",
+          "Revisar password-policy-nuevo.args y recién entonces aplicarlo (tercer bloque); verificar con get-account-password-policy."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws iam update-account-password-policy --minimum-password-length 14 --password-reuse-prevention 24 --require-symbols --require-numbers --require-uppercase-characters --require-lowercase-characters --allow-users-to-change-password"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# solo lectura: trae la política de contraseñas actual a un archivo y la muestra. Si la cuenta no tiene política, parte de una vacía; ante cualquier otro error (por ejemplo AccessDenied) borra el archivo y se detiene, y los bloques siguientes no pueden seguir\nrm -f password-policy-nuevo.args\nif aws iam get-account-password-policy --query PasswordPolicy --output json > password-policy-actual.json 2> password-policy-actual.err; then cat password-policy-actual.json; elif grep -q NoSuchEntity password-policy-actual.err; then echo '{}' > password-policy-actual.json; echo \"la cuenta no tiene política de contraseñas: se parte de una vacía\"; else cat password-policy-actual.err; rm -f password-policy-actual.json; echo \"DETENIDO: no se pudo leer la política actual; no seguir\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# no aplica nada: fusiona con la política actual y muestra los valores que se aplicarían. Largo (14) y reuso (24) solo suben si el valor actual es menor; se activan los cuatro requisitos de complejidad; la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña se conservan\nrm -f password-policy-nuevo.args\nif [ ! -s password-policy-actual.json ]; then echo \"DETENIDO: falta password-policy-actual.json; correr antes el primer bloque\"; else python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); a=[\"--minimum-password-length\",str(max(14,int(p.get(\"MinimumPasswordLength\",0)))),\"--password-reuse-prevention\",str(max(24,int(p.get(\"PasswordReusePrevention\",0)))),\"--require-symbols\",\"--require-numbers\",\"--require-uppercase-characters\",\"--require-lowercase-characters\",\"--max-password-age\",str(int(p.get(\"MaxPasswordAge\",0))),\"--hard-expiry\" if p.get(\"HardExpiry\") else \"--no-hard-expiry\",\"--allow-users-to-change-password\" if p.get(\"AllowUsersToChangePassword\",True) else \"--no-allow-users-to-change-password\"]; print(\" \".join(a))' password-policy-actual.json > password-policy-nuevo.args && echo \"se aplicaría: aws iam update-account-password-policy $(cat password-policy-nuevo.args)\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# update-account-password-policy REEMPLAZA la política completa: aplicar solo los valores fusionados y revisados (password-policy-nuevo.args), nunca a mano\nif [ -s password-policy-nuevo.args ]; then aws iam update-account-password-policy $(cat password-policy-nuevo.args); else echo \"DETENIDO: falta password-policy-nuevo.args; correr antes los dos primeros bloques\"; fi"
         ],
         "verify_after": "aws iam get-account-password-policy",
-        "notes": "update-account-password-policy REEMPLAZA la política de contraseñas completa: los valores que no se pasan vuelven a su valor por defecto de AWS (por ejemplo, la caducidad). Revisar con 'aws iam get-account-password-policy' antes de ejecutar. Las contraseñas existentes no cambian; las reglas aplican al próximo cambio."
+        "notes": "ADVERTENCIA: update-account-password-policy REEMPLAZA la política de contraseñas completa y lo que no se pasa vuelve a su valor por defecto de AWS (por ejemplo, la caducidad). Por eso el arreglo lee la política actual (primer bloque), conserva MaxPasswordAge, HardExpiry y el permiso de cambiar la contraseña, sube el largo y el reuso solo si los actuales son menores, y activa los cuatro requisitos de complejidad; revisar password-policy-nuevo.args antes del tercer bloque (si hay que quitar algún requisito, editarlo ahí). Si el primer bloque muestra DETENIDO, no seguir: no se genera ningún archivo y el tercer bloque no aplica nada. IAM-006 e IAM-007 se arreglan con el mismo cambio: aplicarlo una sola vez. Las contraseñas existentes no cambian; las reglas aplican al próximo cambio de contraseña. Los comandos usan python3, que CloudShell trae instalado."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828716",
@@ -520,17 +524,21 @@
         ]
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "medium",
         "downtime": false,
         "steps": [
-          "Aplicar la política de contraseñas completa (largo 14, reuso 24, complejidad) con un único comando."
+          "Leer la política de contraseñas actual (primer bloque, solo lectura): el cambio la reemplaza entera y no se aplica sin haberla visto.",
+          "Generar los valores fusionados (segundo bloque, no aplica nada): el largo y el reuso suben solo si los actuales son menores que 14 y 24, se activan los cuatro requisitos de complejidad y se conservan la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña.",
+          "Revisar password-policy-nuevo.args y recién entonces aplicarlo (tercer bloque); verificar con get-account-password-policy."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws iam update-account-password-policy --minimum-password-length 14 --password-reuse-prevention 24 --require-symbols --require-numbers --require-uppercase-characters --require-lowercase-characters --allow-users-to-change-password"
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# solo lectura: trae la política de contraseñas actual a un archivo y la muestra. Si la cuenta no tiene política, parte de una vacía; ante cualquier otro error (por ejemplo AccessDenied) borra el archivo y se detiene, y los bloques siguientes no pueden seguir\nrm -f password-policy-nuevo.args\nif aws iam get-account-password-policy --query PasswordPolicy --output json > password-policy-actual.json 2> password-policy-actual.err; then cat password-policy-actual.json; elif grep -q NoSuchEntity password-policy-actual.err; then echo '{}' > password-policy-actual.json; echo \"la cuenta no tiene política de contraseñas: se parte de una vacía\"; else cat password-policy-actual.err; rm -f password-policy-actual.json; echo \"DETENIDO: no se pudo leer la política actual; no seguir\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# no aplica nada: fusiona con la política actual y muestra los valores que se aplicarían. Largo (14) y reuso (24) solo suben si el valor actual es menor; se activan los cuatro requisitos de complejidad; la caducidad (MaxPasswordAge, HardExpiry) y el permiso de cambiar la contraseña se conservan\nrm -f password-policy-nuevo.args\nif [ ! -s password-policy-actual.json ]; then echo \"DETENIDO: falta password-policy-actual.json; correr antes el primer bloque\"; else python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); a=[\"--minimum-password-length\",str(max(14,int(p.get(\"MinimumPasswordLength\",0)))),\"--password-reuse-prevention\",str(max(24,int(p.get(\"PasswordReusePrevention\",0)))),\"--require-symbols\",\"--require-numbers\",\"--require-uppercase-characters\",\"--require-lowercase-characters\",\"--max-password-age\",str(int(p.get(\"MaxPasswordAge\",0))),\"--hard-expiry\" if p.get(\"HardExpiry\") else \"--no-hard-expiry\",\"--allow-users-to-change-password\" if p.get(\"AllowUsersToChangePassword\",True) else \"--no-allow-users-to-change-password\"]; print(\" \".join(a))' password-policy-actual.json > password-policy-nuevo.args && echo \"se aplicaría: aws iam update-account-password-policy $(cat password-policy-nuevo.args)\"; fi",
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\n# update-account-password-policy REEMPLAZA la política completa: aplicar solo los valores fusionados y revisados (password-policy-nuevo.args), nunca a mano\nif [ -s password-policy-nuevo.args ]; then aws iam update-account-password-policy $(cat password-policy-nuevo.args); else echo \"DETENIDO: falta password-policy-nuevo.args; correr antes los dos primeros bloques\"; fi"
         ],
         "verify_after": "aws iam get-account-password-policy",
-        "notes": "update-account-password-policy REEMPLAZA la política de contraseñas completa: los valores que no se pasan vuelven a su valor por defecto de AWS (por ejemplo, la caducidad). Revisar con 'aws iam get-account-password-policy' antes de ejecutar. Las contraseñas existentes no cambian; las reglas aplican al próximo cambio."
+        "notes": "ADVERTENCIA: update-account-password-policy REEMPLAZA la política de contraseñas completa y lo que no se pasa vuelve a su valor por defecto de AWS (por ejemplo, la caducidad). Por eso el arreglo lee la política actual (primer bloque), conserva MaxPasswordAge, HardExpiry y el permiso de cambiar la contraseña, sube el largo y el reuso solo si los actuales son menores, y activa los cuatro requisitos de complejidad; revisar password-policy-nuevo.args antes del tercer bloque (si hay que quitar algún requisito, editarlo ahí). Si el primer bloque muestra DETENIDO, no seguir: no se genera ningún archivo y el tercer bloque no aplica nada. IAM-006 e IAM-007 se arreglan con el mismo cambio: aplicarlo una sola vez. Las contraseñas existentes no cambian; las reglas aplican al próximo cambio de contraseña. Los comandos usan python3, que CloudShell trae instalado."
       },
       "sources": [
         "https://help.drata.com/en/articles/9828717",
@@ -700,7 +708,7 @@
         ]
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "medium",
         "downtime": false,
         "steps": [

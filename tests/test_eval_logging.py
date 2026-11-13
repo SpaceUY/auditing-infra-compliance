@@ -659,7 +659,8 @@ class LoggingCatalogTests(unittest.TestCase):
     def test_log_009_command_sets_365_day_retention_and_warns_about_cost(self):
         rem = catalog_check("LOG-009")["remediation"]
         (command,) = rem["commands"]
-        self.assertIn('aws logs put-retention-policy --log-group-name "{resource_id}" --retention-in-days 365', command)
+        self.assertIn('RETENTION_DAYS="365"', command)
+        self.assertIn('aws logs put-retention-policy --log-group-name "{resource_id}" --retention-in-days "$RETENTION_DAYS"', command)
         self.assertRegex(rem["notes"], r"(?i)costo")
 
     def test_log_009_threshold_is_in_the_query(self):
@@ -691,7 +692,7 @@ class LoggingCatalogTests(unittest.TestCase):
     def test_remediation_kinds_follow_the_brief(self):
         expected = {"LOG-001": "cli_with_decision", "LOG-002": "cli", "LOG-003": "planned_change",
                     "LOG-004": "cli_with_decision", "LOG-005": "cli_with_decision", "LOG-006": "cli_with_decision",
-                    "LOG-007": "planned_change", "LOG-008": "cli_with_decision", "LOG-009": "cli",
+                    "LOG-007": "planned_change", "LOG-008": "cli_with_decision", "LOG-009": "cli_with_decision",
                     "LOG-010": "cli_with_decision", "LOG-011": "cli_with_decision", "LOG-012": "cli_with_decision",
                     "LOG-013": "cli"}
         self.assertEqual({c["id"]: c["remediation"]["kind"] for c in self.checks}, expected)

@@ -473,7 +473,7 @@ class DataCatalogTests(unittest.TestCase):
         self.assertEqual({c["id"]: c["severity"] for c in self.checks}, expected)
 
     def test_remediation_kinds_follow_the_brief(self):
-        expected = {"DAT-001": "cli", "DAT-002": "planned_change", "DAT-003": "cli", "DAT-004": "cli", "DAT-005": "cli", "DAT-006": "cli",
+        expected = {"DAT-001": "planned_change", "DAT-002": "planned_change", "DAT-003": "cli", "DAT-004": "cli", "DAT-005": "cli", "DAT-006": "cli_with_decision",
                     "DAT-007": "cli", "DAT-008": "planned_change", "DAT-009": "cli_with_decision", "DAT-010": "cli_with_decision",
                     "DAT-011": "planned_change"}
         self.assertEqual({c["id"]: c["remediation"]["kind"] for c in self.checks}, expected)

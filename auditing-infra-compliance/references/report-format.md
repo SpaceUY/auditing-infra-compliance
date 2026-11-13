@@ -15,11 +15,25 @@ Se carga antes de escribir `scope.json`, `vault-claims.json` o `verification-cla
 | `verification.json` | `verify_remediation.py` |
 | `report.html` | `render_report.py` |
 
-Todo lo que se escribe está enmascarado: `AKIA…WXYZ` (4 últimos caracteres), emails `u***@dominio` (salvo los del tag `VantaOwner`), secretos `[REDACTED]`. Los secretos cubren, además de las claves de AWS: valores tras etiquetas de contraseña en cualquier formato (`password: x`, celdas de tabla `| DBPassword | x |`, `MasterUserPassword`, `db_password`, `contraseña`, `--master-user-password x`; un valor sin comillas llega hasta el fin de la línea o de la celda, uno entre comillas hasta la comilla de cierre), `api_key`, `token` / `access_token` / `auth_token` / `x-amz-security-token`, `client_secret`, `Bearer <token>` y la contraseña de una URL (`esquema://usuario:contraseña@host`). No son secretos y quedan como están las referencias: "en Secrets Manager", "ver …", `${VAR}`, `{{…}}`, `<…>`, `N/A`, `-`, vacío, `*****`, `[REDACTED]`, ARN de Secrets Manager o SSM, etiquetas `*_file` / `*_path` y ajustes de la política de contraseñas (largo, edad, reuso). Una fila de encabezado de tabla no es una credencial.
+Todo lo que se escribe está enmascarado: `AKIA…WXYZ` (4 últimos caracteres), emails `u***@dominio` (salvo los del tag `VantaOwner`), secretos `[REDACTED]`. Los secretos cubren, además de las claves de AWS: valores tras etiquetas de contraseña en cualquier formato (`password: x`, celdas de tabla `| DBPassword | x |`, `MasterUserPassword`, `db_password`, `contraseña`, `--master-user-password x`; un valor sin comillas llega hasta el fin de la línea o de la celda, uno entre comillas hasta la comilla de cierre), `api_key`, `token` / `access_token` / `auth_token` / `x-amz-security-token`, `client_secret`, `Bearer <token>` y la contraseña de una URL (`esquema://usuario:contraseña@host`). No son secretos y quedan como están las referencias: "en Secrets Manager", "ver …", `${VAR}`, `{{…}}`, `<…>`, `N/A`, `-`, vacío, `*****`, `[REDACTED]`, ARN de Secrets Manager o SSM, etiquetas `*_file` / `*_path` y ajustes de la política de contraseñas (largo, edad, reuso). Una fila de encabezado de tabla no es una credencial. La detección tiene límites conocidos (`references/vault-reading.md` §9): una persona debe revisar las notas marcadas y las que no.
 
 Sin fuentes no hay reporte: si no hay índice de vault, ni claims, ni credenciales AWS (`checks-result.json` con `aws: null`), `assemble_findings.py` termina con exit `2` y el mensaje "sin fuentes: hace falta un vault o credenciales AWS de solo lectura", y no escribe `findings.json`.
 
 **Resultado parcial.** `collect.py` escribe `inventory.json` apenas termina el inventario y `checks-result.json` antes de los chequeos y cada ~15 s; mientras no termina lleva `"partial": true` y `"pending_checks": [<ids>]`, y una corrida completa no trae `partial`. Si se interrumpe (Ctrl-C, SIGTERM, timeout de Bash) el archivo parcial queda en disco y el exit es `130` (`0` completo, `2` sin credenciales). `assemble_findings.py` convierte `partial` y `pending_checks` en una advertencia de `findings.json` ("resultado PARCIAL…", con los chequeos sin terminar) que el HTML muestra con las demás. Campos aditivos: `aws.blocked_regions` (regiones cuyo inventario negó una SCP; se descartan con aviso y `assemble_findings.py` las suma a las advertencias como "bloqueado por SCP"), `failed_calls[].item` y `.reason`, y en las filas `detail.reason` "bloqueado por SCP" (con `missing: []`: no falta un permiso del perfil). Una región cuyas llamadas fallan queda `NO_VERIFICADO` por región; las sanas conservan su `FAIL`/`PASS`, y no hay `PASS` de cuenta si alguna región falló.
+
+### 1b. Motivos `NO_VERIFICADO` en las filas de `checks-result.json`
+
+Nunca `PASS` ni `FAIL` cuando algo no se pudo leer. `detail.reason` (y `missing`, el permiso que falta) dice por qué:
+
+| Motivo | Cuándo |
+|---|---|
+| permiso faltante (`missing: ["servicio:Accion"]`) | `AccessDenied` en una llamada |
+| "no se pudieron listar las regiones" | falló `ec2:DescribeRegions`: los chequeos de todas las regiones quedan `NO_VERIFICADO` (con `missing: ["ec2:DescribeRegions"]` si fue `AccessDenied`) y no se hace ninguna llamada regional para ellos; los chequeos de cuenta y los de regiones listadas en `scope.regions` siguen. En `auto` solo se inventaría `us-east-1` y cada tipo regional lleva una fila con región `null` |
+| "sin regiones en el alcance" | un chequeo regional sin ninguna región que recorrer (por ejemplo todas bloqueadas por SCP): nunca pase vacío |
+| "inventario incompleto" (`missing: ["inventory:<tipo>"]`) | falló el listado de un tipo en una región: una fila por (tipo, región) junto a las filas `PASS`/`FAIL` de las regiones que sí se listaron; nunca `N/A` después de un listado fallido |
+| "bloqueado por SCP" | una SCP niega la lectura; no falta ningún permiso del perfil (`missing: []`) |
+
+Filas **CMP-006 "de contexto"**: tras los chequeos, `collect.py` evalúa CMP-006 también para las instancias adjuntas a un security group con filas `FAIL` de NET-001..004, aunque nadie las pusiera en el alcance (es la evidencia que pide la regla de conflicto CR-003). Esas filas llevan `detail.context_for: [<ids NET>]`; no son un hallazgo que el usuario pidió.
 
 ## 2. `scope.json`
 
@@ -38,10 +52,12 @@ Sin fuentes no hay reporte: si no hay índice de vault, ni claims, ni credencial
 | `platform` | Nombre legible. |
 | `mode` | `full` \| `feature` \| `resource`. |
 | `target` | `null` en `full`; el texto de la feature o el id/ARN del recurso. |
-| `regions` | `"auto"` (habilitadas con recursos + `us-east-1`) o lista, p. ej. `["us-east-1", "eu-west-1"]`. Una región no habilitada se omite con advertencia. |
+| `regions` | `"auto"` (habilitadas con recursos + `us-east-1`) o una lista **no vacía** de nombres de región, p. ej. `["us-east-1", "eu-west-1"]`. Una región no habilitada se omite con advertencia. Cualquier otra forma (lista vacía, texto suelto, nombres que no son regiones) o ninguna región habilitada hace terminar `collect.py` con exit `2` y un mensaje, sin escribir archivos. |
 | `profile` | Perfil AWS (`AWS_PROFILE`) o `null` para el entorno ya configurado. Es un nombre de perfil, nunca una clave. |
 | `resources` | `[]` en `full`. En `feature` y `resource`: objetos `{type, id, region}`; `type` es una clave de `references/inventory.json` y `id` el id, nombre o ARN (tabla de mapeo en `references/vault-reading.md`). |
 | `domains` | `null` (todos) o lista para acotar: `compute`, `data`, `detection`, `email`, `encryption`, `iam`, `integration`, `inventory`, `logging`, `monitoring`, `network`. |
+
+`scope.json` se guarda en la carpeta de la corrida (`$RUN/scope.json`) y **no se mueve ni se borra** antes de ensamblar: `assemble_findings.py` lo lee de ahí (`unverified_scope`). `collect.py` solo ejecuta las operaciones de lectura de `catalog.REVIEWED_OPERATIONS` (`references/remediation-guidelines.md` §1).
 
 En `feature` y `resource`, collect elige los chequeos de recurso cuyo tipo está en `resources` y los de cuenta que declaran ese contexto, y filtra los ofensores a esos recursos.
 

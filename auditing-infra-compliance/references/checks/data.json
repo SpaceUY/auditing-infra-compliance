@@ -55,7 +55,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "planned_change",
         "risk": "medium",
         "downtime": true,
         "steps": [
@@ -279,12 +279,11 @@
         "risk": "low",
         "downtime": false,
         "steps": [
-          "Activar la protección contra borrado en la base {resource_id} (primer bloque, instancia independiente; segundo bloque, miembro de un cluster).",
+          "Activar la protección contra borrado en la base {resource_id}: el comando la aplica a la instancia o, si es miembro de un cluster, al cluster.",
           "Verificar con describe-db-instances que DeletionProtection es true."
         ],
         "commands": [
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# instancia que no pertenece a un cluster\naws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --deletion-protection --region \"$REGION\"",
-          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# miembro de un cluster: la protección es del cluster\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text)\n[ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ] && aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --deletion-protection --region \"$REGION\""
+          "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nDB_ID=\"{resource_id}\"\n# miembro de un cluster: la protección es del cluster; si no pertenece a ninguno, es de la instancia\nCLUSTER_ID=$(aws rds describe-db-instances --db-instance-identifier \"$DB_ID\" --region \"$REGION\" --query 'DBInstances[0].DBClusterIdentifier' --output text)\nif [ -n \"$CLUSTER_ID\" ] && [ \"$CLUSTER_ID\" != \"None\" ]; then aws rds modify-db-cluster --db-cluster-identifier \"$CLUSTER_ID\" --deletion-protection --region \"$REGION\"; else aws rds modify-db-instance --db-instance-identifier \"$DB_ID\" --deletion-protection --region \"$REGION\"; fi"
         ],
         "verify_after": "aws rds describe-db-instances --db-instance-identifier \"{resource_id}\" --region \"{region}\" --query 'DBInstances[0].DeletionProtection'",
         "notes": "Sin downtime y reversible con --no-deletion-protection. Mientras esté activa, delete-db-instance falla: para borrar la base a propósito (o con terraform destroy) hay que desactivarla antes. Se aplica de inmediato, por eso no lleva --apply-immediately."
@@ -429,7 +428,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "low",
         "downtime": false,
         "steps": [
@@ -441,7 +440,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws s3api put-bucket-versioning --bucket \"{resource_id}\" --versioning-configuration Status=Enabled --region \"$REGION\""
         ],
         "verify_after": "aws s3api get-bucket-versioning --bucket \"{resource_id}\" --region \"{region}\"",
-        "notes": "Sin downtime. Costo: las versiones anteriores y los marcadores de borrado ocupan almacenamiento hasta que una regla de ciclo de vida (NoncurrentVersionExpiration) las expire; definirla en el mismo cambio. El versionado no se puede deshabilitar una vez activo, solo suspender. Algunos buckets (de logs, temporales o de caché) pueden no necesitarlo: si Drata los marca, excluirlos con justificación."
+        "notes": "Atención: put-bucket-versioning reemplaza la configuración de versionado del bucket (por ejemplo MFA Delete). Sin downtime. Costo: las versiones anteriores y los marcadores de borrado ocupan almacenamiento hasta que una regla de ciclo de vida (NoncurrentVersionExpiration) las expire; definirla en el mismo cambio. El versionado no se puede deshabilitar una vez activo, solo suspender. Algunos buckets (de logs, temporales o de caché) pueden no necesitarlo: si Drata los marca, excluirlos con justificación."
       },
       "sources": [
         "https://help.drata.com/en/articles/4778759",

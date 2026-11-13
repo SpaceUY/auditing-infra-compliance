@@ -741,8 +741,8 @@ class EncryptionCatalogTests(unittest.TestCase):
 
     def test_remediation_kinds_follow_the_brief(self):
         expected = {"ENC-001": "cli", "ENC-002": "planned_change", "ENC-003": "planned_change", "ENC-004": "planned_change",
-                    "ENC-005": "cli", "ENC-006": "cli", "ENC-007": "cli_with_decision", "ENC-008": "cli_with_decision",
-                    "TLS-001": "cli_with_decision", "TLS-002": "cli", "TLS-003": "cli", "TLS-004": "planned_change",
+                    "ENC-005": "cli_with_decision", "ENC-006": "cli", "ENC-007": "cli_with_decision", "ENC-008": "cli_with_decision",
+                    "TLS-001": "cli_with_decision", "TLS-002": "cli_with_decision", "TLS-003": "cli_with_decision", "TLS-004": "planned_change",
                     "TLS-005": "planned_change"}
         self.assertEqual({c["id"]: c["remediation"]["kind"] for c in self.checks}, expected)
 
@@ -867,7 +867,9 @@ class EncryptionCatalogTests(unittest.TestCase):
         rem = catalog_check("TLS-001")["remediation"]
         self.assertEqual(rem["kind"], "cli_with_decision")
         prepare = next(c for c in rem["commands"] if "python3 -c" in c)
-        self.assertRegex(prepare, r'get-bucket-policy [^\n]*>\s*"policy-\$BUCKET\.json"\s*&&\s*python3 -c')
+        read = next(c for c in rem["commands"] if "get-bucket-policy" in c)
+        self.assertRegex(read, r'get-bucket-policy [^\n]*>\s*"policy-\$BUCKET\.json"')  # review 2 C: read first, in its own block
+        self.assertIn('[ ! -s "policy-$BUCKET.json" ]', prepare)  # the merge refuses to run without what the read block saved
         self.assertIn("aws:SecureTransport", prepare)
         self.assertNotIn("put-bucket-policy", prepare)
         self.assertTrue(any("put-bucket-policy" in c and "python3" not in c for c in rem["commands"]))
@@ -924,7 +926,7 @@ class EncryptionCatalogTests(unittest.TestCase):
 
     def test_tls_002_redirects_every_http_listener_to_https(self):
         command = catalog_check("TLS-002")["remediation"]["commands"][0]
-        self.assertRegex(command, r"describe-load-balancers [^\n]*&&[^\n]*for [^\n]*describe-listeners [^\n]*Protocol==`HTTP`")
+        self.assertRegex(command, r"describe-load-balancers [^\n]*\n[^\n]*Protocol==`HTTPS` && Port==`443`[\s\S]*for [^\n]*describe-listeners [^\n]*Protocol==`HTTP`")
         self.assertIn("Type=redirect,RedirectConfig={Protocol=HTTPS,Port=443,StatusCode=HTTP_301}", command)
         self.assertRegex(catalog_check("TLS-002")["remediation"]["notes"], r"(?i)listener HTTPS")
 

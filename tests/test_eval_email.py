@@ -191,7 +191,7 @@ class EmailCatalogTests(unittest.TestCase):
                 self.assertIn(name, evaluators.EVALUATORS, check["id"])
 
     def test_evaluators_severities_and_remediation_follow_the_brief(self):
-        expected = {"EML-001": ("jmespath", "medium", "cli_with_decision"), "EML-002": ("python:ses_default_config_tls", "medium", "cli"),
+        expected = {"EML-001": ("jmespath", "medium", "cli_with_decision"), "EML-002": ("python:ses_default_config_tls", "medium", "cli_with_decision"),
                     "EML-003": ("python:ses_default_config_events", "medium", "cli_with_decision"), "EML-004": ("dns", "medium", "cli_with_decision"),
                     "EML-005": ("dns", "high", "cli_with_decision"), "EML-006": ("python:ses_account_sending", "low", "console_only")}
         self.assertEqual({c["id"]: (c["verify"]["evaluator"], c["severity"], c["remediation"]["kind"]) for c in self.checks}, expected)
@@ -283,7 +283,8 @@ class EmailCatalogTests(unittest.TestCase):
             self.assertEqual((check["mappings"]["drata"], check["mappings"]["vanta"]), ([], []), check["id"])
             resolved = catalog.resolve_mappings(check, drata)
             self.assertEqual([t["id"] for t in resolved["tsc"]], ["CC6.7"], check["id"])
-            self.assertEqual([t["id"] for t in resolved["iso27001_2022"]], ["A.8.24", "A.5.14"], check["id"])
+            # EML-006 (sandbox exit and suppression list) has no cryptography content: only A.5.14 (review 2 C, M7)
+            self.assertEqual([t["id"] for t in resolved["iso27001_2022"]], ["A.5.14"] if check["id"] == "EML-006" else ["A.8.24", "A.5.14"], check["id"])
             self.assertTrue(all(t["sourced"] is False for t in resolved["tsc"] + resolved["iso27001_2022"]), check["id"])
 
     def test_the_texts_say_no_drata_or_vanta_test_covers_ses(self):

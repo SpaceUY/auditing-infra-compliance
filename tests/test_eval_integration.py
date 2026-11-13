@@ -280,7 +280,7 @@ class IntegrationCatalogTests(unittest.TestCase):
             self.assertIn(name, evaluators.EVALUATORS, check["id"])
 
     def test_evaluators_severities_and_remediation_follow_the_brief(self):
-        expected = {"INT-001": ("python:drata_role", "high", "cli"), "INT-002": ("python:drata_backup_perms", "medium", "cli"),
+        expected = {"INT-001": ("python:drata_role", "high", "cli"), "INT-002": ("python:drata_backup_perms", "medium", "cli_with_decision"),
                     "INT-003": ("python:vanta_role", "high", "cli_with_decision"), "INT-004": ("python:kms_auditor_access", "medium", "cli_with_decision")}
         self.assertEqual({c["id"]: (c["verify"]["evaluator"], c["severity"], c["remediation"]["kind"]) for c in self.checks}, expected)
 

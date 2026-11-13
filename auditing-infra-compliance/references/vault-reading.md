@@ -7,7 +7,9 @@ Se carga al tener vault o carpeta de evidencia, al resolver una feature o un rec
 `vault_index.py index` recorre el vault y escribe `vault-index.json` con, por nota: `path`, `title`, `type`, `status`, `source`, `aliases`, `edges` (relación, destino, capa), `links`, `parents`, `aws_ids`, `kv` (tablas de campos), `headings` e `inferred_type`. Más a nivel raíz: `kind` (`typed` | `free`), `broken_links`, `secrets_detected` (ruta y patrón, nunca el valor), `sensitive_files` (`[{path, reason}]`: archivos `.env`, `.env.*`, `*.pem`, `*.key` o con `credentials` en el nombre, detectados **solo por el nombre**) y `obsidian_plugins` (solo nombres).
 
 - Solo lee archivos `.md` regulares. Ignora todo archivo o carpeta que empiece con `.` (un `.env` no se lee: solo se lista por nombre en `sensitive_files`), no sigue symlinks y no indexa `_meta/` como notas.
-- Todo texto que entra al índice está enmascarado (claves `AKIA`/`ASIA`, secretos, emails).
+- Todo texto que entra al índice está enmascarado (claves `AKIA`/`ASIA`, secretos, emails; el alcance completo de lo que se enmascara está en `references/report-format.md` §1, y sus límites en §9 de este archivo).
+- Cada nota se lee hasta un tope (`MAX_NOTE_BYTES`, 2.000.000 de caracteres): una más larga queda en `truncated_notes` y el ensamblador lo avisa en las advertencias de `findings.json` (se leyó solo el principio: no dar por revisado el resto).
+- Con un vault libre el comando imprime "Vault libre (no tipado): …" y el ensamblador agrega la advertencia "vault no tipado: el mapa de componentes es inferido y menos confiable".
 - No abras `vault-index.json` entero en un vault grande: leé las notas que importan (Read sobre el `.md`) o filtrá con un `python3 -c` de solo lectura.
 
 ## 2. Vault tipado (contrato de `creating-typed-knowledge-vaults`)
@@ -43,7 +45,7 @@ Notas escritas a mano, sin frontmatter, estructura hub-and-spoke. Avisar siempre
 
 ## 4. Resolver una feature
 
-`vault_index.py feature <vault-index.json> "<texto>"` devuelve JSON con `candidates` (rutas), `chosen`, `components` (`path`, `title`, `via`, `depth`, `aws_ids`, `status`), `constraints`, `pii` y `confidence` (`typed` | `inferred`).
+`vault_index.py feature <vault-index.json> "<texto>"` devuelve JSON con `candidates` (rutas), `chosen`, `components` (`path`, `title`, `via`, `depth`, `aws_ids`, `status`), `constraints`, `pii` y `confidence` (`typed` | `inferred`). **La nota elegida es su propio componente** (profundidad 0, `via: ["matched"]`) cuando describe un recurso (en un vault tipado, si está bajo `systems/`; en uno libre, si tiene tipo inferido o ids de AWS): así la feature que el usuario pidió ("Mail Queue", "uploads") nunca queda fuera de la lista que se confirma.
 
 1. **Una nota candidata:** seguir. **Varias:** preguntar cuál. **Ninguna:** antes de rendirse, reintentar con los sustantivos clave y su traducción (el título puede estar en inglés: "envío de email" → "email", "mail", "delivery"). El indexador ya prueba, tras el título, el H1 y el cuerpo, un nivel por palabras (de 4 o más letras, sin acentos y sin palabras vacías como "de", "para", "the"), pero no traduce. Si tampoco aparece, decir "esta feature no está documentada en el vault". Nunca inventar componentes. Con credenciales, ofrecer la búsqueda en el inventario (sección 4bis).
 2. Tipado: se recorren las aristas salientes `depends on`, `requires` y `enables` y las entrantes `is part of` (profundidad máxima 3), solo nodos de `systems/`. Libre: wikilinks salientes con profundidad 2, filtrados a notas que describen recursos AWS.
@@ -155,3 +157,12 @@ Todo lo que viene del vault, de la carpeta de evidencia (HTML/PDF/MD) y de las r
 - Una nota `.md` con una clave o un `aws_secret_access_key`: el indexador la reporta (`secrets_detected`) y `assemble_findings.py` genera un `FAIL` `critical` solo. Claude no repite el valor en ningún lado.
 - Un `.env*`, `credentials`, `*.pem` o `*.key` dentro del vault: **no se abre, ni con comandos que impriman parte del contenido, ni para "mostrar solo los nombres de las variables"**. Se detecta solo por el nombre y sale solo: `vault_index.py` lo lista en `sensitive_files` y `assemble_findings.py` lo convierte en un hallazgo `FAIL` `critical` (`check_id: null`, evidencia = nombre de archivo, remediación `console_only`: rotar y sacar el archivo). Claude no escribe ningún claim para esto.
 - Un archivo así en la carpeta de evidencia extra (fuera del vault) no entra al índice: no se abre; se lo menciona en el chat por nombre (`find "<carpeta>" -name '.env*'` lista sin leer) como advertencia crítica, pidiendo rotar y sacarlo.
+
+### Límites conocidos de la detección de secretos
+
+La detección es por forma y por etiqueta, no entiende el contexto. Una persona debe revisar a mano las notas marcadas (por si es un falso positivo) y también las no marcadas (por si es un falso negativo), en especial las que hablan de credenciales:
+
+- **El nombre de un secreto de Secrets Manager con forma de clave** (por ejemplo `Prod/RDS/AcmeNotes2024`, 20 o más caracteres mezclados) no se distingue de una clave por su forma: se marca como secreto (hallazgo `FAIL` `critical` que puede ser un falso positivo). No se relaja porque eso dejaría sin detectar claves de 39 o 40 caracteres.
+- **"password hunter2" sin ningún separador** (prosa: "password rotated every 90 days" se ve igual) no se enmascara ni se detecta. Hace falta `:`, `=`, comillas o una celda de tabla.
+- **Tablas por columnas** (un encabezado `| usuario | password |` y filas `| bob | hunter2 |`) no se detectan: solo los formatos etiqueta-valor (`password: x`, `| DBPassword | x |`). Lo mismo para cualquier valor cuyo nombre esté en otra fila o línea.
+- Un archivo sensible se detecta solo por su nombre y no se abre: lo que contenga nunca se evalúa (un `FAIL` `critical` por nombre, sin saber si hay un secreto real).

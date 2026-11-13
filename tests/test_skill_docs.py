@@ -114,7 +114,7 @@ class SkillDocsTests(unittest.TestCase):
             self.assertIn(trigger, description)
 
     def test_skill_md_is_lean(self):
-        self.assertLessEqual(len(self.text.splitlines()), 500)
+        self.assertLessEqual(len(self.text.splitlines()), 195)  # detail lives in references/
 
     def test_every_mentioned_script_exists(self):
         names = set(SCRIPT_MENTION.findall(self.text))
@@ -202,12 +202,146 @@ class SkillDocsTests(unittest.TestCase):
         for path in [SKILL_MD, *(SKILL_DIR / "references" / n for n in REFERENCES), ROOT / "tests" / "skill-scenarios.md"]:
             self.assertIsNone(KEY_SHAPED.search(read(path)), f"key-shaped literal in {path.name}")
 
-    def test_scenarios_file_has_the_four_scenarios_with_empty_green_sections(self):
+    def test_scenarios_file_has_the_four_scenarios_each_with_a_baseline_and_a_green_section(self):
         text = read(ROOT / "tests" / "skill-scenarios.md")
         for letter in "abcd":
             self.assertIn(f"## Escenario ({letter})", text)
         self.assertEqual(text.count("### Línea base (sin skill)"), 4)
         self.assertEqual(text.count("### Resultado con el skill (GREEN)"), 4)
+
+
+def hard_rules(text):
+    """Rows of the "Reglas duras" table: [(rule, rationalisation, what to do)]."""
+    section = text.split("## Reglas duras", 1)[1].split("\n## ", 1)[0]
+    rows = [line for line in section.splitlines() if line.startswith("|")][2:]
+    return [[cell.strip() for cell in row.strip("|").split(" | ")] for row in rows]
+
+
+class ReadOnlyRuleTests(unittest.TestCase):
+    """Review 2 C: the product rule (the skill never writes to AWS or applies a fix) is the first, absolute hard rule."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.skill = read(SKILL_MD)
+
+    def test_the_first_hard_rule_is_the_absolute_read_only_rule(self):
+        rule, rationalisation, action = hard_rules(self.skill)[0]
+        for needle in ("jamás escribe en AWS", "ni si el usuario lo pide", "solo para probar", "otra herramienta", "PR", "IaC"):
+            self.assertIn(needle, rule)
+        self.assertIn("si me das acceso", rationalisation.lower())
+        for needle in ("Negarte", "siempre un no", "sin excepciones", "bloque Copy"):
+            self.assertIn(needle, action)
+
+    def test_no_other_hard_rule_leaves_room_for_an_exception(self):
+        text = "\n".join(" ".join(row) for row in hard_rules(self.skill)).lower()
+        for forbidden in ("salvo que el usuario", "si el usuario lo autoriza", "con confirmación puede aplicar"):
+            self.assertNotIn(forbidden, text)
+
+    def test_readme_and_guidelines_state_the_same_rule(self):
+        readme = read(ROOT / "README.md")
+        self.assertIn("Regla absoluta: el skill solo informa", readme)
+        self.assertIn("nunca\nescribe en AWS ni aplica un arreglo", readme)
+        what_not = readme.split("## Qué no hace", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("No escribe en AWS, jamás", what_not)
+        self.assertIn("ni siquiera si se lo piden", what_not)
+        guidelines = read(SKILL_DIR / "references" / "remediation-guidelines.md")
+        self.assertIn("nunca escribe en AWS", guidelines)
+        self.assertIn("ni si el usuario lo pide", guidelines)
+
+    def test_the_read_only_guarantee_names_the_reviewed_allowlist(self):
+        guidelines = read(SKILL_DIR / "references" / "remediation-guidelines.md")
+        for needle in ("REVIEWED_OPERATIONS", "SENSITIVE_NAME_EXCEPTIONS", "aws <servicio> <operación> help"):
+            self.assertIn(needle, guidelines)
+        self.assertIn("REVIEWED_OPERATIONS", read(ROOT / "README.md"))
+
+
+class BehaviourChangesAreDocumentedTests(unittest.TestCase):
+    """Review 2 A/B/C: every behaviour the engine commits changed is in SKILL.md or its references, and the quoted
+    messages still exist in the scripts (the docs cannot drift from the code)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.skill = read(SKILL_MD)
+        cls.refs = {n: read(SKILL_DIR / "references" / n) for n in REFERENCES}
+        cls.scripts = {p.name: read(p) for p in SCRIPTS_DIR.glob("*.py")}
+
+    def test_the_verdict_is_documented_in_skill_readme_and_report_format(self):
+        for needle in ("verdict_text", "NO_OPTIMO", "NO_VERIFICABLE", "OPTIMO"):
+            self.assertIn(needle, self.skill, needle)
+            self.assertIn(needle, self.refs["report-format.md"], needle)
+        self.assertIn("nunca `OPTIMO` sin credenciales", self.refs["report-format.md"])
+        self.assertIn("Nunca hay `OPTIMO` sin\n  credenciales", read(ROOT / "README.md"))
+        for verdict in ("NO_OPTIMO", "NO_VERIFICABLE", "OPTIMO"):
+            self.assertIn(verdict, self.scripts["assemble_findings.py"])
+        self.assertIn("verdict_text", self.scripts["assemble_findings.py"])
+
+    def test_no_sources_exit_and_the_scope_file_location_are_documented(self):
+        message = "sin fuentes: hace falta un vault o credenciales AWS de solo lectura"
+        self.assertIn(message, self.scripts["assemble_findings.py"])
+        for text in (self.skill, self.refs["report-format.md"]):
+            self.assertIn(message, text)
+        self.assertIn("$RUN/scope.json", self.skill)
+        self.assertIn("no moverlo ni borrarlo", self.skill)
+        self.assertIn("no se mueve ni se borra", self.refs["report-format.md"])
+
+    def test_claims_are_optional_in_the_second_verification_pass(self):
+        self.assertIn("`--claims` solo si escribiste el archivo", self.skill)
+        self.assertIn("no existe solo avisa", self.skill)
+        self.assertIn("el archivo de claims no existe", self.scripts["verify_remediation.py"])
+
+    def test_scope_regions_rule_and_exit_2_are_documented(self):
+        for text in (self.skill, self.refs["report-format.md"]):
+            self.assertIn("no vacía", text)
+        self.assertIn("exit `2`", self.refs["report-format.md"])
+        self.assertIn("auto", self.scripts["collect.py"])
+
+    def test_the_no_verificado_reasons_quoted_in_the_docs_exist_in_the_engine(self):
+        collect = self.scripts["collect.py"]
+        for reason in ("no se pudieron listar las regiones", "sin regiones en el alcance", "inventario incompleto", "bloqueado por SCP"):
+            self.assertIn(reason, collect, reason)
+            self.assertIn(reason, self.refs["report-format.md"], reason)
+        self.assertIn("ec2:DescribeRegions", self.refs["report-format.md"])
+        self.assertIn("ec2:DescribeRegions", collect)
+
+    def test_cmp_006_context_rows_are_documented(self):
+        self.assertIn("context_for", self.scripts["collect.py"])
+        for text in (self.skill, self.refs["report-format.md"]):
+            self.assertIn("context_for", text)
+            self.assertIn("CR-003", text)
+
+    def test_the_matched_note_and_truncated_notes_are_documented(self):
+        reading = self.refs["vault-reading.md"]
+        self.assertIn('via: ["matched"]', reading)
+        self.assertIn("truncated_notes", reading)
+        self.assertIn("matched", self.scripts["vault_index.py"])
+        self.assertIn("truncated_notes", self.scripts["vault_index.py"])
+        self.assertIn("MAX_NOTE_BYTES", self.scripts["vault_index.py"])
+
+    def test_vault_statements_are_documented_as_evaluated_by_vault(self):
+        self.assertIn("`vault`", self.refs["report-format.md"])
+        self.assertIn('"vault"', self.scripts["assemble_findings.py"])
+
+    def test_the_reviewed_allowlist_and_denylist_rules_exist_in_the_engine(self):
+        self.assertIn("REVIEWED_OPERATIONS", self.scripts["catalog.py"])
+        self.assertIn("SENSITIVE_NAME_EXCEPTIONS", self.scripts["aws_runner.py"])
+
+    def test_known_secret_detection_limits_are_documented_in_the_references(self):
+        reading = self.refs["vault-reading.md"]
+        self.assertIn("Límites conocidos de la detección de secretos", reading)
+        for needle in ("Secrets Manager", "forma de clave", "sin ningún separador", "Tablas por columnas", "revisar a mano", "falso positivo", "falso negativo"):
+            self.assertIn(needle, reading, needle)
+        self.assertNotIn("Límites conocidos de la detección", self.skill)  # the detail lives in the references, SKILL.md only points to it
+        self.assertIn("vault-reading.md` §9", self.skill)
+
+    def test_coverage_limits_and_root_logins_are_documented(self):
+        vendors = self.refs["drata-vanta.md"]
+        for needle in ("Límites de cobertura conocidos", "DynamoDB", "Contactos alternativos", "IAM-004", "LOG-010", "ENC-001"):
+            self.assertIn(needle, vendors, needle)
+
+    def test_fixes_that_replace_things_are_documented_as_read_then_merge(self):
+        guidelines = self.refs["remediation-guidelines.md"]
+        for needle in ("Leer antes de reemplazar", "DETENIDO", "--no-publicly-accessible", "Alternativas no se copian juntas"):
+            self.assertIn(needle, guidelines, needle)
 
 
 if __name__ == "__main__":

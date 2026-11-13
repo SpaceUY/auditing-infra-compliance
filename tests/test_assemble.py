@@ -603,7 +603,7 @@ class RemediationByStatusTests(AssembleCase):
         self.assertEqual((found[0]["severity"], found[0]["evidence"]["catalog_severity"]), ("low", None))
 
     def test_stripped_remediation_does_not_raise_unsafe_value_warnings(self):
-        claim = self.claim("DOCUMENTED_ONLY", "ENC-003")
+        claim = self.claim("DOCUMENTED_ONLY", "NET-008")  # its verify_after has no {resource_id}: only the stripped commands carry the id
         claim["resource"]["id"] = "bad id; rm"
         out = self.assemble([claim])
         self.assertFalse([w for w in out["warnings"] if "no seguros" in w or "inseguro" in w])

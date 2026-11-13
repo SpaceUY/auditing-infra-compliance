@@ -382,13 +382,13 @@ class DetectionCatalogTests(unittest.TestCase):
             self.assertTrue(rem["verify_after"].startswith("aws "), check["id"])
 
     def test_det_001_enables_guardduty_with_s3_protection_in_the_offending_region(self):
-        commands = catalog_check("DET-001")["remediation"]["commands"]
-        self.assertIn('aws guardduty create-detector --enable --region "{region}" --features '
-                      '\'[{"Name":"S3_DATA_EVENTS","Status":"ENABLED"}]\'', commands[0])
+        (command,) = catalog_check("DET-001")["remediation"]["commands"]  # one conditional block: no alternative blocks to one-click copy
+        self.assertIn('aws guardduty create-detector --enable --region "$REGION" --features '
+                      '\'[{"Name":"S3_DATA_EVENTS","Status":"ENABLED"}]\'', command)
 
     def test_det_001_reenables_a_suspended_detector_only_after_looking_it_up(self):
-        suspended = catalog_check("DET-001")["remediation"]["commands"][1]
-        self.assertRegex(suspended, r"DETECTOR_ID=\$\(aws guardduty list-detectors [^\n]*\) && aws guardduty update-detector")
+        (command,) = catalog_check("DET-001")["remediation"]["commands"]
+        self.assertRegex(command, r"DETECTOR_ID=\$\(aws guardduty list-detectors [^\n]*\)\n[^\n]*create-detector[^\n]*else aws guardduty update-detector")
 
     def test_det_002_updates_the_detector_found_by_the_lookup(self):
         (command,) = catalog_check("DET-002")["remediation"]["commands"]

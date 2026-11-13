@@ -152,7 +152,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "medium",
         "downtime": false,
         "steps": [
@@ -165,7 +165,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nCONFIG_SET=\"__COMPLETAR_CONFIGURATION_SET__\"\naws sesv2 create-configuration-set --configuration-set-name \"$CONFIG_SET\" --delivery-options TlsPolicy=REQUIRE --region \"$REGION\" && aws sesv2 put-email-identity-configuration-set-attributes --email-identity \"{resource_id}\" --configuration-set-name \"$CONFIG_SET\" --region \"$REGION\""
         ],
         "verify_after": "aws sesv2 get-email-identity --email-identity \"{resource_id}\" --region \"{region}\" --query 'ConfigurationSetName'",
-        "notes": "Sin downtime, pero con TlsPolicy=REQUIRE SES no entrega a los destinatarios cuyo servidor no soporta TLS (el mensaje rebota): revisar las métricas de rebotes después del cambio. Usar el primer bloque si la identidad ya tiene un configuration set, y el segundo si no tiene (crea el set y lo deja como por defecto en un solo paso: el put solo corre si el create tuvo éxito). Reemplazar __COMPLETAR_CONFIGURATION_SET__ por el nombre del set. Los envíos que indican otro set en cada mensaje no usan el set por defecto: configurar también esos sets."
+        "notes": "Riesgo: sin downtime, pero con TlsPolicy=REQUIRE SES no entrega a los destinatarios cuyo servidor no soporta TLS (el mensaje rebota): revisar las métricas de rebotes después del cambio. Usar el primer bloque si la identidad ya tiene un configuration set, y el segundo si no tiene (crea el set y lo deja como por defecto en un solo paso: el put solo corre si el create tuvo éxito). Reemplazar __COMPLETAR_CONFIGURATION_SET__ por el nombre del set. Los envíos que indican otro set en cada mensaje no usan el set por defecto: configurar también esos sets."
       },
       "sources": [
         "https://docs.aws.amazon.com/ses/latest/dg/using-configuration-sets.html",
@@ -433,7 +433,6 @@
           "CC6.7"
         ],
         "iso_inferred": [
-          "A.8.24",
           "A.5.14"
         ],
         "security_hub": [],

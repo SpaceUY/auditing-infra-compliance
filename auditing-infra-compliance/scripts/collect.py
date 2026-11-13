@@ -775,7 +775,7 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     _progress(args, f"[inventario] {len(inventory_regions)} regiones")
     selected = _select(checks, scope)
     try:
-        ctx.inventory, errors = inventory.build_inventory(list_inventory, specs, inventory_regions)
+        ctx.inventory, errors = inventory.build_inventory(list_inventory, specs, inventory_regions, account_id=account_id)
     except KeyboardInterrupt:  # Ctrl-C or SIGTERM during the inventory: nothing was checked, every check is pending
         ctx.cancelled.set()
         aws = {"account_id": account_id, "identity_arn": identity_arn, "regions": sorted(inventory_regions),

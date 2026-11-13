@@ -1,8 +1,12 @@
 # infra-compliance-audit
 
 Skill de Claude Code `auditing-infra-compliance`: pre-audita infraestructura AWS contra SOC 2 y ISO 27001:2022 y
-entrega un HTML autocontenido con hallazgos, mapeos a los tests de Drata y Vanta y comandos de CloudShell
-listos para copiar.
+entrega un HTML autocontenido que dice si la infraestructura es óptima, con hallazgos, mapeos a los tests de Drata
+y Vanta y comandos de CloudShell para que una persona los copie y los pegue.
+
+**Regla absoluta: el skill solo informa.** Produce un reporte y comandos de remediación para un humano; **nunca
+escribe en AWS ni aplica un arreglo** (ni Claude ni los scripts), aunque se lo pidan, "solo para probar", con otra
+herramienta o con un perfil de escritura. No ofrece acceso, PRs ni IaC para aplicarlo.
 
 El diseño está en `docs/specs/2026-11-12-infra-compliance-audit-design.md` y el plan de implementación en
 `docs/plans/2026-11-12-infra-compliance-audit.md`.
@@ -17,6 +21,14 @@ El diseño está en `docs/specs/2026-11-12-infra-compliance-audit-design.md` y e
   reporte declara como tal; las regiones bloqueadas por una SCP se informan como no verificadas.
 - Compara lo documentado con lo desplegado y lo informa como `DRIFT`, `UNDOCUMENTED`, `DOCUMENTED_ONLY` o
   `DOCUMENTED_GAP`.
+- Calcula un **veredicto** (`summary.verdict` y su frase `summary.verdict_text`, lo primero que muestra el HTML):
+  `NO_OPTIMO` (algún `FAIL`, un `DRIFT` cuyo estado real falla o una brecha documentada crítica o alta),
+  `NO_VERIFICABLE` (sin credenciales, corrida parcial, regiones bloqueadas, inventario incompleto o algo sin
+  verificar) u `OPTIMO` (solo con credenciales, corrida completa y nada de lo anterior). Nunca hay `OPTIMO` sin
+  credenciales. No hay porcentaje ni nota.
+- Sin ninguna fuente (ni vault ni credenciales) no hay reporte: `assemble_findings.py` termina con exit `2`
+  ("sin fuentes"). Un `scope.regions` inválido hace terminar `collect.py` con exit `2`. Si no se pueden listar las
+  regiones (`ec2:DescribeRegions`), los chequeos de todas las regiones quedan `NO_VERIFICADO`, nunca `PASS`.
 - Produce `report.html`, `findings.json`, `checks-result.json`, `inventory.json` y `raw/` en
   `./compliance-reports/<plataforma>-<alcance>-<fecha>/`, siempre fuera del vault.
 - Verifica los comandos de remediación sin ejecutarlos (sintaxis, placeholders pendientes, conflictos entre
@@ -28,12 +40,18 @@ El diseño está en `docs/specs/2026-11-12-infra-compliance-audit-design.md` y e
 
 - No es una opinión de auditoría ni un puntaje: no hay porcentaje ni nota de cumplimiento, solo conteos por
   estado y severidad.
-- No ejecuta ninguna operación de escritura en AWS. `aws_runner.py` admite solo `describe-*`, `list-*` y `get-*`
+- **No escribe en AWS, jamás.** `aws_runner.py` admite solo `describe-*`, `list-*` y `get-*`
   (más `lookup-events`, `generate-credential-report` y la excepción acotada `inspector2 batch-get-account-status`),
-  rechaza una denylist de lecturas que exponen secretos y rechaza todo argumento `https://` o `http://` (la CLI
-  intentaría descargarlo).
-- No aplica arreglos: los comandos los pega una persona en CloudShell.
-- No lee archivos `.env*`, `~/.aws/credentials`, `*.pem` ni `*.key`; los detecta solo por nombre.
+  rechaza una denylist de lecturas que exponen secretos y las operaciones de nombre sensible (credential, password,
+  token, secret…) salvo excepciones revisadas, y rechaza todo argumento `https://` o `http://` (la CLI intentaría
+  descargarlo). Además solo corre los pares (servicio, operación) de `catalog.REVIEWED_OPERATIONS`: agregar una
+  llamada exige agregarla ahí y `validate_catalog.py` falla si falta.
+- **No aplica arreglos, ni siquiera si se lo piden o "para probar":** los comandos los pega una persona en
+  CloudShell. Tampoco ofrece acceso de escritura, PRs ni IaC. Los arreglos que reemplazan una política o configuración
+  leen primero la actual y se detienen (`DETENIDO`) si no pueden leerla; ninguno se ejecuta desde el skill.
+- No lee archivos `.env*`, `~/.aws/credentials`, `*.pem` ni `*.key`; los detecta solo por nombre. La detección de
+  secretos dentro de las notas tiene límites conocidos (nombres de secretos con forma de clave, "password valor" sin
+  separador, tablas por columnas): una persona debe revisar esas notas (`references/vault-reading.md`).
 - No escribe en el vault.
 - No inventa nombres de tests de Drata o Vanta ni IDs de SOC 2 o ISO: usa solo lo que sale del catálogo y de
   `references/mappings/`. Un mapeo sin fuente se muestra como "inferido".
