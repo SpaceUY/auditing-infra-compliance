@@ -859,6 +859,134 @@ class ReviewTwoSmallFixesTests(AssembleCase):
             self.assertIn(assemble_findings.TEMPLATE_HINT, finding["remediation"]["steps"])
 
 
+class FinalCleanupBTests(AssembleCase):
+    """Final cleanup B: UNDOCUMENTED that fails is a failure (N2), OPTIMO needs an evaluated PASS/FAIL (N4), malformed scope.json (N6),
+    reason wording, vault silent about the target, no risk on verify-only fixes, clear errors for missing inputs (D2 minors 4, 6, 8, 11)."""
+
+    RESOURCE = {"type": "rds_instance", "id": "acme-notes-db", "region": "us-east-1"}
+
+    def only(self, *keep):
+        def prune(data):
+            data["results"] = [r for r in data["results"] if (r["check_id"], r["resource_id"]) in keep]
+            data["warnings"] = []
+        self.edit_results(prune)
+
+    def verdict(self, claims=None, index=None):
+        summary = self.assemble(claims, index)["summary"]
+        return summary["verdict"], summary
+
+    def test_undocumented_with_a_failing_actual_state_is_not_optimal(self):
+        self.only(("DET-001", "account"))
+        claim = {"kind": "UNDOCUMENTED", "check_id": "ENC-003", "resource": self.RESOURCE, "actual_status": "FAIL"}
+        verdict, summary = self.verdict([claim])
+        self.assertEqual(verdict, "NO_OPTIMO")
+        self.assertTrue(summary["verdict_text"].startswith("No óptimo"))
+
+    def test_any_claim_status_with_a_failing_actual_state_is_not_optimal(self):
+        self.only(("DET-001", "account"))
+        for kind in ("DRIFT", "UNDOCUMENTED", "DOCUMENTED_ONLY", "DOCUMENTED_GAP"):
+            claim = {"kind": kind, "check_id": "ENC-003", "resource": self.RESOURCE, "actual_status": "FAIL", "severity": "low"}
+            self.assertEqual(self.verdict([claim])[0], "NO_OPTIMO", kind)
+
+    def test_drift_or_undocumented_without_a_failing_actual_state_is_called_out_in_the_text(self):
+        self.only(("DET-001", "account"))
+        claims = [{"kind": "UNDOCUMENTED", "check_id": "ENC-003", "resource": self.RESOURCE},
+                  {"kind": "DRIFT", "check_id": "ENC-003", "resource": self.RESOURCE, "actual_status": "PASS"}]
+        verdict, summary = self.verdict(claims)
+        self.assertEqual(verdict, "OPTIMO")
+        self.assertIn("2 diferencia(s)", summary["verdict_text"])
+        self.assertNotIn("\n", summary["verdict_text"])
+
+    def test_optimal_needs_at_least_one_evaluated_pass_or_fail(self):
+        self.edit_results(lambda data: data.update(results=[], warnings=[]))
+        verdict, summary = self.verdict([])
+        self.assertEqual(verdict, "NO_VERIFICABLE")
+        self.assertIn("ningún chequeo", summary["verdict_text"])
+        shutil.rmtree(self.run_dir)
+        shutil.copytree(SAMPLE, self.run_dir)
+        self.only(("LOG-002", "account"))  # N/A row
+        self.assertEqual(self.verdict([])[0], "NO_VERIFICABLE")
+        shutil.rmtree(self.run_dir)
+        shutil.copytree(SAMPLE, self.run_dir)
+        self.only(("DET-001", "account"))
+        self.assertEqual(self.verdict([])[0], "OPTIMO")
+
+    def test_documented_gap_reason_does_not_say_it_was_verified_to_fail(self):
+        self.only(("DET-001", "account"))
+        gap = {"kind": "DOCUMENTED_GAP", "check_id": "ENC-003", "resource": self.RESOURCE, "severity": "high"}
+        summary = self.verdict([gap])[1]
+        self.assertEqual(summary["verdict"], "NO_OPTIMO")
+        self.assertEqual(len(summary["verdict_reasons"]), 1)
+        self.assertIn("documentada", summary["verdict_reasons"][0])
+        self.assertNotIn("incumplen", summary["verdict_reasons"][0])
+        self.assertIn("1 hallazgo(s) abierto(s)", summary["verdict_text"])
+
+    def test_verified_failures_and_documented_gaps_get_separate_reasons(self):
+        gap = {"kind": "DOCUMENTED_GAP", "check_id": "ENC-003", "resource": self.RESOURCE, "severity": "high"}
+        reasons = self.verdict([gap])[1]["verdict_reasons"]
+        self.assertEqual(len(reasons), 2)
+        self.assertIn("falla", reasons[0])
+        self.assertIn("documentada", reasons[1])
+
+    def test_malformed_scope_json_is_a_clear_error(self):
+        for content in ("[]", '"x"', "3", "null", '{"resources": "x"}', '{"resources": {"id": "x"}}', "{oops"):
+            (self.run_dir / "scope.json").write_text(content, encoding="utf-8")
+            with self.subTest(content=content):
+                if content == "null":
+                    self.assertEqual(self.assemble()["unverified_scope"], [])
+                    continue
+                with self.assertRaisesRegex(ValueError, "scope.json"):
+                    self.assemble()
+
+    def test_malformed_scope_json_through_the_cli_has_no_traceback(self):
+        (self.run_dir / "scope.json").write_text("[1, 2]", encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = assemble_findings.main(["--run-dir", str(self.run_dir), "--platform", "x", "--mode", "full"])
+        self.assertEqual(code, 2)
+        self.assertTrue(err.getvalue().startswith("error: "))
+        self.assertNotIn("Traceback", err.getvalue())
+        self.assertFalse((self.run_dir / "findings.json").exists())
+
+    def resource_meta(self, target):
+        return {"platform": "Acme Notes", "mode": "resource", "target": target, "lang": "es"}
+
+    def test_resource_mode_says_when_the_vault_does_not_mention_the_target(self):
+        vault = self.tmp / "vault"
+        vault.mkdir()
+        (vault / "Other.md").write_text("# Other\n\nnada\n", encoding="utf-8")
+        index = vault_index.build_index(vault)
+        out = assemble_findings.assemble(self.run_dir, index, [], self.resource_meta("i-0a1b2c3d4e5f60718"), SKILL_DIR)
+        self.assertTrue([n for n in out["notes"] if "i-0a1b2c3d4e5f60718" in n and "vault" in n], out["notes"])
+        (vault / "Server.md").write_text("# Server\n\nInstancia i-0a1b2c3d4e5f60718 de producción\n", encoding="utf-8")
+        out = assemble_findings.assemble(self.run_dir, vault_index.build_index(vault), [], self.resource_meta("i-0a1b2c3d4e5f60718"), SKILL_DIR)
+        self.assertFalse([n for n in out["notes"] if "no menciona" in n])
+        out = assemble_findings.assemble(self.run_dir, vault_index.build_index(vault), [], dict(META), SKILL_DIR)
+        self.assertFalse([n for n in out["notes"] if "no menciona" in n])
+
+    def test_verify_only_findings_carry_no_kind_risk_or_downtime(self):
+        claim = {"kind": "DOCUMENTED_ONLY", "check_id": "ENC-003", "resource": self.RESOURCE}
+        out = self.assemble([claim])
+        for finding in out["findings"]:
+            rem = finding["remediation"]
+            if rem and rem.get("note_status"):
+                self.assertEqual((rem["kind"], rem["risk"], rem["downtime"]), (None, None, None), finding["id"])
+        fail = self.one(out, "NET-001", SG, "FAIL")["remediation"]
+        self.assertIn(fail["risk"], ("low", "medium", "high"))
+        self.assertIsNotNone(fail["kind"])
+
+    def test_missing_claims_and_index_files_are_named_in_the_error(self):
+        for flag in ("--vault-claims", "--vault-index"):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                code = assemble_findings.main(["--run-dir", str(self.run_dir), "--platform", "x", "--mode", "full",
+                                               flag, str(self.tmp / "nope.json")])
+            self.assertEqual(code, 2, flag)
+            self.assertIn("no existe", err.getvalue(), flag)
+            self.assertIn("nope.json", err.getvalue(), flag)
+            self.assertNotIn("se esperaba", err.getvalue(), flag)
+
+
 class CliTests(AssembleCase):
     def test_cli_writes_findings_json(self):
         vault = self.tmp / "vault"

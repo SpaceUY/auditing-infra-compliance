@@ -290,7 +290,7 @@
         "cis_aws": []
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "low",
         "downtime": false,
         "steps": [
@@ -302,7 +302,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\nRESOURCE_ARN=\"{resource_arn}\"\naws resourcegroupstaggingapi untag-resources --resource-arn-list \"$RESOURCE_ARN\" --tag-keys VantaNonProd --region \"$REGION\""
         ],
         "verify_after": "aws resourcegroupstaggingapi get-resources --resource-arn-list \"{resource_arn}\" --region \"{region}\" --query 'ResourceTagMappingList[].Tags[?Key==`VantaNonProd`]'",
-        "notes": "{resource_arn} es el ARN del recurso {resource_id}, tomado del inventario. tag-resources agrega o pisa solo los tags indicados y deja el resto (put-bucket-tagging de S3 reemplaza todos). Para un bucket de S3 usar la región del bucket en REGION. Sin downtime, pero el recurso entra al alcance de Vanta: pueden aparecer tests en rojo que antes no se evaluaban. Si el recurso es de verdad no productivo, la corrección es el tag Environment, no VantaNonProd. Vanta lo documenta como alcance visible para los auditores (ven qué se sacó del alcance)."
+        "notes": "ADVERTENCIA: untag-resources elimina el tag VantaNonProd del recurso y lo mete en el alcance de Vanta; decidirlo antes de correr el comando. {resource_arn} es el ARN del recurso {resource_id}, tomado del inventario. tag-resources agrega o pisa solo los tags indicados y deja el resto (put-bucket-tagging de S3 reemplaza todos). Para un bucket de S3 usar la región del bucket en REGION. Sin downtime, pero el recurso entra al alcance de Vanta: pueden aparecer tests en rojo que antes no se evaluaban. Si el recurso es de verdad no productivo, la corrección es el tag Environment, no VantaNonProd. Vanta lo documenta como alcance visible para los auditores (ven qué se sacó del alcance)."
       },
       "sources": [
         "https://help.vanta.com/en/articles/11345627-bulk-tags",

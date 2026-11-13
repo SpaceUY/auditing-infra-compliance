@@ -578,15 +578,53 @@ class ReviewTwoRiskAndWarningTests(unittest.TestCase):
                    "iam put-user-policy", "iam put-role-policy", "iam put-group-policy", "iam update-assume-role-policy",
                    "iam update-account-password-policy", "kms put-key-policy", "logs put-retention-policy", "ec2 replace-network-acl-entry",
                    "ec2 replace-route", "ec2 replace-iam-instance-profile-association", "ec2 modify-instance-attribute",
-                   "ec2 modify-network-interface-attribute", "elbv2 modify-listener", "elbv2 modify-rule", "cloudtrail put-event-selectors")
+                   "ec2 modify-network-interface-attribute", "elbv2 modify-listener", "elbv2 modify-rule", "cloudtrail put-event-selectors",
+                   "s3api put-public-access-block", "s3control put-public-access-block", "s3control put-account-public-access-block",
+                   "resourcegroupstaggingapi untag-resources")
         for operation in flagged:
             result = run(finding(1, "DAT-007", [f"aws {operation} --x y"], kind="cli"))
             self.assertIn("destructivo_sin_aviso", kinds(result, "F-0001"), operation)
         for operation in ("s3api get-bucket-policy", "s3api put-object", "ec2 modify-volume", "rds modify-db-instance",
                           "iam put-user-permissions-boundary", "cloudwatch put-metric-data", "ec2 describe-network-acls",
-                          "s3api put-public-access-block", "ec2 create-tags", "ssm put-parameter"):
+                          "ec2 create-tags", "ssm put-parameter", "resourcegroupstaggingapi tag-resources",
+                          "s3api get-public-access-block"):
             result = run(finding(1, "DAT-007", [f"aws {operation} --x y"], kind="cli"))
             self.assertNotIn("destructivo_sin_aviso", kinds(result, "F-0001"), operation)
+
+
+class FinalCleanupBTests(unittest.TestCase):
+    """Final cleanup B: placeholders in the verify_after of verify-only findings are counted (D2 minor 1), a missing findings.json is
+    named (D2 minor 11), public access blocks and untag-resources are replacing operations."""
+
+    def test_pending_values_in_verify_after_of_verify_only_findings_are_counted(self):
+        only = finding(1, "ENC-003", [], status="DOCUMENTED_ONLY", domain="encryption", rtype="rds_instance",
+                       verify_after="aws rds describe-db-instances --region __COMPLETAR_REGION__")
+        only["remediation"].update(steps=[], note_status="no verificado: no aplicar sin confirmar")
+        passed = finding(2, "DAT-007", [], status="PASS", domain="data", verify_after="aws s3api get-public-access-block --region us-east-1")
+        passed["remediation"].update(steps=[], note_status="verificado")
+        result = run(only, passed)
+        self.assertEqual(result["completar_pendientes"], 1)
+        self.assertEqual(result["per_finding"], {})  # still nothing to verify: no status for them
+        fail = finding(3, "NET-001", [HEADER + 'X="__COMPLETAR_FOO__"\n' + SAFE])
+        self.assertEqual(run(only, passed, fail)["completar_pendientes"], 2)
+
+    def test_untag_resources_and_public_access_blocks_need_a_warning(self):
+        for operation in ("resourcegroupstaggingapi untag-resources --resource-arn-list a --tag-keys k",
+                          "s3api put-public-access-block --bucket b --public-access-block-configuration BlockPublicAcls=true"):
+            result = run(finding(1, "DAT-007", [f"aws {operation}"], kind="cli"))
+            self.assertEqual(status(result, "F-0001"), "REVISAR", operation)
+            self.assertIn("destructivo_sin_aviso", kinds(result, "F-0001"), operation)
+            warned = run(finding(1, "DAT-007", [f"aws {operation}"], kind="cli_with_decision", notes="ADVERTENCIA: reemplaza la configuración."))
+            self.assertNotIn("destructivo_sin_aviso", kinds(warned, "F-0001"), operation)
+
+    def test_cli_names_the_missing_findings_file(self):
+        err = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = verify_remediation.main(["--run-dir", tmp])
+        self.assertEqual(code, 2)
+        self.assertIn("findings.json", err.getvalue())
+        self.assertIn("assemble_findings.py", err.getvalue())
+        self.assertNotIn("Errno", err.getvalue())
 
 
 class ReviewTwoVerificationOutputTests(unittest.TestCase):
@@ -921,9 +959,10 @@ class StaleVerificationTests(unittest.TestCase):
                 render_report.main([str(tmp / "findings.json"), "--verification", str(tmp / "verification.json")])
             self.assertEqual(err.getvalue(), "")
 
-    def test_a_verification_without_digest_is_accepted(self):
+    def test_a_verification_without_digest_is_stale(self):
+        # verify_remediation always writes the digest: one without it is old or hand-made and cannot be tied to these findings
         legacy = {k: v for k, v in self.verification.items() if k != "findings_digest"}
-        self.assertFalse(render_report.verification_is_stale(FINDINGS, legacy))
+        self.assertTrue(render_report.verification_is_stale(FINDINGS, legacy))
 
 
 class CliTests(unittest.TestCase):

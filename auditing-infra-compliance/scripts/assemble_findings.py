@@ -9,8 +9,8 @@ Rules worth knowing:
 - PENDING_CLAUDE rows are replaced by the EVAL claims with the same check_id (claim resource must match unless the row
   is the account-level one); without a claim they become NO_VERIFICADO plus a warning.
 - Remediation by status: FAIL, DOCUMENTED_GAP and a DRIFT or UNDOCUMENTED claim with actual_status "FAIL" keep the full fix; the other
-  statuses (DOCUMENTED_ONLY, PASS, N/A, NO_VERIFICADO, any other DRIFT or UNDOCUMENTED) carry no steps/commands/notes, only verify_after and a
-  remediation.note_status. A DOCUMENTED_ONLY finding is severity low with evidence.catalog_severity (the check's severity).
+  statuses (DOCUMENTED_ONLY, PASS, N/A, NO_VERIFICADO, any other DRIFT or UNDOCUMENTED) carry no steps/commands/notes and no kind, risk or
+  downtime (null), only verify_after and a remediation.note_status. A DOCUMENTED_ONLY finding is severity low with evidence.catalog_severity (the check's severity).
 - Severity: detail.severity_override > explicit claim severity > catalog severity (UNDOCUMENTED and claims without a
   check default to low). A claim with breaks_tests becomes a DRIFT of at least high severity.
 - Remediation placeholders are filled with plain regex substitution (commands contain literal JSON braces, never
@@ -23,10 +23,10 @@ Rules worth knowing:
   emails kept. meta.vault.path is the vault folder name, never the absolute path.
 - Coverage never turns into a percentage: each ISO/TSC id is FAIL, NO_VERIFICADO, PASS or NOT_TOUCHED (a control touched only by
   DOCUMENTED_ONLY / DOCUMENTED_GAP findings is NO_VERIFICADO: the vault says so, nothing checked it).
-- summary.verdict is exactly one of NO_OPTIMO (any FAIL, a DRIFT whose actual fails, a critical/high DOCUMENTED_GAP), NO_VERIFICABLE
-  (no AWS credentials, a partial run, blocked regions, an incomplete inventory, or anything not verified: NO_VERIFICADO,
-  DOCUMENTED_ONLY, DOCUMENTED_GAP, scoped components without claims) and OPTIMO (credentials used, complete run, nothing of the
-  above). Never OPTIMO without credentials. summary.verdict_text is the one-line Spanish version; there are no scores.
+- summary.verdict is exactly one of NO_OPTIMO (any FAIL, any finding whose actual_status is FAIL: DRIFT, UNDOCUMENTED or another, a
+  critical/high DOCUMENTED_GAP), NO_VERIFICABLE (no AWS credentials, no evaluated PASS or FAIL at all, a partial run, blocked regions,
+  an incomplete inventory, or anything not verified: NO_VERIFICADO, DOCUMENTED_ONLY, DOCUMENTED_GAP, scoped components without claims)
+  and OPTIMO (credentials used, complete run, at least one evaluated PASS/FAIL, nothing of the above). Never OPTIMO without credentials. summary.verdict_text is the one-line Spanish version; there are no scores.
 - <run-dir>/scope.json (optional) lists the scoped components: those with no finding at all come out in `unverified_scope`.
 - Without a vault index, claims or AWS credentials there is nothing to report: assemble stops ("sin fuentes") and writes nothing.
 """
@@ -210,7 +210,8 @@ def _remediation(env, check, resource, arn, detail, keep_fix=True, status=None):
     rem = check["remediation"]
     if not keep_fix:
         verify = _fill(rem["verify_after"], values, detail, used)
-        return {**rem, "steps": [], "commands": [], "verify_after": verify, "notes": "",
+        # nothing to apply: no kind, risk or downtime either (a consumer must not read a pending high-risk change into it)
+        return {**rem, "kind": None, "risk": None, "downtime": None, "steps": [], "commands": [], "verify_after": verify, "notes": "",
                 "note_status": NOTE_STATUS_BY_STATUS.get(status, NOTE_STATUS)}, bool(used & bad)
     filled = {**rem,
               "steps": [_fill(t, values, detail, used) for t in rem["steps"]],
@@ -469,6 +470,15 @@ def _ref_names(value):
     return names
 
 
+def _read_scope(run_dir):
+    """scope.json as an object, or None when there is none; a file of another shape is an error (not a traceback)."""
+    path = Path(run_dir) / "scope.json"
+    scope = _read_json(path, None)
+    if scope is not None and (not isinstance(scope, dict) or not isinstance(scope.get("resources") or [], list)):
+        raise ValueError(f"{path}: scope.json con forma inválida (se esperaba un objeto con la lista 'resources')")
+    return scope
+
+
 def _unverified_scope(scope, findings):
     """Scoped components (scope.json) without any finding other than N/A: nothing says anything about them."""
     resources = [r for r in (scope or {}).get("resources") or [] if isinstance(r, dict) and isinstance(r.get("id"), str)]
@@ -495,28 +505,45 @@ def _run_state(result, aws):
 
 
 def _opens_a_failure(f):
-    return (f["status"] == "FAIL" or (f["status"] == "DRIFT" and f.get("actual_status") == "FAIL")
+    """A FAIL, anything whose real state (claim actual_status) fails, or a critical/high gap the vault admits."""
+    return (f["status"] == "FAIL" or f.get("actual_status") == "FAIL"
             or (f["status"] == "DOCUMENTED_GAP" and f["severity"] in ("critical", "high")))
 
 
+def _failure_reasons(failing):
+    gaps = [f for f in failing if f["status"] == "DOCUMENTED_GAP" and f.get("actual_status") != "FAIL"]
+    reasons = []
+    if len(failing) > len(gaps):
+        reasons.append(f"{len(failing) - len(gaps)} hallazgo(s) que fallan")
+    if gaps:
+        reasons.append(f"{len(gaps)} brecha(s) documentada(s) de severidad crítica o alta (lo dice el vault, no se verificó)")
+    return reasons
+
+
 def _verdict(findings, aws_used, incomplete, counts):
-    """(verdict, one-line Spanish text, reasons). NO_OPTIMO > NO_VERIFICABLE > OPTIMO; OPTIMO never without credentials."""
+    """(verdict, one-line Spanish text, reasons). NO_OPTIMO > NO_VERIFICABLE > OPTIMO; OPTIMO never without credentials and never
+    without at least one evaluated PASS or FAIL."""
     failing = [f for f in findings if _opens_a_failure(f)]
     severe = sum(1 for f in failing if f["severity"] in ("critical", "high"))
     no_aws = "" if aws_used else " Sin credenciales AWS: nada se verificó contra AWS."
     if failing:
         text = f"No óptimo {VERDICT_BASIS}: {len(failing)} hallazgo(s) abierto(s), {severe} de severidad crítica o alta.{no_aws}"
-        return "NO_OPTIMO", text, [f"{len(failing)} hallazgo(s) que incumplen"]
+        return "NO_OPTIMO", text, _failure_reasons(failing)
     reasons = []
     if not aws_used:
         reasons.append("sin credenciales AWS: nada se verificó contra AWS, solo se informa lo que dice el vault")
+    elif not any(f["status"] in ("PASS", "FAIL") for f in findings):
+        reasons.append("ningún chequeo se evaluó (no hay resultados PASS ni FAIL)")
     reasons += incomplete
     if counts["total"]:
         reasons.append(f"{counts['total']} elemento(s) sin verificar en AWS")
     if reasons:
         return "NO_VERIFICABLE", f"No verificable {VERDICT_BASIS}: " + "; ".join(reasons) + ".", reasons
+    differences = sum(1 for f in findings if f["status"] in ("DRIFT", "UNDOCUMENTED"))
+    extra = (f" Hay {differences} diferencia(s) entre el vault y AWS (DRIFT / UNDOCUMENTED) sin falla comprobada: revisarlas."
+             if differences else "")
     return "OPTIMO", (f"Óptimo {VERDICT_BASIS} en el alcance evaluado: corrida completa con credenciales AWS de solo lectura, "
-                      "sin fallas ni elementos sin verificar. No es una opinión de auditoría."), []
+                      "sin fallas ni elementos sin verificar." + extra + " No es una opinión de auditoría."), []
 
 
 def _summary(findings, aws_used=False, incomplete=(), unverified_scope=()):
@@ -581,12 +608,33 @@ def _run_warnings(result):
     return warnings
 
 
-def _notes(aws, vault_index):
+def _vault_mentions(vault_index, target):
+    """True when some note of the index names the target (id, name or the last segment of an ARN) in its title, path, aliases, ids,
+    key/values, links or headings."""
+    needles = {n.lower() for n in _ref_names(target)}
+    for note in vault_index.get("notes") or []:
+        if not isinstance(note, dict):
+            continue
+        kv = note.get("kv") if isinstance(note.get("kv"), dict) else {}
+        ids = [i.get("value") for i in note.get("aws_ids") or [] if isinstance(i, dict)]
+        texts = [note.get("title"), note.get("path"), *(note.get("aliases") or []), *ids, *kv.keys(), *kv.values(),
+                 *(note.get("links") or []), *(note.get("headings") or [])]
+        if any(isinstance(t, str) and n in t.lower() for t in texts for n in needles):
+            return True
+    return False
+
+
+def _notes(aws, vault_index, meta=None):
     notes = []
     if not aws:
         notes.append("Sin credenciales AWS: solo se informan los hallazgos del vault.")
     if not vault_index:
         notes.append("Sin vault: no se comparó la documentación con AWS.")
+    target = (meta or {}).get("target")
+    if vault_index and (meta or {}).get("mode") == "resource" and isinstance(target, str) and target.strip() \
+            and not _vault_mentions(vault_index, target):
+        notes.append(f"El vault no menciona {target}: no hay documentación de este recurso con la que compararlo, "
+                     "lo que se informa sale solo de AWS.")
     return notes
 
 
@@ -610,7 +658,7 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
     findings = _row_findings(env, rows, [c for c in claims if c.get("kind") == "EVAL"], warnings)
     findings += _claim_findings(env, claims, warnings) + _secret_findings(env, vault_index)
     findings.sort(key=_sort_key)
-    unverified = _unverified_scope(_read_json(run_dir / "scope.json", None), findings)
+    unverified = _unverified_scope(_read_scope(run_dir), findings)
     dependencies = _dependencies(findings)
     tests_by_resource = {d["resource_id"]: d["tests"] for d in dependencies}
     for number, finding in enumerate(findings, start=1):
@@ -633,7 +681,7 @@ def assemble(run_dir: Path, vault_index: dict | None, claims: list, meta: dict, 
         "dependencies": dependencies,
         "coverage": _coverage(findings, skill_dir),
         "warnings": redact.mask_obj(warnings, keep_emails=env.keep),
-        "notes": redact.mask_obj(_notes(aws, vault_index), keep_emails=env.keep),
+        "notes": redact.mask_obj(_notes(aws, vault_index, meta), keep_emails=env.keep),
     }
 
 
@@ -643,7 +691,13 @@ def _list_of_dicts(value, label):
     return value
 
 
+def _must_exist(path, what):
+    if not Path(path).is_file():
+        raise ValueError(f"{what} no existe: {path}")
+
+
 def _load_claims(path):
+    _must_exist(path, "el archivo de claims")
     claims = _list_of_dicts(_read_json(path, None), f"{path}")
     for claim in claims:
         problems = [
@@ -662,6 +716,7 @@ def _load_claims(path):
 
 
 def _load_index(path):
+    _must_exist(path, "el índice del vault")
     index = _read_json(path, None)
     if not isinstance(index, dict) or not isinstance(index.get("kind"), str):
         raise ValueError(f"{path}: no es un vault-index.json (falta 'kind')")

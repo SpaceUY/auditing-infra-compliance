@@ -226,7 +226,7 @@ class InventoryCatalogTests(unittest.TestCase):
 
     def test_evaluators_severities_and_remediation_follow_the_brief(self):
         expected = {"INV-001": ("python:tag_present", "high", "cli_with_decision"), "INV-002": ("python:user_data_flag", "high", "cli_with_decision"),
-                    "INV-003": ("python:nonprod_on_prod", "high", "cli"), "INV-004": ("python:tags_present", "low", "cli_with_decision")}
+                    "INV-003": ("python:nonprod_on_prod", "high", "cli_with_decision"), "INV-004": ("python:tags_present", "low", "cli_with_decision")}
         self.assertEqual({c["id"]: (c["verify"]["evaluator"], c["severity"], c["remediation"]["kind"]) for c in self.checks}, expected)
 
     def test_checks_are_per_resource_and_read_tags_in_every_enabled_region(self):

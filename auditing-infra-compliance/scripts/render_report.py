@@ -7,7 +7,7 @@ through textContent/createElement, never innerHTML with data.
 
 When a verification dict (verify_remediation.py) is given it is embedded in the same data block under the key
 "verification"; without it the embedded JSON is exactly the findings. A verification carries the digest of the findings it was
-computed from (`findings_digest`): when it does not match findings.json it is ignored, "verification_stale": true is embedded
+computed from (`findings_digest`): when it does not match findings.json (or has no digest) it is ignored, "verification_stale": true is embedded
 (the page shows a warning) and the CLI prints a warning. meta.vault.path is reduced to the vault folder name.
 
 Usage: render_report.py <findings.json> [--verification <verification.json>] [-o <report.html>]
@@ -34,9 +34,11 @@ def _embeddable_json(data: dict) -> str:
 
 
 def verification_is_stale(findings: dict, verification: dict | None) -> bool:
-    """True when the verification was computed from other findings (a verification without digest is accepted)."""
-    digest = (verification or {}).get("findings_digest")
-    return digest is not None and digest != assemble_findings.findings_digest(findings)
+    """True when the verification was computed from other findings, or carries no digest (verify_remediation always writes one,
+    so a verification without it is old or hand-made and cannot be tied to these findings)."""
+    if not isinstance(verification, dict):
+        return False
+    return verification.get("findings_digest") != assemble_findings.findings_digest(findings)
 
 
 def _vault_folder(findings: dict) -> dict:
@@ -75,6 +77,9 @@ def main(argv=None) -> int:
 
     source = Path(args.findings)
     output = Path(args.output) if args.output else source.with_name("report.html")
+    if not source.is_file():
+        print(f"error: no existe {source}: correr assemble_findings.py antes de generar el reporte", file=sys.stderr)
+        return 2
     try:
         findings = json.loads(source.read_text(encoding="utf-8"))
         verification = json.loads(Path(args.verification).read_text(encoding="utf-8")) if args.verification else None

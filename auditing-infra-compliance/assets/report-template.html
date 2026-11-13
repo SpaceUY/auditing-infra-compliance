@@ -199,7 +199,7 @@ const I18N = {
           button: 'Copiar arreglos de bajo riesgo', empty: 'sin comandos', header: 'Hallazgos', none: 'No hay arreglos de bajo riesgo para copiar.',
           noVerification: 'Desactivado: falta la verificación de los arreglos. Correr verify_remediation.py y volver a generar el reporte con --verification.',
           stale: 'Desactivado: la verificación quedó desactualizada (los hallazgos cambiaron). Volver a correr verify_remediation.py y a generar el reporte.' },
-  findings: { title: 'Hallazgos', empty: 'Ningún hallazgo coincide con los filtros.', noResource: 'Sin recurso asociado', account: 'Cuenta AWS',
+  findings: { title: 'Hallazgos', empty: 'Ningún hallazgo coincide con los filtros.', none: 'Sin hallazgos en esta corrida.', noResource: 'Sin recurso asociado', account: 'Cuenta AWS',
               region: 'región', mappings: 'Mapeos', inferred: 'inferido', inferredHint: 'Mapeo inferido por el catálogo, sin fuente oficial.',
               catalogSeverity: 'severidad del chequeo', notVerified: 'no verificada',
               evidence: 'Evidencia', vault: 'Lo que afirma el vault', vaultNote: 'Nota', breaks: 'Esta recomendación del vault rompería',
@@ -216,7 +216,8 @@ const I18N = {
           resource: 'Recurso', type: 'Tipo', tests: 'Tests y controles que dependen', empty: 'Sin dependencias registradas.' },
   cov: { title: 'Cobertura de normas', hint: 'Estado de cada control tocado por los chequeos. No es un indicador global de cumplimiento.',
          iso: 'ISO 27001:2022', tsc: 'SOC 2 (TSC 2017)', id: 'ID', name: 'Nombre', status: 'Estado',
-         groups: { technical: 'Controles técnicos', organizational: 'Organizacionales: fuera del alcance de este reporte', inherited: 'Heredados de AWS' },
+         groups: { technical: 'Controles técnicos', organizational: 'Organizacionales: fuera del alcance de este reporte', inherited: 'Heredados de AWS',
+                   touched: 'Organizacionales mencionados por hallazgos (el reporte no los evalúa: el estado viene del hallazgo)' },
          st: { PASS: 'Pasa', FAIL: 'Falla', NO_VERIFICADO: 'No verificado', NOT_TOUCHED: 'No tocado' } },
   notes: { title: 'Advertencias y notas', warnings: 'Advertencias de la corrida', notes: 'Notas', none: 'Sin advertencias ni notas.' },
   ver: { title: 'Verificación de los arreglos', badgeTitle: 'Verificación del arreglo',
@@ -766,7 +767,7 @@ function renderCards() {
   const box = mount('cards');
   const list = visible();
   document.getElementById('count').textContent = I18N.filters.showing + ' ' + list.length + ' ' + I18N.filters.of + ' ' + FINDINGS.length;
-  if (!list.length) { box.appendChild(el('p', { cls: 'muted', text: I18N.findings.empty })); return; }
+  if (!list.length) { box.appendChild(el('p', { cls: 'muted', text: FINDINGS.length ? I18N.findings.empty : I18N.findings.none })); return; }
   const frag = document.createDocumentFragment();
   list.forEach(function (f) { frag.appendChild(buildCard(f)); });
   box.appendChild(frag);
@@ -906,7 +907,12 @@ function renderCoverage() {
     box.appendChild(el('h3', { text: set[1] }));
     ['technical', 'inherited', 'organizational'].forEach(function (cat) {
       const group = entries.filter(function (e) { return e.category === cat; });
-      if (group.length) box.appendChild(coverageGroup(I18N.cov.groups[cat], group, cat === 'technical'));
+      if (cat !== 'organizational') { if (group.length) box.appendChild(coverageGroup(I18N.cov.groups[cat], group, cat === 'technical')); return; }
+      // an organizational control that a finding maps to has a state: it is not "out of scope", it is mentioned and not evaluated
+      const touched = group.filter(function (e) { return e.status !== 'NOT_TOUCHED'; });
+      const rest = group.filter(function (e) { return e.status === 'NOT_TOUCHED'; });
+      if (touched.length) box.appendChild(coverageGroup(I18N.cov.groups.touched, touched, true));
+      if (rest.length) box.appendChild(coverageGroup(I18N.cov.groups.organizational, rest, false));
     });
   });
 }

@@ -199,7 +199,7 @@
           "Revisar el recurso acme-notes-uploads y aplicar el cambio."
         ],
         "commands": [
-          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nBUCKET=\"acme-notes-uploads\"\naws s3api put-public-access-block --bucket \"$BUCKET\" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+          "REGION=\"us-east-1\"\nACCOUNT_ID=\"111122223333\"\nBUCKET=\"acme-notes-uploads\"\naws s3api put-object-tagging --bucket \"$BUCKET\" --key readme.txt --tagging TagSet=[]"
         ],
         "verify_after": "aws s3api get-public-access-block --bucket \"acme-notes-uploads\"",
         "notes": ""

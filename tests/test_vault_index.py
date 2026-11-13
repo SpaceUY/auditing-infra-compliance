@@ -641,6 +641,21 @@ class ReviewTwoSecretTests(VaultCase):
         self.assertEqual(index["secrets_detected"], [])
         self.assertEqual(self.note(index, "db")["kv"]["Password"], "en Secrets Manager (prod/db)")
 
+    def test_column_layout_password_table_is_masked_and_detected(self):
+        vault = self.write(users="# Users\n\n| Usuario | Password |\n|---|---|\n| bob | hunter2 |\n| ana | Zzz 999 |\n")
+        index = vault_index.build_index(vault)
+        dumped = json.dumps(index, ensure_ascii=False)
+        for leaked in ("hunter2", "Zzz 999"):
+            self.assertNotIn(leaked, dumped)
+        self.assertEqual(self.note(index, "users")["kv"], {"bob": "[REDACTED]", "ana": "[REDACTED]"})
+        self.assertIn({"path": "users.md", "pattern": "password"}, index["secrets_detected"])
+
+    def test_configuration_flags_and_references_are_not_credentials(self):
+        vault = self.write(db="# DB\n\nManageMasterUserPassword: true\nPasswordAuthentication: disabled\nMasterUserPassword: !Ref DBSecret\n"
+                              "password = var.db_password\n| Password | [[Secrets Manager]] |\n| Contraseña | Se guarda en Secrets Manager |\n"
+                              "Password: almacenada en 1Password\n")
+        self.assertEqual(vault_index.build_index(vault)["secrets_detected"], [])
+
     def test_hostile_200kb_lines_index_in_under_a_second(self):
         hostile = ("password=" * 25000, "| password |" * 18000, "token: " + "A1b" * 66000, "x" * 200000 + "password=y",
                    "bearer " * 28000, "api_key " * 25000, "postgres" + "://" + "u" * 100000 + ":" + "p" * 100000)

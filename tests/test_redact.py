@@ -288,5 +288,152 @@ class CredentialFormatTests(unittest.TestCase):
             self.assertLess(time.perf_counter() - start, 1.0, text[:24])
 
 
+class FinalCleanupBTests(unittest.TestCase):
+    """Final cleanup B: linear masking for every label x reference prefix (N1), configuration flags and references that are not
+    secrets (I2), column-layout tables and `/hunter2` (N3), reference words followed by punctuation (N5)."""
+
+    def assert_untouched(self, line):
+        self.assertEqual(redact.mask(line), line, line)
+        self.assertEqual(redact.detect(line), [], line)
+
+    def assert_masked(self, line, value="hunter2"):
+        masked = redact.mask(line)
+        self.assertNotIn(value, masked, line)
+        self.assertIn(redact.REDACTED, masked, line)
+        self.assertEqual(redact.mask(masked), masked, line)
+        self.assertNotEqual(redact.detect(line), [], line)
+
+    def test_every_recognised_label_is_listed_and_detected(self):
+        for label in redact.LABEL_FORMS:
+            self.assertNotEqual(redact.detect(label + "=" + "Zq9" + "xK2mPw7Ab3Cd5Ef8Gh1Jk"), [], label)
+
+    def test_masking_is_linear_for_every_label_and_reference_prefix(self):
+        import time
+        slowest = (0.0, "")
+        for number, label in enumerate(redact.LABEL_FORMS):
+            for prefix in redact.REFERENCE_PREFIXES:
+                separator = (": ", "=", " | ")[number % 3]
+                unit = label + separator + prefix + " "
+                text = unit * (200_000 // len(unit))
+                start = time.perf_counter()
+                redact.mask(text)
+                redact.detect(text)
+                elapsed = time.perf_counter() - start
+                slowest = max(slowest, (elapsed, unit))
+                self.assertLess(elapsed, 1.0, repr(unit))
+        self.assertLess(slowest[0], 1.0)
+
+    def test_unspaced_repetitions_stay_linear(self):
+        import time
+        for unit in ("pwd=/", "token=/", "password: arn:aws:", "secret=$", "api_key=<", "password=${", "password|{{"):
+            text = unit * (200_000 // len(unit))
+            start = time.perf_counter()
+            redact.mask(text)
+            redact.detect(text)
+            self.assertLess(time.perf_counter() - start, 1.0, unit)
+
+    def test_configuration_flags_and_booleans_are_not_passwords(self):
+        for line in ("ManageMasterUserPassword: true", "manage_master_user_password = true", "| ManageMasterUserPassword | true |",
+                     "PasswordAuthentication: disabled", "PasswordAuthentication: no", "password: yes", "Password: enabled",
+                     "password: False", "| Contraseña | sí |", "password: habilitada", "Password: N/D", "| Password | N/D |"):
+            self.assert_untouched(line)
+
+    def test_iac_references_are_not_passwords(self):
+        for line in ("MasterUserPassword: !Ref DBSecret", "MasterUserPassword: !GetAtt DBSecret.Password", "password = var.db_password",
+                     "password = data.aws_secretsmanager_secret_version.db.secret_string", "password: module.db.password",
+                     "password: aws_secretsmanager_secret.db.arn", "password: !Sub ${Prefix}-db", "DB_PASSWORD=${DB_PASSWORD}",
+                     "password: {{resolve:secretsmanager:prod/db:SecretString:password}}", "password = local.db_pass",
+                     "api_key: !Ref ApiKeyParam", "token: var.github_token_value", "client_secret: data.aws_ssm_parameter.cs.value"):
+            self.assert_untouched(line)
+
+    def test_wiki_links_are_not_passwords(self):
+        for line in ("| Password | [[Secrets Manager]] |", "| Password | [Secrets Manager](https://acme-notes.example/a) |",
+                     "Password: [[Secrets Manager]]"):
+            self.assert_untouched(line)
+
+    def test_stored_in_phrases_are_not_passwords(self):
+        for line in ("Password: almacenada en Secrets Manager", "| Contraseña | Se guarda en Secrets Manager |",
+                     "Contraseña: guardada en 1Password", "Password: (en Secrets Manager)", "Password: Parameter Store",
+                     "Password: Vault", "Password: 1Password", "Password: not stored", "Password: stored in AWS Secrets Manager (prod/db)",
+                     "Password: se guarda en Secrets Manager y rota cada 90 días", "password: stored in Vault", "Password: en Parameter Store",
+                     "- **Password**: en Secrets Manager", "password: gestionada por AWS Secrets Manager", "Password: no se guarda",
+                     "password: rotated every 90 days", "password: ver Secrets Manager (cuenta prod)", "Password: en el gestor de secretos"):
+            self.assert_untouched(line)
+
+    def test_reference_word_followed_by_punctuation_is_still_a_password(self):
+        for value in ("Secret-Admin-2024!", "In-Prod-2024", "no-more-secrets1", "Yes!Sir2024", "kms-key-passw0rd", "Vault-2024!",
+                      "en-Secrets-9", "true-Blue99"):
+            self.assert_masked("password: " + value, value)
+            self.assert_masked("| Password | " + value + " |", value)
+
+    def test_leading_slash_is_a_path_only_for_known_reference_forms(self):
+        self.assert_masked("password: /hunter2")
+        self.assert_masked("db_password=/hunter2")
+        for line in ("password: /acme/prod/db-password", "password: ssm:/acme/prod/db", "password: /run/secrets/db"):
+            self.assert_untouched(line)
+
+    def test_column_layout_tables_mask_the_credential_column(self):
+        tables = (("| Usuario | Password |", "|---|---|", "| bob | hunter2 |", "| ana | hunter3x9 |"),
+                  ("| Usuario | Contraseña |", "|---|---|", "| bob | hunter2 |", "| ana | hunter3x9 |"),
+                  ("| Usuario | Clave |", "|---|---|", "| bob | hunter2 |", "| ana | hunter3x9 |"),
+                  ("| User | Secret |", "|---|---|", "| bob | hunter2 |", "| ana | hunter3x9 |"),
+                  ("| User | Token |", "|---|---|", "| bob | hunter2abc |", "| ana | hunter3x9abc |"),
+                  ("| User | API key |", "|---|---|", "| bob | hunter2abc |", "| ana | hunter3x9abc |"),
+                  ("| User | Password | Notes |", "|---|---|---|", "| bob | hunter2 | ops |", "| ana | hunter3x9 | dev |"),
+                  ("| **User** | **Password** |", "| --- | --- |", "| bob | `hunter2` |", "| ana | **hunter3x9** |"),
+                  ("Usuario | Password", "---|---", "bob | hunter2", "ana | hunter3x9"))
+        for header, sep, row, row2 in tables:
+            text = "\n".join((header, sep, row, row2)) + "\n"
+            masked = redact.mask(text)
+            self.assertNotIn("hunter", masked, header)
+            self.assertIn("bob", masked, header)
+            self.assertEqual(redact.mask(masked), masked, header)
+            self.assertNotEqual(redact.detect(text), [], header)
+            self.assertEqual(masked.splitlines()[:2], [header, sep])
+
+    def test_column_layout_keeps_the_other_columns_and_the_table_end(self):
+        text = "| Usuario | Password | Rotación |\n|---|---|---|\n| bob | hunter2 | 90 días |\n\nfuera | hunter2 | texto\n"
+        self.assertEqual(redact.mask(text), "| Usuario | Password | Rotación |\n|---|---|---|\n| bob | [REDACTED] | 90 días |\n\nfuera | hunter2 | texto\n")
+
+    def test_column_layout_ignores_references_and_empty_cells(self):
+        text = ("| Usuario | Password |\n|---|---|\n| a | en Secrets Manager |\n| b | [[Secrets Manager]] |\n| c |  |\n| d | - |\n"
+                "| e | ${DB_PASS} |\n| f | N/A |\n")
+        self.assertEqual(redact.mask(text), text)
+        self.assertEqual(redact.detect(text), [])
+
+    def test_key_value_tables_with_a_clave_column_are_not_credentials(self):
+        text = "| Clave | Valor |\n|---|---|\n| region | us-east-1 |\n| owner | ana |\n"
+        self.assertEqual(redact.mask(text), text)
+        self.assertEqual(redact.detect(text), [])
+
+    def test_secret_name_columns_keep_plain_identifiers(self):
+        text = "| Secret | Rotación |\n|---|---|\n| acme-notes-db | 90 |\n"
+        self.assertEqual(redact.mask(text), text)
+        masked = redact.mask("| User | Secret |\n|---|---|\n| bob | hunter2 |\n| ana | Hunter |\n| cy | two words |\n")
+        self.assertNotIn("hunter2", masked)
+        self.assertNotIn("Hunter", masked)
+        self.assertNotIn("two words", masked)
+
+    def test_token_and_api_key_columns_use_the_word_rule(self):
+        text = "| User | Token | Expira |\n|---|---|---|\n| bob | abcDEF123456 | 15 min |\n| ana | JWT, 15 min | 1 h |\n"
+        masked = redact.mask(text)
+        self.assertNotIn("abcDEF123456", masked)
+        self.assertIn("JWT, 15 min", masked)
+
+    def test_tables_with_policy_columns_are_untouched(self):
+        text = "| Password policy | Valor |\n|---|---|\n| MinimumPasswordLength | 14 |\n| MaxPasswordAge | 90 |\n"
+        self.assertEqual(redact.mask(text), text)
+
+    def test_column_scan_is_linear(self):
+        import time
+        header = "| Usuario | Password |\n|---|---|\n"
+        for text in (header + "| bob | hunter2 |\n" * 20000, header + "|" * 200000, header + "| a " * 60000 + "|\n",
+                     "| Password |" * 20000 + "\n|---|\n" + "| x |" * 30000, header + ("| " + "a|" * 100) * 3000):
+            start = time.perf_counter()
+            redact.mask(text)
+            redact.detect(text)
+            self.assertLess(time.perf_counter() - start, 1.0, text[:24])
+
+
 if __name__ == "__main__":
     unittest.main()

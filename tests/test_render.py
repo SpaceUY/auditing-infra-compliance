@@ -402,6 +402,49 @@ class RenderTests(unittest.TestCase):
             render_report.render({"meta": {}}, TEMPLATE)
 
 
+@unittest.skipUnless(shutil.which("node"), "node no está instalado")
+class FinalCleanupBPageTests(PageCase):
+    """Empty report wording (D2 minor 5) and organizational controls that findings touch (D2 minor 7)."""
+
+    def test_an_empty_report_says_so_instead_of_blaming_the_filters(self):
+        document = {"meta": {}, "dependencies": [], "warnings": [], "notes": [], "findings": []}
+        text = self.run_page(document)["cardsText"]
+        self.assertIn("Sin hallazgos en esta corrida", text)
+        self.assertNotIn("filtros", text)
+
+    def test_organizational_controls_touched_by_findings_are_not_listed_as_out_of_scope(self):
+        document = self.document()
+        document["coverage"] = {"iso": [
+            {"id": "A.5.14", "name": "Transferencia de información", "status": "NO_VERIFICADO", "category": "organizational"},
+            {"id": "A.5.1", "name": "Políticas", "status": "NOT_TOUCHED", "category": "organizational"},
+            {"id": "A.8.1", "name": "Dispositivos", "status": "PASS", "category": "technical"}], "tsc": []}
+        text = self.run_page(document)["coverage"]
+        self.assertIn("Organizacionales mencionados por hallazgos", text)
+        self.assertIn("Organizacionales: fuera del alcance de este reporte (1)", text)
+        self.assertLess(text.index("A.5.14"), text.index("Organizacionales: fuera del alcance"))
+        self.assertGreater(text.index("Políticas"), text.index("Organizacionales: fuera del alcance"))
+
+
+class FinalCleanupBRenderTests(unittest.TestCase):
+    def test_a_verification_without_digest_is_stale(self):
+        findings = {"meta": {}, "findings": []}
+        self.assertTrue(render_report.verification_is_stale(findings, {"per_finding": {}}))
+        self.assertFalse(render_report.verification_is_stale(findings, {"findings_digest": assemble_findings.findings_digest(findings)}))
+        self.assertFalse(render_report.verification_is_stale(findings, None))
+        html = render_report.render(findings, TEMPLATE, {"per_finding": {"F-0001": {"status": "OK"}}})
+        self.assertIn('"verification_stale": true', html)
+        self.assertNotIn('"per_finding"', html)
+
+    def test_cli_names_the_missing_findings_file(self):
+        err = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = render_report.main([str(Path(tmp) / "findings.json")])
+        self.assertEqual(code, 2)
+        self.assertIn("findings.json", err.getvalue())
+        self.assertIn("assemble_findings.py", err.getvalue())
+        self.assertNotIn("Errno", err.getvalue())
+
+
 class CliTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())

@@ -56,14 +56,15 @@ SET_E = re.compile(r"(?:^|[;&|])\s*set\s+(?:-[a-zA-Z]*e[a-zA-Z]*\b|-o\s+errexit\
 AWS_OPERATION = re.compile(r"(?:^|[;&|(]|\b(?:do|then|else)\s)\s*aws\s+([a-z0-9-]+)\s+([a-z0-9-]+)")
 DOUBLE_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
 SUBSTITUTION = re.compile(r"\$\([^)]*\)")
-DESTRUCTIVE_PREFIXES = ("delete-", "revoke-", "terminate-", "remove-", "deregister-", "detach-", "disable-", "stop-")
+DESTRUCTIVE_PREFIXES = ("delete-", "revoke-", "terminate-", "remove-", "deregister-", "detach-", "disable-", "stop-", "untag-")
 # Operations that replace a whole configuration or policy (the old one is gone), so they need the same warning as a delete:
 # put-*-policy (bucket, key, user, role, group, resource, retention), put-bucket-* (acl, lifecycle, logging, notification, tagging,
-# encryption, versioning...), the public access blocks, update-account-password-policy, update-assume-role-policy, replace-*
+# encryption, versioning...), the public access blocks (bucket and account: they replace the current settings and can take a public
+# site offline), update-account-password-policy, update-assume-role-policy, replace-*
 # (network ACL entries, routes, associations) and the modify-* that rewrite a list or an action set (security groups of an
 # instance or interface, listener / rule default actions).
 REPLACING_OPERATIONS = re.compile(
-    r"(?:put-[a-z0-9-]*-policy|put-bucket-[a-z0-9-]+|put-(?:event-selectors|"
+    r"(?:put-[a-z0-9-]*-policy|put-bucket-[a-z0-9-]+|put-(?:account-)?public-access-block|put-(?:event-selectors|"
     r"insight-selectors|configuration-recorder|delivery-channel|metric-alarm)|update-account-password-policy|"
     r"update-assume-role-policy|replace-[a-z0-9-]+|modify-(?:instance-attribute|network-interface-attribute|listener|rule))")
 DESTRUCTIVE_PAIRS = frozenset({("s3", "rm"), ("s3", "rb")})
@@ -205,6 +206,13 @@ def _fix_texts(finding):
     rem = finding.get("remediation") or {}
     steps = [t for t in rem.get("steps") or [] if isinstance(t, str)]
     return _commands(finding) + steps + [str(rem[k]) for k in ("verify_after", "notes") if rem.get(k)]
+
+
+def _verify_only_texts(finding):
+    """The only text a verify-only finding (DOCUMENTED_ONLY, PASS, N/A, NO_VERIFICADO...) puts in the report to be pasted: verify_after."""
+    rem = finding.get("remediation")
+    text = rem.get("verify_after") if isinstance(rem, dict) else None
+    return [text] if isinstance(text, str) else []
 
 
 def _has_fix(finding):
@@ -585,6 +593,8 @@ def verify(findings: dict, inventory: list, rules: list, *, claims: list | None 
         per_finding[f["id"]] = {"issues": issues}
         pending += len(_pending_names(_fix_texts(f)))
 
+    pending += sum(len(_pending_names(_verify_only_texts(f))) for f in all_findings if f not in fails)
+
     rule_fails = [f for f in fails if f.get("check_id")]
     conflicts, rule_issues, order_pairs = _apply_rules(rules, rule_fails, all_findings)
     evidence_issues, evidence_gaps = _missing_evidence(rules, rule_fails, all_findings)
@@ -634,6 +644,9 @@ def main(argv=None) -> int:
     run_dir = Path(args.run_dir)
     if not run_dir.is_dir():
         print(f"el directorio de la corrida no existe: {run_dir}", file=sys.stderr)
+        return 2
+    if not (run_dir / "findings.json").is_file():
+        print(f"error: no existe {run_dir / 'findings.json'}: correr assemble_findings.py antes de verificar", file=sys.stderr)
         return 2
     try:
         findings = _read_json(run_dir / "findings.json", dict, "findings.json")

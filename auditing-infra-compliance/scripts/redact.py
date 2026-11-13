@@ -10,9 +10,15 @@
   or punctuation are masked whole. api_key / apikey, token / access_token / auth_token / x-amz-security-token and
   client_secret labels (single word values of 8+ characters), `Bearer <token>` and the password of a URL userinfo
   (`scheme://user:password@host`). References are not secrets and stay as they are: `in Secrets Manager`, `ver ...`,
-  `${VAR}`, `{{...}}`, `<...>`, N/A, `-`, empty, `*****`, [REDACTED], ARNs, `ssm:` / `/path` references, `*_file` / `*_path` /
-  `*_arn` labels and password-policy settings (length, age, reuse, ...). A table header row (followed by a `|---|` row) is
-  never a credential. Not covered: a bare `- password hunter2` with no separator (indistinguishable from prose).
+  `${VAR}`, `{{...}}`, `<...>`, N/A, `-`, empty, `*****`, [REDACTED], ARNs, `ssm:` / `/multi/segment/path` references, IaC references
+  (`!Ref X`, `!GetAtt`, `var.x`, `data.aws_...`, `module.x`), `[[wiki links]]`, booleans (true, no, enabled, disabled...), phrases that
+  say where the secret lives ("stored in / almacenada en / se guarda en Secrets Manager", Parameter Store, Vault, 1Password) and
+  `*_file` / `*_path` / `*_arn` / `manage*` / `*authentication` labels and password-policy settings (length, age, reuse, ...). A value
+  is a reference only as a whole: a reference word followed by punctuation (`Secret-Admin-2024!`) or `/hunter2` is a password.
+  A table header row (followed by a `|---|` row) is never a credential, but the body rows below a header with a Password / Contraseña /
+  Clave / Secret / Token / API key column are masked in that column (a `Clave | Valor` table is a key-value list and is left alone;
+  a Secret column keeps plain lowercase identifiers such as secret names). Not covered: a bare `- password hunter2` with no
+  separator (indistinguishable from prose). Every scan is linear: the value of a label is examined once and the scan resumes after it.
 - PEM private-key blocks (BEGIN ... PRIVATE KEY through END, or to the end of the text when unterminated)
 - emails -> first char + "***@domain", except those listed in keep_emails (e.g. VantaOwner owners)
 
@@ -68,21 +74,49 @@ NOT_SECRET_WORDS = frozenset({
     "rotation", "rotate", "rotated", "min", "minimum", "max", "maximum", "require", "required", "requires", "enable", "enabled",
     "allow", "allowed", "lockout", "attempts", "strength", "last", "changed", "next", "used", "reset", "file", "path", "arn", "ref",
     "name", "url", "hint", "prompt", "type", "field", "label", "setting", "settings", "count", "status", "state", "version", "id",
-    "manager"})
-# first word of a value that describes where the secret lives, not the secret ("in Secrets Manager", "ver ...", "rotated ...")
-REFERENCE_WORDS = frozenset({
-    "in", "en", "ver", "see", "via", "vía", "from", "desde", "stored", "guardada", "guardado", "managed", "gestionada", "gestionado",
-    "rotated", "rotada", "rotado", "rotation", "rotación", "rotacion", "rota", "rotates", "policy", "política", "politica",
-    "enforced", "enabled", "habilitada", "habilitado", "required", "requerida", "requerido", "n/a", "none", "ninguna", "ninguno",
-    "no", "yes", "si", "sí", "ssm", "secrets", "secret", "aws", "kms", "vault", "generated", "generada", "generado", "cada", "every",
-    "unknown", "desconocida", "tbd", "pending", "pendiente", "placeholder", "redacted"})
+    "manager", "manage", "manages", "authentication"})
+# A value that only says where the secret lives (or that there is none) is a reference. Every word of the value must be one of these
+# (or a number followed by a time unit), or the value must start with a "stored in" lead word and name a store: a reference word
+# followed by anything else ("Secret-Admin-2024!") is a password.
+REFERENCE_VOCABULARY = frozenset({
+    "in", "en", "at", "ver", "see", "via", "vía", "from", "desde", "por", "by", "with", "con", "to", "para", "the", "a", "an", "el", "la", "los", "las",
+    "y", "e", "o", "u", "and", "or", "of", "de", "del", "se", "es", "is", "are", "esta", "está", "cuando", "when", "if", "si", "sí",
+    "stored", "store", "storage", "kept", "held", "managed", "manual", "manually", "automatic", "automatically", "automática", "automático",
+    "automaticamente", "automáticamente", "guarda", "guardada", "guardado", "guardan", "almacenada", "almacenado", "almacena", "gestionada",
+    "gestionado", "gestiona", "rotated", "rotada", "rotado", "rota", "rotates", "rotation", "rotación", "rotacion", "cada", "every", "days",
+    "day", "días", "dias", "día", "dia", "weeks", "semanas", "months", "meses", "mes", "years", "años", "policy", "política", "politica",
+    "enforced", "required", "requerida", "requerido", "enabled", "disabled", "habilitada", "habilitado", "deshabilitada", "deshabilitado",
+    "activada", "activado", "desactivada", "desactivado", "on", "off", "true", "false", "yes", "no", "not", "nunca", "never", "ninguna",
+    "ninguno", "none", "n/a", "n/d", "na", "nd", "unknown", "desconocida", "desconocido", "tbd", "todo", "pending", "pendiente",
+    "placeholder", "redacted", "secrets", "secretos", "gestor", "secretsmanager", "manager", "parameter", "ssm", "kms", "aws", "vault", "hashicorp", "1password",
+    "bitwarden", "lastpass", "keeper", "sops", "doppler", "generated", "generada", "generado", "cuenta", "account"})
+STORE_WORDS = frozenset({"secrets", "secretos", "gestor", "secretsmanager", "manager", "parameter", "ssm", "vault", "1password", "bitwarden", "lastpass",
+                         "keeper", "sops", "doppler", "kms"})
+LEAD_WORDS = frozenset({"in", "en", "ver", "see", "via", "vía", "from", "desde", "stored", "se", "guarda", "guardada", "guardado", "almacenada",
+                        "almacenado", "managed", "gestionada", "gestionado", "rotated", "rotada", "rotado", "at", "por", "by"})
+TIME_UNITS = frozenset({"days", "day", "días", "dias", "día", "dia", "weeks", "semanas", "months", "meses", "mes", "years", "años", "h", "min"})
+MAX_REFERENCE_WORDS = 40
+_PATH_SEGMENT = r"[\w.@+=:-]+"
 REFERENCE_VALUE = re.compile(
-    r"""(?ix)\A(?:
+    rf"""(?ix)\A(?:
       [-–—.…?*_#x]*
       | n/?a | nul+ | nil | tbd | todo
-      | \[redacted\] | \[\.\.\.\] | \$\{[^}]*\} | \$[A-Z_][A-Z0-9_]* | \$\([^)]*\) | %[A-Za-z_]+% | \{\{.*\}\} | \{[^{}]*\} | <[^<>]*>
-      | arn:aws[a-z-]*:.* | (?:ssm|secretsmanager|secrets-manager|aws-secretsmanager|vault|kms):.* | /[\w./@+=:-]+
+      | \[redacted\] | \[\.\.\.\] | (?:[\w./-]*\$\{{[^}}]*\}})+[\w./-]* | \$[A-Z_][A-Z0-9_]* | \$\([^)]*\) | %[A-Za-z_]+% | \{{\{{.*\}}\}} | \{{[^{{}}]*\}} | <[^<>]*>
+      | arn:aws[a-z-]*:.* | (?:ssm|secretsmanager|secrets-manager|aws-secretsmanager|vault|kms):.*
+      | /{_PATH_SEGMENT}(?:/{_PATH_SEGMENT})+/?
+      | !(?:ref|getatt|sub|importvalue|join|select|findinmap|if|base64|split|vault|secret|env|env_var|include|reference)\b(?:[ \t].*)?
+      | fn::\w+.*
+      | (?:var|local|module|data|each|self|path)\.[\w.\[\]"*-]+ | aws_\w+\.[\w.\[\]*-]+
+      | (?:\[\[[^\]]*\]\][ \t,]*)+ | \[[^\]]*\]\([^)]*\)
     )\Z""")
+# Every label form the scanners recognise (used by the timing tests: each one is combined with each reference prefix) and the
+# beginnings of the reference values they skip.
+LABEL_FORMS = ("password", "passwd", "pwd", "contraseña", "contrasena", "api_key", "api key", "apikey", "token", "client_secret",
+               "client secret", "DBPassword", "MasterUserPassword", "access_token", "x-amz-security-token", "aws_secret_access_key",
+               "SecretAccessKey", "session_token", "secret", "--master-user-password")
+REFERENCE_PREFIXES = ("/", "$", "${", "{{", "<", "[[", "arn:", "ssm:", "!Ref", "var.", "data.aws_", "module.", "en Secrets Manager",
+                      "in Secrets Manager", "stored in", "almacenada en", "se guarda en", "guardada en", "Parameter Store", "Vault",
+                      "1Password", "true", "N/A", "-", "(en")
 URL_PLACEHOLDERS = frozenset({"password", "pass", "pwd", "secret", "passwd", "user", "token"})
 
 
@@ -116,12 +150,32 @@ def _full_label(line, match):
     return line[start:match.end(1)]
 
 
+_WORD_EDGE = "()[]{}.,;:!¡¿?\"'*`_"
+
+
 def _is_reference(value):
+    """True when the whole value only says where the secret lives (or that there is none): a reference form (REFERENCE_VALUE) or a
+    phrase made of reference words only, or one that starts with a "stored in" lead word and names a store. At most MAX_REFERENCE_WORDS
+    words are looked at, so the test is linear in the value."""
     value = value.strip()
     if REFERENCE_VALUE.match(value):
         return True
-    word = re.match(r"[^\W\d_]+(?:/[^\W\d_]+)?", value)
-    return bool(word) and word.group(0).lower() in REFERENCE_WORDS and (len(word.group(0)) == len(value) or not value[len(word.group(0))].isalnum())
+    words = value.split(None, MAX_REFERENCE_WORDS + 1)
+    if len(words) > MAX_REFERENCE_WORDS:
+        return False
+    tokens = [w.strip(_WORD_EDGE).lower() for w in words]
+    tokens = [t for t in tokens if t]
+    if not tokens:
+        return False
+    if tokens[0] in LEAD_WORDS and STORE_WORDS.intersection(tokens):
+        return True
+    for index, token in enumerate(tokens):
+        if token in REFERENCE_VOCABULARY:
+            continue
+        if token.isdigit() and index + 1 < len(tokens) and tokens[index + 1] in TIME_UNITS:
+            continue
+        return False
+    return True
 
 
 def _closing(line, start, opener):
@@ -160,18 +214,19 @@ def _secret_value(value, family):
     return len(value) >= 8 and not any(c.isspace() for c in value) and not (value.isalpha() and value.islower())
 
 
-def _scan_line(line):
-    """[(start, end, pattern)] of the credential values in one line, in order and not overlapping."""
-    found = []
+def _scan_line(line, extra=()):
+    """[(start, end, pattern)] of the credential values in one line, in order and not overlapping (extra: spans found by the caller)."""
+    found = list(extra)
     table = line.lstrip().startswith("|")
     position = 0
     while match := CRED_LABEL.search(line, position):
         position = match.end()
         family = _family(_label_tokens(_full_label(line, match)))
         span = _value_span(line, match.end(), family, table or "|" in match.group(2)) if family else None
-        if span and span[0] < span[1] and _secret_value(line[span[0]:span[1]], family):
-            found.append((span[0], span[1], family))
-            position = span[1]
+        if span and span[0] < span[1]:
+            position = span[1]  # the value is examined once, whatever it is: resuming inside it made long values quadratic
+            if _secret_value(line[span[0]:span[1]], family):
+                found.append((span[0], span[1], family))
     position = 0
     while match := CLI_PASSWORD.search(line, position):
         position = match.end()
@@ -204,15 +259,98 @@ def _scan_line(line):
     return kept
 
 
+def _cells(line):
+    """[(start, end)] of the cells of a table row, trimmed of spaces, ** and backticks; the outer pipes are optional."""
+    bars, index = [], line.find("|")
+    while index != -1:
+        if index == 0 or line[index - 1] != "\\":
+            bars.append(index)
+        index = line.find("|", index + 1)
+    if not bars:
+        return [_trim(line, 0, len(line))]
+    edges = [-1] + bars + [len(line)]
+    segments = [(edges[n] + 1, edges[n + 1]) for n in range(len(edges) - 1)]
+    if not line[:bars[0]].strip():
+        segments = segments[1:]
+    if segments and not line[bars[-1] + 1:].strip():
+        segments = segments[:-1]
+    return [_trim(line, start, end) for start, end in segments]
+
+
+def _trim(line, start, end):
+    while start < end and line[start] in " \t*`":
+        start += 1
+    while end > start and line[end - 1] in " \t*`\r":
+        end -= 1
+    return start, end
+
+
+KEY_VALUE_HEADERS = frozenset({"valor", "value", "valores", "values"})
+_SECRET_NAME = re.compile(r"[a-z]+(?:[-_.][a-z]+)*")
+
+
+def _column_kind(cell):
+    """password | clave | secret | token | api_key | client_secret for the header cell of a credential column, else None."""
+    tokens = _label_tokens(cell)
+    if not tokens:
+        return None
+    family = _family(tokens)
+    if family:
+        return family
+    if NOT_SECRET_WORDS.intersection(tokens):
+        return None
+    if tokens[-1] == "clave":
+        return "clave"
+    if tokens[-1] in ("secret", "secreto") or tokens[-2:] == ["secret", "key"]:
+        return "secret"
+    return None
+
+
+def _table_columns(line):
+    """{column index: kind} for the credential columns of a header row; {} when it has none (or is a key-value list)."""
+    cells = [line[start:end] for start, end in _cells(line)]
+    kinds = {number: kind for number, text in enumerate(cells) if (kind := _column_kind(text))}
+    if any(_label_tokens(text) in (["valor"], ["value"]) for text in cells):
+        kinds = {number: kind for number, kind in kinds.items() if kind != "clave"}
+    return kinds
+
+
+def _column_spans(line, columns):
+    """[(start, end, pattern)] of the credential cells of a table body row."""
+    found, cells = [], _cells(line)
+    for number, kind in columns.items():
+        if number >= len(cells):
+            continue
+        start, end = cells[number]
+        value = line[start:end]
+        if start == end or _is_label_cell(value) or _is_reference(value):
+            continue
+        if kind in ("password", "clave") or (kind == "secret" and not _SECRET_NAME.fullmatch(value)) or (
+                kind not in ("secret",) and _secret_value(value, kind)):
+            found.append((start, end, "password" if kind in ("password", "clave", "secret") else kind))
+    return found
+
+
+def _is_label_cell(value):
+    return len(value) <= 60 and _column_kind(value) is not None
+
+
 def _scan(text):
-    """Yields (line, [(start, end, pattern)]) for the lines of text that hold credential values; table header rows are skipped."""
+    """Yields (line number, line, [(start, end, pattern)]) for the lines of text that hold credential values. A table header row is
+    never a credential; the body rows below a header with a credential column (Password, Contraseña, Clave, Secret, Token, API key)
+    have that column masked."""
     lines = text.split("\n")
+    columns = {}
     for number, line in enumerate(lines):
+        if "|" not in line:
+            columns = {}
         if len(line) < 4:
             continue
         if "|" in line and number + 1 < len(lines) and "|" in lines[number + 1] and SEPARATOR_LINE.fullmatch(lines[number + 1]):
+            columns = _table_columns(line)
             continue
-        spans = _scan_line(line)
+        extra = _column_spans(line, columns) if columns and "|" in line and not SEPARATOR_LINE.fullmatch(line) else []
+        spans = _scan_line(line, extra)
         if spans:
             yield number, line, spans
 

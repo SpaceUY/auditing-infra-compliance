@@ -514,7 +514,7 @@
         ]
       },
       "remediation": {
-        "kind": "cli",
+        "kind": "cli_with_decision",
         "risk": "medium",
         "downtime": false,
         "steps": [
@@ -527,7 +527,7 @@
           "REGION=\"{region}\"\nACCOUNT_ID=\"{account_id}\"\naws s3api put-public-access-block --bucket \"{resource_id}\" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --region \"$REGION\""
         ],
         "verify_after": "aws s3api get-public-access-block --bucket \"{resource_id}\" --region \"{region}\"",
-        "notes": "Sin downtime, pero si el bucket sirve contenido público a propósito (sitio web estático con acceso anónimo, ACL públicas), deja de ser accesible: pasarlo antes a CloudFront con Origin Access Control. get-bucket-policy-status responde NoSuchBucketPolicy si el bucket no tiene policy: no es un error. Reversible con put-public-access-block en false. El Block Public Access de la cuenta (aws s3control put-public-access-block) se recomienda también, pero Drata no lo evalúa."
+        "notes": "ADVERTENCIA: put-public-access-block reemplaza la configuración de Block Public Access del bucket; si el bucket sirve contenido público a propósito, deja de ser accesible. Sin downtime, pero si el bucket sirve contenido público a propósito (sitio web estático con acceso anónimo, ACL públicas), deja de ser accesible: pasarlo antes a CloudFront con Origin Access Control. get-bucket-policy-status responde NoSuchBucketPolicy si el bucket no tiene policy: no es un error. Reversible con put-public-access-block en false. El Block Public Access de la cuenta (aws s3control put-public-access-block) se recomienda también, pero Drata no lo evalúa."
       },
       "sources": [
         "https://help.drata.com/en/articles/4777046",
