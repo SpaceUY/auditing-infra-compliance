@@ -41,7 +41,7 @@ capturas. Las notas de la prueba van en un lugar privado fuera del repo.
 
 ### Seguridad
 
-- [ ] Cero operaciones de escritura en `raw/` y en el log: revisar que el campo `argv` de cada archivo de
+- [ ] Cero operaciones de escritura en `raw/` ni en `checks-result.json`: revisar que el campo `argv` de cada archivo de
       `raw/` empiece con `aws <servicio> <operación>` donde la operación es `describe-*`, `list-*` o `get-*`
       (más `lookup-events` y `generate-credential-report`).
 - [ ] Ninguna clave de acceso, secreto ni correo sin enmascarar en `report.html`, `findings.json`,

@@ -28,6 +28,8 @@ ACCESS_DENIED = ("An error occurred (AccessDeniedException) when calling the {op
                  "User: arn:aws:iam::111122223333:user/auditor is not authorized to perform: {perm}")
 NO_PUBLIC_ACCESS_BLOCK = ("An error occurred (NoSuchPublicAccessBlockConfiguration) when calling the "
                           "GetPublicAccessBlock operation: The public access block configuration was not found")
+UNVERIFIED_MARKER = '"verification": {'  # key of the embedded verification (the template only has id="verification")
+CR003_MARKER = '"rule_id": "CR-003"'  # per-finding verification issue, only inside the embedded verification
 META = {"platform": "Acme Notes", "mode": "full", "target": None, "lang": "es"}
 CLAIMS = [
     {"kind": "DRIFT", "check_id": "ENC-006", "resource": {"type": "kms_key", "id": "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d",
@@ -175,8 +177,10 @@ class FullPipelineTests(PipelineCase):
         self.assertIn("CR-003", [i["rule_id"] for i in net["issues"]])
 
         verified_html = render_report.render(self.findings, self.template, verification)
+        for marker in (UNVERIFIED_MARKER, CR003_MARKER):  # present only when verification is embedded in the data block
+            self.assertNotIn(marker, html)
+            self.assertIn(marker, verified_html)
         self.assertIn("Verificación", verified_html)
-        self.assertIn('"verification"', verified_html)
         self.assertIn("F-0001", verified_html)
 
     def test_only_allowlisted_operations_are_called(self):
@@ -185,7 +189,8 @@ class FullPipelineTests(PipelineCase):
         self.assertGreater(len(calls), 20)
         self.assertEqual([argv for argv in self.aws.calls if argv[0] != "aws"], [])
         for argv in calls:
-            aws_runner.assert_read_only(argv[1], argv[2], [])  # the runner's own predicate (allowlist + denylist)
+            args = argv[3:argv.index("--output")]  # the call's own args; --output/--region/--query are added by the runner
+            aws_runner.assert_read_only(argv[1], argv[2], args)  # the runner's own predicate (allowlist + denylist)
         self.assertTrue(all(kwargs.get("shell") is not True for kwargs in self.aws.kwargs))
 
 
