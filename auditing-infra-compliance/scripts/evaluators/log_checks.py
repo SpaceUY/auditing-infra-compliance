@@ -125,6 +125,7 @@ def trail_bucket_logging(responses: dict, params: dict) -> list[dict]:
     owners = _trail_names_by_bucket(responses)
     offenders = []
     for bucket, (region, data) in _by_value(responses, "bucket_logging").items():
+        data = data or {}  # empty CLI stdout parses to None: no LoggingEnabled
         if data.get("__error__") not in (None, "NoSuchBucket"):
             offenders.append(_unreadable(bucket, region, data["__error__"], "get-bucket-logging"))
             continue
@@ -174,7 +175,7 @@ def _bucket_problems(versioning: dict, policy: dict) -> list[str]:
     problems = []
     if versioning.get("Status") != "Enabled":
         problems.append("versionado no habilitado")
-    if "__error__" in policy:
+    if "__error__" in policy or "Policy" not in policy:
         problems.append("el bucket no tiene bucket policy")
     elif not _policy_limits_cloudtrail_by_arn(json.loads(policy["Policy"])):
         problems.append("la bucket policy de CloudTrail no restringe aws:SourceArn")
@@ -187,7 +188,8 @@ def trail_bucket_hardening(responses: dict, params: dict) -> list[dict]:
     policies = _by_value(responses, "policy")
     offenders = []
     for bucket, (region, versioning) in _by_value(responses, "versioning").items():
-        policy = policies.get(bucket, (region, {}))[1]
+        versioning = versioning or {}
+        policy = policies.get(bucket, (region, {}))[1] or {}
         if unreadable := _unreadable_call(versioning, policy):
             offenders.append(_unreadable(bucket, region, *unreadable))
             continue
@@ -277,6 +279,7 @@ def log_bucket_lifecycle(responses: dict, params: dict) -> list[dict]:
     for bucket, (region, data) in _by_value(responses, "lifecycle").items():
         if bucket not in log_buckets:
             continue
+        data = data or {}
         if data.get("__error__") not in (None, "NoSuchLifecycleConfiguration", "NoSuchBucket"):
             offenders.append(_unreadable(bucket, region, data["__error__"], "get-bucket-lifecycle-configuration"))
             continue
@@ -313,6 +316,6 @@ def waf_logging(responses: dict, params: dict) -> list[dict]:
     offenders = []
     for arn, region, data in _for_each_pairs(responses, "logging"):
         destinations = ((data or {}).get("LoggingConfiguration") or {}).get("LogDestinationConfigs") or []
-        if "__error__" in data or not destinations:
+        if "__error__" in (data or {}) or not destinations:
             offenders.append(_offender(web_acls.get(arn, {}).get("id", arn), region, arn=arn, reason="logging del WAF deshabilitado"))
     return offenders

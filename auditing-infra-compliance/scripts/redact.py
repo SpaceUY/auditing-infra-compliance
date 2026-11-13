@@ -26,17 +26,25 @@ SECRET_ASSIGNMENT = re.compile(
     rf"(?i)({_LABEL}\w{{0,40}}(?:[ \t]*\([^)\n|]{{0,30}}\))?)"
     r"""([*`'"\\ \t]*[:=|][*`'"\\ \t]*)[^\s"',;|`*\\]+""")
 # Bare `Secret` label: the value must look like a key, otherwise "| Secret | Rotación |" or "secret: /acme/prod/db" would match.
-_KEYLIKE = r"(?=[A-Za-z0-9/+=]*\d)(?=[A-Za-z0-9/+=]*[a-z])(?=[A-Za-z0-9/+=]*[A-Z])[A-Za-z0-9/+=]{20,}"
+# The lookaheads are bounded ({0,200}): unbounded they rescan the rest of the line at every "secret" (quadratic).
+# `(?<!\d{12}:)` leaves Secrets Manager ARNs (...:111122223333:secret:name) alone.
+_KEYLIKE = (r"(?=[A-Za-z0-9/+=]{0,200}\d)(?=[A-Za-z0-9/+=]{0,200}[a-z])(?=[A-Za-z0-9/+=]{0,200}[A-Z])"
+            r"[A-Za-z0-9/+=]{20,}")
 BARE_SECRET = re.compile(
-    r"(?i)(?<![\w-])(secret)"
+    r"(?i)(?<![\w-])(?<!\d{12}:)(secret)"
     rf"""([*`'"\\ \t]*[:=|][*`'"\\ \t]*){_KEYLIKE}""")
 # `aws configure set [flags] <label> <value>`: the value is separated by a space
 CONFIGURE_SET = re.compile(
     rf"(?i)(\bconfigure[ \t]+set[ \t]+(?:[^\s]+[ \t]+){{0,3}}?\w{{0,20}}{_LABEL}\w{{0,40}}[ \t]+)(?!-)[^\s\"',;|`*\\]+")
 # CLI form: --secret-access-key <value> (the "=" form is covered above)
 CLI_FLAG = re.compile(rf"(?i)(--{_LABEL}[ \t]+)(?!-)[^\s\"',;|`*\\]+")
+# Label is exactly password/passwd/pwd with at most one short qualifier segment (db_password, password_db). Settings such as
+# password_policy, PasswordPolicy, password_reuse_prevention, minimum_password_length are not secrets.
+_NOT_SECRET_WORDS = r"(?:min|minimum|max|maximum|require|required|requires|enable|enabled|allow|old)"
+_NOT_SECRET_SUFFIX = r"(?:policy|policies|length|age|expir\w*|complexity|reuse\w*|required|enabled|history|rotation|min\w*|max\w*)"
 PASSWORD = re.compile(
-    r"""(?i)((?<![A-Za-z])(?:password|passwd|pwd)\w{0,20}[*`'"\\ \t]*[:=][*`'"\\ \t]*)[^\s"',;|`*\\]+""")
+    rf"""(?i)((?<![A-Za-z0-9_])(?:(?!{_NOT_SECRET_WORDS}[_-])[A-Za-z0-9]{{1,15}}[_-])?(?:password|passwd|pwd)"""
+    rf"""(?:[_-](?!{_NOT_SECRET_SUFFIX}\b)[A-Za-z0-9]{{1,15}}(?![A-Za-z0-9_-]))?[*`'"\\ \t]*[:=][*`'"\\ \t]*)[^\s"',;|`*\\]+""")
 PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]{0,30}PRIVATE KEY-----.*?(?:-----END [A-Z ]{0,30}PRIVATE KEY-----|\Z)", re.S)
 EMAIL = re.compile(r"(?<![\w.+%-])([A-Za-z0-9._%+-]+)@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})")
 SECRET_KEYS = frozenset({"secretaccesskey", "aws_secret_access_key", "secret_access_key", "sessiontoken",

@@ -65,7 +65,12 @@ def build_inventory(call, specs, regions):
                 errors.append((type_, region, error))
         return found, errors
 
-    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+    pool = ThreadPoolExecutor(max_workers=WORKERS)
+    try:
         results = list(pool.map(run, sorted(jobs)))
+    except BaseException:  # Ctrl-C or a worker failure: do not wait for the queued regions
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown()
     items = sorted((i for found, _ in results for i in found), key=lambda i: (i["type"], i["region"], i["id"]))
     return items, [e for _, errors in results for e in errors]

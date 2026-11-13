@@ -1,11 +1,15 @@
 import contextlib
 import io
 import json
+import os
 import re
 import shutil
+import signal
+import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import helpers
@@ -982,8 +986,23 @@ class ProgressAndCheckpointTests(CollectCase):
         self.assertNotIn("partial", self.result)
 
     def interrupting_catalog(self, exception):
+        # Deterministic ordering: the interrupting check (ZZZ-999, submitted last) waits until the main thread has written
+        # a checkpoint in which it is the only pending check, i.e. every other result has been collected.
+        consumed = threading.Event()
+        real_dump = collect._dump
+
+        def dump(path, payload):
+            real_dump(path, payload)
+            if isinstance(payload, dict) and payload.get("pending_checks") == ["ZZZ-999"]:
+                consumed.set()
+
+        patcher = mock.patch.object(collect, "_dump", dump)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
         @evaluators.register("test_interrupt")
         def interrupt(responses, params):
+            self.assertTrue(consumed.wait(30), "the other results were never checkpointed")
             self.mid_run = json.loads((self.tmp / "out" / "checks-result.json").read_text(encoding="utf-8"))
             raise exception
 
@@ -1035,6 +1054,74 @@ class ProgressAndCheckpointTests(CollectCase):
         result = json.loads((self.tmp / "out" / "checks-result.json").read_text(encoding="utf-8"))
         self.assertTrue(result["partial"])
         self.assertEqual([r["status"] for r in result["results"] if r["check_id"] == "IAM-901"], ["FAIL"])
+
+
+class InventoryInterruptTests(CollectCase):
+    """Ctrl-C / SIGTERM while the inventory is being listed follows the partial flow: no traceback, every check pending."""
+
+    def run_interrupted(self, interrupt):
+        class Interrupting(FakeRunner):
+            def __call__(self, argv, **kwargs):
+                if self._key(argv)[:2] == ("ec2", "describe-instances"):
+                    interrupt()
+                return super().__call__(argv, **kwargs)
+
+        patcher = mock.patch.object(sys.modules[__name__], "FakeRunner", Interrupting)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.run_collect()
+
+    def assert_partial_with_everything_pending(self):
+        self.assertEqual(self.code, 130)
+        self.assertTrue(self.result["partial"])
+        self.assertEqual(self.result["pending_checks"], ["DAT-901", "DET-901", "IAM-901", "LOG-901"])
+        self.assertEqual(self.result["results"], [])
+        self.assertEqual(self.result["aws"]["account_id"], "111122223333")
+        self.assertIn("PARCIAL", self.stdout)
+        self.assertNotIn("Traceback", self.stderr)
+
+    def test_keyboard_interrupt_during_the_inventory_writes_a_partial_result(self):
+        def interrupt():
+            raise KeyboardInterrupt
+
+        self.run_interrupted(interrupt)
+        self.assert_partial_with_everything_pending()
+
+    def test_sigterm_during_the_inventory_writes_a_partial_result(self):
+        previous = signal.signal(signal.SIGTERM, collect._raise_interrupt)
+        self.addCleanup(signal.signal, signal.SIGTERM, previous)
+        self.run_interrupted(lambda: os.kill(os.getpid(), signal.SIGTERM))
+        self.assert_partial_with_everything_pending()
+
+
+class AtomicCheckpointTests(CollectCase):
+    def test_dump_replaces_the_file_atomically_and_leaves_no_temp_file(self):
+        target = self.tmp / "checks-result.json"
+        target.write_text('{"old": true}', encoding="utf-8")
+        with mock.patch.object(collect.os, "replace", wraps=collect.os.replace) as replace:
+            collect._dump(target, {"new": True})
+        (source, destination), _ = replace.call_args
+        self.assertEqual((Path(source).parent, Path(destination)), (self.tmp, target))
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"new": True})
+        self.assertEqual([p.name for p in self.tmp.iterdir()], ["checks-result.json"])
+
+    def test_a_failed_dump_keeps_the_previous_file_and_cleans_up(self):
+        target = self.tmp / "checks-result.json"
+        target.write_text('{"old": true}', encoding="utf-8")
+        with self.assertRaises(TypeError):
+            collect._dump(target, {"bad": object()})
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"old": True})
+        self.assertEqual([p.name for p in self.tmp.iterdir()], ["checks-result.json"])
+
+    def test_a_failing_first_checkpoint_still_cancels_the_run(self):
+        ctx = collect.Ctx(runner=FakeRunner({}), sleep=lambda s: None, which=lambda n: None, out=self.tmp, allowed=frozenset())
+
+        def broken_checkpoint(rows, pending):
+            raise OSError("disk full")
+
+        with self.assertRaises(OSError):
+            collect._run_checks(ctx, mock.Mock(quiet=True), [], broken_checkpoint)
+        self.assertTrue(ctx.cancelled.is_set())
 
 
 class AllowlistTests(CollectCase):

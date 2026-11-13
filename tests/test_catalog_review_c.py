@@ -97,6 +97,26 @@ class RemediationBlockTests(unittest.TestCase):
             self.assertEqual(acl["Condition"]["StringEquals"]["aws:SourceArn"], arn)  # existing CloudTrail statement gains the condition
             self.assertEqual(merged["Statement"][2]["Resource"], expected)
 
+    def test_log_006_without_a_bucket_policy_merge_starts_from_an_empty_policy(self):
+        if not HAS_BASH:
+            self.skipTest("bash is not available")
+        commands_ = CHECKS["LOG-006"]["remediation"]["commands"]
+        fetch, merge = instantiate(commands_[1]), instantiate(commands_[2])
+        merge = merge.replace('"__COMPLETAR_TRAIL_ARN__"', '"arn:aws:cloudtrail:us-east-1:111122223333:trail/acme-notes"')
+        merge = merge.replace('"__COMPLETAR_PREFIJO_TRAIL__"', '""')
+        # stub: never the real aws CLI. get-bucket-policy fails like NoSuchBucketPolicy
+        stub = 'aws() { echo "An error occurred (NoSuchBucketPolicy) when calling the GetBucketPolicy operation" >&2; return 254; }\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run(["bash", "-c", stub + fetch + "\n" + merge], cwd=tmp, capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            merged = json.loads((Path(tmp) / "policy-res-1-new.json").read_text(encoding="utf-8"))
+        self.assertEqual([s["Sid"] for s in merged["Statement"]], ["AWSCloudTrailAclCheck", "AWSCloudTrailWrite"])
+
+    def test_log_006_notes_warn_that_the_merge_is_scoped_to_one_trail(self):
+        notes = CHECKS["LOG-006"]["remediation"]["notes"]
+        self.assertIn("ESTE trail", notes)
+        self.assertIn("varios trails", notes)
+
     def test_log_006_merge_refuses_unfilled_placeholders(self):
         if not HAS_BASH:
             self.skipTest("bash is not available")

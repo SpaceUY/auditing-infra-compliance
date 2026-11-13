@@ -94,6 +94,32 @@ class LayoutTests(unittest.TestCase):
             self.assertIn(redact.REDACTED, masked, line)
             self.assertEqual(redact.mask(masked), masked, line)
 
+    def test_bare_secret_scan_is_linear_on_repeated_labels(self):
+        import time
+        for text in ("secret=" * 15000, "secret=a/" * 11000):
+            start = time.perf_counter()
+            redact.mask(text)
+            redact.detect(text)
+            self.assertLess(time.perf_counter() - start, 1.0, text[:12])
+
+    def test_secrets_manager_arn_is_neither_masked_nor_flagged(self):
+        arn = "arn:aws:secretsmanager:us-east-1:111122223333:secret:prod/MyApp2/dbpasswordXY-AbCdEf"
+        for text in (arn, f"| Secreto | {arn} |", f'"SecretArn": "{arn}"', f"secret: {arn}"):
+            self.assertIn(arn, redact.mask(text), text)
+        for text in (arn, f"| Secreto | {arn} |", f'"SecretArn": "{arn}"'):
+            self.assertEqual(redact.detect(text), [], text)
+
+    def test_password_policy_settings_are_not_secrets(self):
+        for text in ("password_policy: enabled", "PasswordPolicy: {MinimumPasswordLength: 14}", "password_reuse_prevention: 24",
+                     "minimum_password_length: 14", "max_password_age: 90", "password_length=14", "password_policy=strong"):
+            self.assertEqual(redact.mask(text), text, text)
+            self.assertEqual(redact.detect(text), [], text)
+
+    def test_password_with_short_qualifier_is_still_a_secret(self):
+        for line in ("db_password: hunter2", "password_db=hunter2", "ADMIN_PASSWORD=hunter2", "--password=hunter2"):
+            self.assertNotIn("hunter2", redact.mask(line), line)
+            self.assertEqual(redact.detect(line), ["password"], line)
+
     def test_pem_private_key_block(self):
         for kind in ("", "RSA ", "OPENSSH ", "EC "):
             text = "antes\n" + pem(kind + "PRIVATE") + "\ndespues"

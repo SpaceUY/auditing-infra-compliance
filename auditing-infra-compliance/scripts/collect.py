@@ -33,6 +33,7 @@ have a record of rrtype at the templated name matching must_match.
 
 import argparse
 import json
+import os
 import re
 import shutil
 import signal
@@ -514,7 +515,13 @@ def _summary(rows, severities, warnings, aws, out, pending=()):
 
 
 def _dump(path, masked):
-    path.write_text(json.dumps(masked, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    """Atomic: a temp file in the same directory, then os.replace, so a reader (or a kill) never sees half a file."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_text(json.dumps(masked, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _write_json(path, data):
@@ -577,6 +584,7 @@ def _run_checks(ctx, args, selected, collect_rows):
     futures = {pool.submit(_run_check, ctx, c): c for c in selected}
     last = time.monotonic()
     try:
+        collect_rows(rows, pending)  # first checkpoint: every check pending
         for done, future in enumerate(as_completed(futures), 1):
             rows += future.result()
             pending.discard(futures[future]["id"])
@@ -632,7 +640,17 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
         return res
 
     _progress(args, f"[inventario] {len(inventory_regions)} regiones")
-    ctx.inventory, errors = inventory.build_inventory(list_inventory, specs, inventory_regions)
+    selected = _select(checks, scope)
+    try:
+        ctx.inventory, errors = inventory.build_inventory(list_inventory, specs, inventory_regions)
+    except KeyboardInterrupt:  # Ctrl-C or SIGTERM during the inventory: nothing was checked, every check is pending
+        ctx.cancelled.set()
+        aws = {"account_id": account_id, "identity_arn": identity_arn, "regions": sorted(inventory_regions),
+               "enabled_regions": enabled, "blocked_regions": []}
+        _dump(out / "checks-result.json", _results_payload(aws, [], warnings, {c["id"] for c in selected}))
+        pending = {c["id"] for c in selected}
+        print(redact.mask(_summary([], {c["id"]: c["severity"] for c in selected}, warnings, aws, out, pending)))
+        return 130
     ctx.blocked_regions = _scp_blocked_regions(specs, inventory_regions, errors, scp_calls)
     warnings += [f"región bloqueada por una SCP (todos los tipos de inventario denegados), se omite: {r}"
                  for r in ctx.blocked_regions]
@@ -652,7 +670,6 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
         warnings += [f"recurso del alcance sin coincidencia en el inventario: {t} {ref}" for t, ref in ctx.scope_entries
                      if not any(_matches(i, t, ref) for i in ctx.inventory)]
 
-    selected = _select(checks, scope)
     aws = {"account_id": account_id, "identity_arn": identity_arn, "regions": ctx.regions,
            "enabled_regions": ctx.enabled_regions, "blocked_regions": ctx.blocked_regions}
     severities = {c["id"]: c["severity"] for c in selected}
@@ -660,7 +677,6 @@ def main(argv=None, runner=subprocess.run, sleep=time.sleep, which=shutil.which)
     def checkpoint(rows, pending):
         _dump(out / "checks-result.json", _results_payload(aws, rows, warnings, pending))
 
-    checkpoint([], {c["id"] for c in selected})
     rows, pending = _run_checks(ctx, args, selected, checkpoint)
     if pending:
         print(redact.mask(_summary(rows, severities, warnings, aws, out, pending)))

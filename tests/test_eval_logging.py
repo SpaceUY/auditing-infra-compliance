@@ -187,6 +187,21 @@ class TrailBucketTests(unittest.TestCase):
         self.assertEqual((offender["resource_id"], offender["region"]), (TRAIL_BUCKET, REGION))
         self.assertEqual(offender["detail"]["trails"], ["acme-notes-trail"])
 
+    def test_trail_bucket_logging_empty_response_means_logging_not_enabled(self):
+        (offender,) = evaluate("trail_bucket_logging", self.logging((TRAIL_BUCKET, None)))
+        self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), (TRAIL_BUCKET, "access logging deshabilitado"))
+
+    def test_empty_cli_output_does_not_raise_in_sibling_evaluators(self):
+        hardening = merge(trails("cloudtrail-describe-trails-ok"), for_each("versioning", [(TRAIL_BUCKET, None)]),
+                          for_each("policy", [(TRAIL_BUCKET, None)]))
+        (offender,) = evaluate("trail_bucket_hardening", hardening)
+        self.assertEqual(offender["detail"]["problems"], ["versionado no habilitado", "el bucket no tiene bucket policy"])
+        lifecycle = merge(trails("cloudtrail-describe-trails-ok"), for_each("lifecycle", [(TRAIL_BUCKET, None)]))
+        self.assertEqual(evaluate("log_bucket_lifecycle", lifecycle, {"min_days": 365, "name_regex": "log"}), [])
+        waf = {"__inventory__": [], **for_each("logging", [("arn:aws:wafv2:us-east-1:111122223333:regional/webacl/x/1", None)])}
+        (offender,) = evaluate("waf_logging", waf)
+        self.assertEqual(offender["detail"]["reason"], "logging del WAF deshabilitado")
+
     def test_trail_bucket_logging_missing_bucket_is_reported(self):
         (offender,) = evaluate("trail_bucket_logging", self.logging((TRAIL_BUCKET, {"__error__": "NoSuchBucket"})))
         self.assertEqual((offender["resource_id"], offender["detail"]["reason"]), (TRAIL_BUCKET, "el bucket no existe"))

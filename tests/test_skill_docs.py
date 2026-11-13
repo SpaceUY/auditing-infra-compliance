@@ -172,6 +172,11 @@ class SkillDocsTests(unittest.TestCase):
                        "could not be found", "diferida", "no se pueden producir"):
             self.assertIn(needle.lower(), self.text.lower(), needle)
 
+    def test_background_collect_says_where_the_summary_arrives_and_not_to_poll(self):
+        step = next(line for line in self.text.splitlines() if "run_in_background" in line)
+        for needle in ("salida de la tarea de fondo", "no consultarla mientras espera", "leer solo ese resumen"):
+            self.assertIn(needle, step)
+
     def test_every_reference_linked_from_skill_md_exists(self):
         linked = set(re.findall(r"references/([A-Za-z0-9_./<>-]+)", self.text))
         for name in REFERENCES:
