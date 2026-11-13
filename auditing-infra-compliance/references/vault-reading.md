@@ -73,7 +73,7 @@ Do you confirm this list, or should I add/remove something?
 Context: sg-0123456789abcdef0 (from Mailer Lambda), vpc-0a1b2c3d4e5f60718
 ```
 
-`vault_index.py feature` **does not return** that list: Claude builds it from the `aws_ids` of each component whose `kind` is `sg`, `vpc` or `subnet` (they live inside the Lambda, the database or the instance that uses them; they are not components) and from the roles that only appear at depth 2. Each one is labelled with the component it comes from. What the user confirms enters `scope.resources` (the type per section 5); the rest is not audited.
+`vault_index.py feature` **does not return** that list: Claude builds it from the `aws_ids` entries whose `kind` is `sg`, `vpc` or `subnet` (a component has no `kind` of its own; they live inside the Lambda, the database or the instance that uses them; they are not components) and from the roles that only appear at depth 2. Each one is labelled with the component it comes from. What the user confirms enters `scope.resources` (the type per section 5); the rest is not audited. Types with no catalog check (section 5, rows marked "no check") show as unverified and keep the verdict from being `OPTIMAL`: **warn the user before adding them to the scope**.
 
 **A component with no AWS resource** (the note that matches the feature, a `proposed` such as "DMARC reject policy": empty `aws_ids`) has no `resource` of its own. For its claim:
 - if a catalog check covers it, use its `check_id` and, as `resource`, the AWS resource that would implement it (the SES identity's domain for EML-005), with a known `region` or `null`;
@@ -83,9 +83,11 @@ Context: sg-0123456789abcdef0 (from Mailer Lambda), vpc-0a1b2c3d4e5f60718
 
 ## 4bis. Undocumented feature, with credentials: search the inventory
 
+Also the path for a `feature` request **with no vault**: skip `vault_index.py feature` and start here, then show the components found (all inferred) and wait for confirmation (section 4, point 4).
+
 Claude does **not** call AWS (neither `resourcegroupstaggingapi` nor anything similar). The permitted path is to let `collect.py` build the full inventory and search `inventory.json`:
 
-1. Write a discovery scope, for example `$RUN/scope-discovery.json`: `{"platform": "<platform>", "mode": "full", "target": null, "regions": "auto", "profile": "<same as in scope.json>", "resources": [], "domains": ["inventory"]}` (it only runs the inventory checks; the inventory is built anyway, with no extra calls from Claude).
+1. Write a discovery scope, for example `$RUN/scope-discovery.json`: `{"platform": "<platform>", "mode": "full", "target": null, "regions": "auto", "profile": <the profile the user gave in step 1, or null>, "resources": [], "domains": ["inventory"]}` (it only runs the inventory checks; the inventory is built anyway, with no extra calls from Claude).
 2. `python3 "$SKILL_DIR/scripts/collect.py" --scope "$RUN/scope-discovery.json" --out "$RUN/discovery"`.
 3. Search `$RUN/discovery/inventory.json` by tags (`Project`, `Feature`, `Name`) and by name:
 
@@ -113,19 +115,19 @@ The `type` of each in-scope resource is a key of `references/inventory.json`. `i
 | `arn:aws:ses:…:identity/<domain>` | `ses_identity` | the domain or address (`acme-notes.example`) |
 | `arn:aws:lambda:…:function:<n>` | `lambda_function` | the function name |
 | `arn:aws:sqs:…:<n>` | `sqs_queue` | the queue URL (`https://sqs.<region>.amazonaws.com/<account>/<n>`) |
-| `arn:aws:sns:…:<n>` | `sns_topic` | the ARN |
+| `arn:aws:sns:…:<n>` | `sns_topic` (no check: shows as unverified) | the ARN |
 | `arn:aws:iam::…:role/<n>` / `user/<n>` | `iam_role` / `iam_user` | the name |
 | `arn:aws:kms:…:key/<id>` | `kms_key` | the ARN |
 | `arn:aws:logs:…:log-group:<n>` | `log_group` | the log group name |
 | `arn:aws:secretsmanager:…:secret:<n>` | `secret` | the name |
 | `arn:aws:s3:::<bucket>` or "Bucket <n>" | `s3_bucket` | the bucket name |
 | `i-…` | `ec2_instance` | the id |
-| `sg-…`, `vpc-…`, `subnet-…`, `acl-…`, `vol-…`, `lt-…` | `security_group`, `vpc`, `subnet`, `nacl`, `ebs_volume`, `launch_template` | the id |
+| `sg-…`, `vpc-…`, `subnet-…`, `acl-…`, `vol-…`, `lt-…` | `security_group`, `vpc`, `subnet` (no check: shows as unverified), `nacl`, `ebs_volume`, `launch_template` (no check: shows as unverified) | the id |
 | `db-…` or an RDS identifier | `rds_instance` (or `rds_cluster`) | the `DBInstanceIdentifier` / ARN |
 | `arn:aws:elasticloadbalancing:…` | `elbv2` | the ARN |
 | `arn:aws:dynamodb:…:table/<n>` | `dynamodb_table` | the name |
 
-`region`: the one the note or the ARN states. Global types (`s3_bucket`, `iam_*`, `cloudfront_distribution`) go with `us-east-1`. For other types (EFS, ASG, WAF, ACM, EKS, API Gateway, CloudFront, ElastiCache, backup) consult `references/inventory.json`.
+`region`: the one the note or the ARN states. Global types (`s3_bucket`, `iam_*`, `cloudfront_distribution`) go with `us-east-1`. For other types (EFS, ASG, WAF, ACM, EKS, API Gateway, CloudFront, ElastiCache, backup) consult `references/inventory.json`. `apigw_http_api` and `wafv2_web_acl_cloudfront` also have no catalog check (they show as unverified).
 
 ## 6. Resolve a resource by ID (`resource` mode)
 
@@ -153,6 +155,8 @@ Full schema in `references/report-format.md`.
 | No credentials or `proposed`: the vault says it is missing or pending | `DOCUMENTED_GAP` | With the `check_id` of the check that would cover that control. |
 | The vault recommends something that would make tests fail (cost savings) | `DRIFT` with `breaks_tests` | Message: "this vault recommendation would break <test>". Minimum severity `high`. |
 | A `PENDING_CLAUDE` that Claude resolved | `EVAL` | One per pending row. |
+
+Language: every claim field is English (`actual`, `detail.reason`, ...); Spanish vault text appears only as a short quotation in `vault_claim`.
 
 Rules: a claim with a `check_id` that is not in the catalog generates a warning; if it is a free observation, `check_id: null` and the phrase "Claude observation, outside the catalog" in `actual`. With credentials reality rules: compare with `inventory.json` and `checks-result.json`, not with what the vault says about itself.
 
